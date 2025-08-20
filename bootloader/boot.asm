@@ -9,6 +9,16 @@ mov ss, ax
 mov sp, 0x7C00      ; stack
 
 ; -------------------------
+; Hide hardware cursor
+; -------------------------
+mov dx, 0x3D4
+mov al, 0x0A         ; cursor start register
+out dx, al
+inc dx
+mov al, 0x20         ; disable cursor
+out dx, al
+
+; -------------------------
 ; Print loading message
 ; -------------------------
 mov si, msg_loading
