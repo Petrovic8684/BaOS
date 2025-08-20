@@ -7,6 +7,20 @@ static inline void outb(unsigned short port, unsigned char val)
     __asm__ volatile("outb %0, %1" : : "a"(val), "Nd"(port));
 }
 
+// Draw a single character at given row/col
+void draw_char_at(int r, int c, char ch)
+{
+    video[r * 80 + c] = (0x07 << 8) | ch;
+}
+
+// Redraw a buffer on the current row after prompt
+void redraw_buffer(char *buffer, int len, int prompt_len)
+{
+    for (int i = 0; i < len; i++)
+        draw_char_at(row, prompt_len + i, buffer[i]);
+    draw_char_at(row, prompt_len + len, ' '); // clear extra char
+}
+
 // -----------------
 // VGA cursor update
 // -----------------
@@ -80,24 +94,30 @@ void write(const char *str)
 }
 
 // -----------------
-// Read keyboard input into buffer (blocking)
+// Read keyboard input into buffer (blocking) with prompt offset and caret support
 // -----------------
-void read(char *buffer, int max_len)
+void read(char *buffer, int max_len, int prompt_len)
 {
     unsigned char scancode;
     char c;
     unsigned char status;
     unsigned char shift = 0;
-    int buf_idx = 0;
+    int buf_idx = 0;   // number of chars in buffer
+    int caret_pos = 0; // caret position in line
+
+    col = prompt_len;
+    update_cursor();
 
     while (1)
     {
+        // Poll keyboard
         do
         {
             __asm__ volatile("inb $0x64, %0" : "=a"(status));
         } while (!(status & 0x01));
         __asm__ volatile("inb $0x60, %0" : "=a"(scancode));
 
+        // Shift press/release
         if (scancode == 0x2A || scancode == 0x36)
         {
             shift = 1;
@@ -109,15 +129,33 @@ void read(char *buffer, int max_len)
             continue;
         }
         if (scancode & 0x80)
+            continue; // ignore key releases
+
+        // Arrow keys
+        if (scancode == 0x4B && caret_pos > 0)
+        {
+            caret_pos--;
+            col--;
+            update_cursor();
             continue;
+        } // left
+        if (scancode == 0x4D && caret_pos < buf_idx)
+        {
+            caret_pos++;
+            col++;
+            update_cursor();
+            continue;
+        } // right
 
         // Backspace
-        if (scancode == 0x0E && buf_idx > 0)
+        if (scancode == 0x0E && caret_pos > 0)
         {
+            for (int i = caret_pos - 1; i < buf_idx - 1; i++)
+                buffer[i] = buffer[i + 1];
             buf_idx--;
-            if (col > 0)
-                col--;
-            video[row * 80 + col] = (0x07 << 8) | ' ';
+            caret_pos--;
+            redraw_buffer(buffer, buf_idx, prompt_len);
+            col = prompt_len + caret_pos;
             update_cursor();
             continue;
         }
@@ -175,16 +213,16 @@ void read(char *buffer, int max_len)
         else
             continue;
 
+        // Insert character at caret position
         if (buf_idx < max_len - 1)
         {
-            buffer[buf_idx++] = c;
-            video[row * 80 + col++] = (0x07 << 8) | c;
-            if (col >= 80)
-            {
-                col = 0;
-                row++;
-                scroll();
-            }
+            for (int i = buf_idx; i > caret_pos; i--)
+                buffer[i] = buffer[i - 1];
+            buffer[caret_pos] = c;
+            buf_idx++;
+            caret_pos++;
+            redraw_buffer(buffer, buf_idx, prompt_len);
+            col = prompt_len + caret_pos;
             update_cursor();
         }
     }
