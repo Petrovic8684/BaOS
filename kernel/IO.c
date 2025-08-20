@@ -1,60 +1,87 @@
 volatile unsigned short *video = (volatile unsigned short *)0xB8000;
 int row = 0, col = 0;
 
+// Simple outb function
+static inline void outb(unsigned short port, unsigned char val)
+{
+    __asm__ volatile("outb %0, %1" : : "a"(val), "Nd"(port));
+}
+
+// -----------------
+// VGA cursor update
+// -----------------
+void update_cursor()
+{
+    unsigned short pos = row * 80 + col;
+    outb(0x3D4, 0x0F);
+    outb(0x3D5, (unsigned char)(pos & 0xFF));
+    outb(0x3D4, 0x0E);
+    outb(0x3D5, (unsigned char)((pos >> 8) & 0xFF));
+}
+
+// -----------------
+// Scroll screen up if needed
+// -----------------
 void scroll(void)
 {
     if (row < 25)
         return;
 
-    // Shift all rows up
     for (int r = 1; r < 25; r++)
         for (int c = 0; c < 80; c++)
             video[(r - 1) * 80 + c] = video[r * 80 + c];
 
-    // Clear last row
     for (int c = 0; c < 80; c++)
         video[24 * 80 + c] = (0x07 << 8) | ' ';
 
-    row = 24; // Last row becomes current
+    row = 24;
+    update_cursor();
 }
 
+// -----------------
 // Clear screen
+// -----------------
 void clear(void)
 {
     for (int i = 0; i < 80 * 25; i++)
         video[i] = (0x07 << 8) | ' ';
     row = 0;
     col = 0;
+    update_cursor();
 }
 
+// -----------------
 // Write string to screen
+// -----------------
 void write(const char *str)
 {
     while (*str)
     {
         if (*str == '\n')
         {
-            row++;
             col = 0;
+            row++;
             scroll();
         }
         else
         {
-            if (col >= 80)
-            {
-                row++;
-                col = 0;
-                scroll();
-            }
             video[row * 80 + col] = (0x07 << 8) | *str;
             col++;
+            if (col >= 80)
+            {
+                col = 0;
+                row++;
+                scroll();
+            }
         }
         str++;
-        scroll();
+        update_cursor();
     }
 }
 
+// -----------------
 // Read keyboard input into buffer (blocking)
+// -----------------
 void read(char *buffer, int max_len)
 {
     unsigned char scancode;
@@ -84,23 +111,25 @@ void read(char *buffer, int max_len)
         if (scancode & 0x80)
             continue;
 
-        if (scancode == 0x0E)
+        // Backspace
+        if (scancode == 0x0E && buf_idx > 0)
         {
-            if (buf_idx > 0 && col > 0)
-            {
-                buf_idx--;
+            buf_idx--;
+            if (col > 0)
                 col--;
-                video[row * 80 + col] = (0x07 << 8) | ' ';
-            }
+            video[row * 80 + col] = (0x07 << 8) | ' ';
+            update_cursor();
             continue;
         }
 
+        // Enter
         if (scancode == 0x1C)
         {
             buffer[buf_idx] = '\0';
             row++;
             col = 0;
             scroll();
+            update_cursor();
             break;
         }
 
@@ -156,6 +185,7 @@ void read(char *buffer, int max_len)
                 row++;
                 scroll();
             }
+            update_cursor();
         }
     }
 }
