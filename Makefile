@@ -42,7 +42,7 @@ $(IMG): $(BOOT_BIN) $(KERNEL_BIN)
 
 # Run in QEMU
 run: $(IMG)
-	$(QEMU) -drive format=raw,file=$(IMG),if=floppy
+	$(QEMU) -drive format=raw,file=$(IMG),if=ide
 
 # Clean
 clean:

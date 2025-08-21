@@ -28,10 +28,12 @@ The shell operates at the top of this hierarchy. It interacts with the user, par
 - **[NASM](https://www.nasm.us/)** – Netwide Assembler
 - **[QEMU](https://www.qemu.org/)** – Quick EMUlator
 - **[Make](https://www.gnu.org/software/make/)** – GNU Build tool
+- **[i686-elf-gcc](https://github.com/lordmilko/i686-elf-tools/releases)** - Cross compiler
+- **[i686-elf-ld](https://github.com/lordmilko/i686-elf-tools/releases)** - Cross linker
 
 ### Build steps 🛠️
 
-1. **Build the bootloader:** Open a terminal in the project directory and run:
+1. **Build the project:** Open a terminal in the project directory and run:
 
 ```bash
 make

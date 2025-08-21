@@ -15,17 +15,17 @@ mov si, msg_loading
 call print_string
 
 ; -------------------------
-; Load kernel from disk into memory (16-bit real mode!)
+; Load kernel from disk into memory (16-bit real mode)
 ; -------------------------
-mov bx, 0x1000       ; memory address to load kernel (0x1000)
+mov bx, 0x1000        ; memory address to load kernel (0x1000)
 mov dh, 0             ; head = 0
-mov dl, 0x00          ; first floppy disk
+mov dl, 0x80          ; first hard disk
 mov ch, 0             ; cylinder = 0
 mov cl, 2             ; start at sector 2 (after boot sector)
 mov al, 20            ; number of sectors to read
 mov ah, 0x02          ; BIOS read sectors function
 int 0x13
-jc disk_error          ; jump if error
+jc disk_error         ; jump if error
 
 mov si, msg_loaded
 call print_string
@@ -85,8 +85,8 @@ print_string:
     lodsb                       ; load next character from DS:SI into AL
     cmp al, 0
     je .done
-    mov ah, 0x0E                 ; BIOS teletype function
-    int 0x10                      ; print character in AL
+    mov ah, 0x0E                ; BIOS teletype function
+    int 0x10                    ; print character in AL
     jmp .next_char
 .done:
     popa
