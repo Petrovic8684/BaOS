@@ -8,8 +8,6 @@ mov es, ax
 mov ss, ax
 mov sp, 0x7C00      ; stack
 
-
-
 ; -------------------------
 ; Print loading message
 ; -------------------------
@@ -103,3 +101,4 @@ msg_loaded db "Kernel loaded!",13,10,0
 ; Bootloader padding & signature
 times 510-($-$$) db 0
 dw 0xAA55
+; -------------------------

@@ -2,12 +2,24 @@
 
 # BaOS (Bourne again Operating System)
 
-**BaOS** is a simple **x86 operating system** for managing **directories** and **text files**.
-Currently, it includes a **custom bootloader** written in assembly.
+**BaOS** is a simple **x86 operating system** for managing **directories** and **text files**. It currently includes a **custom bootloader** written in assembly and a **C kernel** that runs a basic **shell** for file and directory management.
 
-In the future, BaOS will support the **FAT12 file system**, and the bootloader will switch to **protected mode** before jumping to a kernel written in **C**. ⚡
+The kernel initializes a root directory `/` in memory and supports in-memory file storage with up to **32 directories** and **64 files**. **Text input and output** are handled via **VGA**, with scrolling and a simple prompt. The system currently operates entirely in memory.
 
-The long-term goal is to add a custom, simple Unix-like shell with commands such as: `list`, `changedir`, `makedir`, `deletedir`, `makefile`, `readfile`, and `deletefile`.
+The bootloader loads the **kernel** from disk in real mode and then switches the CPU to **protected mode** before jumping to the C kernel, ensuring a **flat memory model**.
+
+In the future, BaOS will implement a **FAT12 file system** for persistent storage and may include additional shell commands or the ability to **run a custom text editor**.
+
+## General architecture 🏛️
+
+BaOS is structured in a clear hierarchical architecture that separates hardware management from user interaction. At the lowest level is the hardware, including the CPU, memory, and I/O devices. The kernel sits directly on top of the hardware and is responsible for all low-level management, including device I/O and the file system. It exposes its functionality to higher-level components through a set of C functions, which serve as a stable API.
+
+<div align="center">
+    <img src="assets/architecture.svg" alt="architecture">
+</div>
+</br>
+
+The shell operates at the top of this hierarchy. It interacts with the user, parses input, and determines which kernel functions to invoke. The shell itself does not have direct access to the hardware and relies entirely on the kernel’s API to perform operations like reading/writing files, creating directories, or displaying system information. This separation ensures a clean modular design, where the kernel handles all hardware-specific logic and the shell focuses on user interaction and command processing.
 
 ## Getting started 🥟
 

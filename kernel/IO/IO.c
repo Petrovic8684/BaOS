@@ -1,11 +1,7 @@
+#include "IO.h"
+
 volatile unsigned short *video = (volatile unsigned short *)0xB8000;
 int row = 0, col = 0;
-
-// Simple outb function
-static inline void outb(unsigned short port, unsigned char val)
-{
-    __asm__ volatile("outb %0, %1" : : "a"(val), "Nd"(port));
-}
 
 // Draw a single character at given row/col
 void draw_char_at(int r, int c, char ch)
@@ -21,9 +17,7 @@ void redraw_buffer(char *buffer, int len, int prompt_len)
     draw_char_at(row, prompt_len + len, ' '); // clear extra char
 }
 
-// -----------------
 // VGA cursor update
-// -----------------
 void update_cursor()
 {
     unsigned short pos = row * 80 + col;
@@ -33,9 +27,7 @@ void update_cursor()
     outb(0x3D5, (unsigned char)((pos >> 8) & 0xFF));
 }
 
-// -----------------
 // Scroll screen up if needed
-// -----------------
 void scroll(void)
 {
     if (row < 25)
@@ -52,9 +44,7 @@ void scroll(void)
     update_cursor();
 }
 
-// -----------------
 // Clear screen
-// -----------------
 void clear(void)
 {
     for (int i = 0; i < 80 * 25; i++)
@@ -64,10 +54,14 @@ void clear(void)
     update_cursor();
 }
 
-// -----------------
 // Write string to screen
-// -----------------
 void write(const char *str)
+{
+    write_colored(str, 0x07);
+}
+
+// Write string to the screen using a specific color
+void write_colored(const char *str, unsigned char color)
 {
     while (*str)
     {
@@ -79,7 +73,7 @@ void write(const char *str)
         }
         else
         {
-            video[row * 80 + col] = (0x07 << 8) | *str;
+            video[row * 80 + col] = (color << 8) | *str;
             col++;
             if (col >= 80)
             {
@@ -93,9 +87,30 @@ void write(const char *str)
     }
 }
 
-// -----------------
+// Write a single character to screen at current cursor
+void write_char(char ch)
+{
+    if (ch == '\n')
+    {
+        col = 0;
+        row++;
+        scroll();
+    }
+    else
+    {
+        draw_char_at(row, col, ch);
+        col++;
+        if (col >= 80)
+        {
+            col = 0;
+            row++;
+            scroll();
+        }
+    }
+    update_cursor();
+}
+
 // Read keyboard input into buffer (blocking) with prompt offset and caret support
-// -----------------
 void read(char *buffer, int max_len, int prompt_len)
 {
     unsigned char scancode;
