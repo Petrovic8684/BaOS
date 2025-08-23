@@ -1,396 +1,848 @@
 #include "fs.h"
 
-Directory root;
-Directory *current_dir;
-Directory all_dirs[32];
-File all_files[64];
-int next_dir;
-int next_file;
+static int fs_initialized = 0;
+static unsigned int fs_current_dir_lba = 0;
+static FS_SuperOnDisk fs_super;
+
+static int read_sector(unsigned int lba, void *buf)
+{
+    if (!fs_drv || !fs_drv->exists)
+        return FS_ERR_NO_DRV;
+
+    int r = fs_disk_read(lba, 1, buf);
+    if (r != 0)
+        return FS_ERR_IO;
+
+    return FS_OK;
+}
+
+static int write_sector(unsigned int lba, const void *buf)
+{
+    if (!fs_drv || !fs_drv->exists)
+        return FS_ERR_NO_DRV;
+
+    int r = fs_disk_write(lba, 1, (void *)buf);
+    if (r != 0)
+        return FS_ERR_IO;
+
+    return FS_OK;
+}
+
+static unsigned int dir_index_to_lba(unsigned int idx)
+{
+    return DIR_TABLE_START_LBA + idx;
+}
+
+static unsigned int file_index_to_lba(unsigned int idx)
+{
+    return FILE_TABLE_START_LBA + idx;
+}
+
+static int lba_to_dir_index(unsigned int lba)
+{
+    if (lba < DIR_TABLE_START_LBA)
+        return -1;
+
+    unsigned int idx = lba - DIR_TABLE_START_LBA;
+    if (idx >= MAX_DIRS)
+        return -1;
+
+    return (int)idx;
+}
+
+static int lba_to_file_index(unsigned int lba)
+{
+    if (lba < FILE_TABLE_START_LBA)
+        return -1;
+
+    unsigned int idx = lba - FILE_TABLE_START_LBA;
+    if (idx >= MAX_FILES)
+        return -1;
+
+    return (int)idx;
+}
+
+static int load_super(void)
+{
+    unsigned char buf[512];
+
+    int r = read_sector(SUPERBLOCK_LBA, buf);
+    if (r != FS_OK)
+        return r;
+
+    mem_copy(&fs_super, buf, sizeof(FS_SuperOnDisk));
+
+    if (fs_super.magic != FS_MAGIC)
+        return FS_ERR_IO;
+
+    if (fs_super.dir_table_start < DIR_TABLE_START_LBA)
+        return FS_ERR_IO;
+
+    if (fs_super.file_table_start < FILE_TABLE_START_LBA)
+        return FS_ERR_IO;
+
+    if (fs_super.data_start < FILE_TABLE_START_LBA)
+        return FS_ERR_IO;
+
+    return FS_OK;
+}
+
+static int store_super(void)
+{
+    unsigned char buf[512];
+
+    mem_set(buf, 0, 512);
+    mem_copy(buf, &fs_super, sizeof(FS_SuperOnDisk));
+
+    int r = write_sector(SUPERBLOCK_LBA, buf);
+    if (r != FS_OK)
+        return r;
+
+    unsigned char verify[512];
+    if (read_sector(SUPERBLOCK_LBA, verify) != FS_OK)
+        return FS_ERR_IO;
+
+    unsigned int vm;
+    mem_copy(&vm, verify, sizeof(unsigned int));
+    if (vm != FS_MAGIC)
+        return FS_ERR_IO;
+
+    return FS_OK;
+}
+
+static int read_dir_lba(unsigned int lba, FS_Dir *d)
+{
+    unsigned char buf[512];
+
+    int r = read_sector(lba, buf);
+    if (r != FS_OK)
+        return r;
+
+    mem_copy(d, buf, sizeof(FS_Dir));
+
+    return FS_OK;
+}
+
+static int write_dir_lba(unsigned int lba, const FS_Dir *d)
+{
+    unsigned char buf[512];
+
+    mem_set(buf, 0, 512);
+    mem_copy(buf, d, sizeof(FS_Dir));
+
+    return write_sector(lba, buf);
+}
+
+static int read_file_lba(unsigned int lba, FS_File *f)
+{
+    unsigned char buf[512];
+
+    int r = read_sector(lba, buf);
+    if (r != FS_OK)
+        return r;
+
+    mem_copy(f, buf, sizeof(FS_File));
+    return FS_OK;
+}
+
+static int write_file_lba(unsigned int lba, const FS_File *f)
+{
+    unsigned char buf[512];
+
+    mem_set(buf, 0, 512);
+    mem_copy(buf, f, sizeof(FS_File));
+
+    return write_sector(lba, buf);
+}
+
+static int find_free_dir_index(void)
+{
+    for (unsigned int i = 0; i < MAX_DIRS; i++)
+        if (fs_super.dir_bitmap[i] == 0)
+            return (int)i;
+
+    return -1;
+}
+
+static int find_free_file_index(void)
+{
+    for (unsigned int i = 0; i < MAX_FILES; i++)
+        if (fs_super.file_bitmap[i] == 0)
+            return (int)i;
+
+    return -1;
+}
+
+static void set_dir_bitmap(int idx, unsigned char val)
+{
+    if (idx >= 0 && idx < (int)MAX_DIRS)
+        fs_super.dir_bitmap[idx] = val ? 1 : 0;
+}
+
+static void set_file_bitmap(int idx, unsigned char val)
+{
+    if (idx >= 0 && idx < (int)MAX_FILES)
+        fs_super.file_bitmap[idx] = val ? 1 : 0;
+}
 
 void fs_init(void)
 {
-    current_dir = &root;
-    for (int i = 0; i < MAX_NAME; i++)
-        root.name[i] = 0;
-    root.name[0] = '/';
-    root.parent = (void *)0;
+    static ATA_Driver drv;
+
+    clear();
+    write("fs_init: start.\n");
+    if (ata_init(&drv, 0x1F0, 0x3F6, 0) != 0)
+    {
+        write_colored("fs_init: ATA init failed.\n", 0x04);
+
+        fs_initialized = 0;
+        fs_drv = 0;
+        return;
+    }
+
+    fs_drv = &drv;
+    write_colored("fs_init: ATA init ok.\n", 0x02);
+
+    if (!fs_drv->exists)
+    {
+        write_colored("fs_init: no ata device.\n", 0x04);
+
+        fs_initialized = 0;
+        return;
+    }
+
+    write("fs_init: loading super.\n");
+    if (load_super() == FS_OK)
+    {
+        fs_current_dir_lba = fs_super.root_dir_lba;
+        fs_initialized = 1;
+
+        write_colored("fs_init: using existing FS on disk.\n\n", 0x02);
+        return;
+    }
+
+    write_colored("fs_init: no valid super - formatting new FS.\n", 0x02);
+
+    mem_set(&fs_super, 0, sizeof(FS_SuperOnDisk));
+
+    fs_super.magic = FS_MAGIC;
+    fs_super.max_dirs = MAX_DIRS;
+    fs_super.max_files = MAX_FILES;
+    fs_super.dir_table_start = DIR_TABLE_START_LBA;
+    fs_super.file_table_start = FILE_TABLE_START_LBA;
+    fs_super.data_start = DATA_START_LBA;
+
+    mem_set(fs_super.dir_bitmap, 0, MAX_DIRS);
+    mem_set(fs_super.file_bitmap, 0, MAX_FILES);
+
+    int root_idx = 0;
+    unsigned int root_lba = dir_index_to_lba((unsigned int)root_idx);
+
+    FS_Dir root;
+    mem_set(&root, 0, sizeof(FS_Dir));
+    str_copy_fixed(root.name, "/", MAX_NAME);
+    root.parent_lba = root_lba;
     root.dir_count = 0;
     root.file_count = 0;
 
-    next_dir = 0;
-    next_file = 0;
+    write("fs_init: writing root dir.\n");
+    if (write_dir_lba(root_lba, &root) != FS_OK)
+    {
+        write_colored("fs_init: failed to write root dir.\n", 0x04);
+
+        fs_initialized = 0;
+        return;
+    }
+
+    set_dir_bitmap(root_idx, 1);
+    fs_super.root_dir_lba = root_lba;
+
+    write("fs_init: storing super.\n");
+    if (store_super() != FS_OK)
+    {
+        write_colored("fs_init: failed to write/verify super\n", 0x04);
+
+        fs_initialized = 0;
+        return;
+    }
+
+    fs_current_dir_lba = root_lba;
+    fs_initialized = 1;
+
+    write_colored("fs_init: created new FS.\n\n", 0x02);
 }
 
 const char *fs_get_current_dir_name(void)
 {
-    return current_dir->name;
+    static FS_Dir cur;
+    if (!fs_initialized)
+        return "(fs not init)";
+
+    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+        return "(io error)";
+
+    return cur.name;
 }
 
-void fs_make_dir(const char *name)
+int fs_make_dir(const char *name)
 {
-    if (name[0] == 0)
+    if (!fs_initialized)
+        return FS_ERR_NOT_INIT;
+
+    if (str_count(name) >= MAX_NAME)
+        return FS_ERR_NAME_LONG;
+
+    if (str_count(name) == 0)
+        return FS_ERR_NO_NAME;
+
+    FS_Dir cur;
+    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+        return FS_ERR_IO;
+
+    if ((int)cur.dir_count >= MAX_DIRS_PER_DIR)
+        return FS_ERR_NO_SPACE;
+
+    for (unsigned int i = 0; i < cur.dir_count; i++)
     {
-        write("Directory name cannot be empty!\n");
-        return;
+        unsigned int child_lba = cur.dirs_lba[i];
+        FS_Dir tmp;
+
+        if (read_dir_lba(child_lba, &tmp) != FS_OK)
+            return FS_ERR_IO;
+
+        if (str_equal(tmp.name, name))
+            return FS_ERR_EXISTS;
     }
 
-    if (current_dir->dir_count >= MAX_DIRS)
+    for (unsigned int i = 0; i < cur.file_count; i++)
     {
-        write("Directory limit reached!\n");
-        return;
+        unsigned int child_lba = cur.files_lba[i];
+        FS_File tmp;
+
+        if (read_file_lba(child_lba, &tmp) != FS_OK)
+            return FS_ERR_IO;
+
+        if (str_equal(tmp.name, name))
+            return FS_ERR_EXISTS;
     }
 
-    if (current_dir->subdirs)
-    {
-        for (int i = 0; i < current_dir->dir_count; i++)
-        {
-            if (str_equal(current_dir->subdirs[i]->name, name))
-            {
-                write("Directory already exists!\n");
-                return;
-            }
-        }
-    }
+    int new_idx = find_free_dir_index();
+    if (new_idx < 0)
+        return FS_ERR_NO_SPACE;
 
-    if (str_equal(current_dir->name, name))
-    {
-        write("Cannot create directory with the same name as the current directory!\n");
-        return;
-    }
+    unsigned int new_lba = dir_index_to_lba((unsigned int)new_idx);
 
-    Directory *d = &all_dirs[next_dir++];
-    int i;
+    FS_Dir nd;
+    mem_set(&nd, 0, sizeof(FS_Dir));
+    str_copy_fixed(nd.name, name, MAX_NAME);
+    nd.parent_lba = fs_current_dir_lba;
+    nd.dir_count = 0;
+    nd.file_count = 0;
 
-    for (i = 0; i < MAX_NAME; i++)
-        d->name[i] = 0;
+    if (write_dir_lba(new_lba, &nd) != FS_OK)
+        return FS_ERR_IO;
 
-    for (i = 0; i < MAX_NAME - 1 && name[i]; i++)
-        d->name[i] = name[i];
+    set_dir_bitmap(new_idx, 1);
+    if (store_super() != FS_OK)
+        return FS_ERR_IO;
 
-    d->parent = current_dir;
-    d->dir_count = 0;
-    d->file_count = 0;
-    current_dir->subdirs[current_dir->dir_count++] = d;
+    cur.dirs_lba[cur.dir_count] = new_lba;
+    cur.dir_count++;
 
-    write("Directory created!\n");
+    if (write_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+        return FS_ERR_IO;
+
+    return FS_OK;
 }
 
-void fs_delete_dir(const char *name)
+int fs_make_file(const char *name)
 {
-    if (name[0] == 0)
+    if (!fs_initialized)
+        return FS_ERR_NOT_INIT;
+
+    if (str_count(name) >= MAX_NAME)
+        return FS_ERR_NAME_LONG;
+
+    if (str_count(name) == 0)
+        return FS_ERR_NO_NAME;
+
+    FS_Dir cur;
+    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+        return FS_ERR_IO;
+
+    if ((int)cur.file_count >= MAX_FILES_PER_DIR)
+        return FS_ERR_NO_SPACE;
+
+    for (unsigned int i = 0; i < cur.dir_count; i++)
     {
-        write("Directory name cannot be empty!\n");
-        return;
+        unsigned int child_lba = cur.dirs_lba[i];
+        FS_Dir tmp;
+
+        if (read_dir_lba(child_lba, &tmp) != FS_OK)
+            return FS_ERR_IO;
+
+        if (str_equal(tmp.name, name))
+            return FS_ERR_EXISTS;
     }
 
-    for (int i = 0; i < current_dir->dir_count; i++)
+    for (unsigned int i = 0; i < cur.file_count; i++)
     {
-        if (str_equal(current_dir->subdirs[i]->name, name))
-        {
-            Directory *d = current_dir->subdirs[i];
-            if (d->dir_count > 0 || d->file_count > 0)
-            {
-                write("Directory not empty!\n");
-                return;
-            }
+        unsigned int child_lba = cur.files_lba[i];
+        FS_File tmp;
 
-            for (int j = i; j < current_dir->dir_count - 1; j++)
-                current_dir->subdirs[j] = current_dir->subdirs[j + 1];
+        if (read_file_lba(child_lba, &tmp) != FS_OK)
+            return FS_ERR_IO;
 
-            current_dir->dir_count--;
-            write("Directory deleted!\n");
-            return;
-        }
-    }
-    write("Directory not found!\n");
-}
-
-void fs_delete_file(const char *name)
-{
-    if (name[0] == 0)
-    {
-        write("File name cannot be empty!\n");
-        return;
+        if (str_equal(tmp.name, name))
+            return FS_ERR_EXISTS;
     }
 
-    for (int i = 0; i < current_dir->file_count; i++)
-    {
-        if (str_equal(current_dir->files[i]->name, name))
-        {
-            for (int j = i; j < current_dir->file_count - 1; j++)
-                current_dir->files[j] = current_dir->files[j + 1];
+    int new_idx = find_free_file_index();
+    if (new_idx < 0)
+        return FS_ERR_NO_SPACE;
 
-            current_dir->file_count--;
-            write("File deleted!\n");
-            return;
-        }
-    }
-    write("File not found!\n");
-}
+    unsigned int new_lba = file_index_to_lba((unsigned int)new_idx);
 
-void fs_make_file(const char *name)
-{
-    if (name[0] == 0)
-    {
-        write("File name cannot be empty!\n");
-        return;
-    }
+    FS_File nf;
+    mem_set(&nf, 0, sizeof(FS_File));
+    str_copy_fixed(nf.name, name, MAX_NAME);
+    nf.size = 0;
+    nf.data_lba = 0;
 
-    if (current_dir->file_count >= MAX_FILES)
-    {
-        write("File limit reached!\n");
-        return;
-    }
+    if (write_file_lba(new_lba, &nf) != FS_OK)
+        return FS_ERR_IO;
 
-    if (current_dir->files)
-    {
-        for (int i = 0; i < current_dir->file_count; i++)
-        {
-            if (str_equal(current_dir->files[i]->name, name))
-            {
-                write("File already exists!\n");
-                return;
-            }
-        }
-    }
+    set_file_bitmap(new_idx, 1);
+    if (store_super() != FS_OK)
+        return FS_ERR_IO;
 
-    File *f = &all_files[next_file++];
+    cur.files_lba[cur.file_count] = new_lba;
+    cur.file_count++;
 
-    for (int i = 0; i < MAX_NAME; i++)
-        f->name[i] = 0;
+    if (write_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+        return FS_ERR_IO;
 
-    int i = 0;
-    while (i < MAX_NAME - 1 && name[i])
-    {
-        f->name[i] = name[i];
-        i++;
-    }
-
-    f->size = 0;
-    f->content[0] = 0;
-    current_dir->files[current_dir->file_count++] = f;
-
-    write("File created!\n");
+    return FS_OK;
 }
 
 void fs_list_dir(void)
 {
-    if (current_dir->dir_count == 0 && current_dir->file_count == 0)
+    if (!fs_initialized)
     {
-        write("Empty directory!\n");
+        write_colored("Error: File system not initialized.\n", 0x04);
         return;
     }
 
-    for (int i = 0; i < current_dir->dir_count; i++)
+    FS_Dir cur;
+    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
     {
-        write_colored(current_dir->subdirs[i]->name, 0x01);
-        write(" ");
+        write_colored("Error: I/O error.\n", 0x04);
+        return;
     }
 
-    for (int i = 0; i < current_dir->file_count; i++)
+    int printed = 0;
+    for (unsigned int i = 0; i < cur.dir_count; i++)
     {
-        write(current_dir->files[i]->name);
-        write(" ");
+        unsigned int child_lba = cur.dirs_lba[i];
+        FS_Dir tmp;
+
+        if (read_dir_lba(child_lba, &tmp) != FS_OK)
+            continue;
+
+        char out[32];
+        unsigned int ni = 0;
+        for (unsigned int k = 0; k < MAX_NAME && tmp.name[k]; k++)
+            out[ni++] = tmp.name[k];
+
+        out[ni++] = ' ';
+        out[ni] = '\0';
+
+        write_colored(out, 0x09);
+        printed = 1;
     }
 
-    write("\n");
+    for (unsigned int i = 0; i < cur.file_count; i++)
+    {
+        unsigned int child_lba = cur.files_lba[i];
+        FS_File tmp;
+
+        if (read_file_lba(child_lba, &tmp) != FS_OK)
+            continue;
+
+        char out[32];
+        unsigned int ni = 0;
+
+        for (unsigned int k = 0; k < MAX_NAME && tmp.name[k]; k++)
+            out[ni++] = tmp.name[k];
+
+        out[ni++] = ' ';
+        out[ni] = '\0';
+
+        write(out);
+        printed = 1;
+    }
+
+    if (!printed)
+        write("(empty directory)\n");
+    else
+        write("\n");
 }
 
-void fs_change_dir(const char *name)
+int fs_change_dir(const char *name)
 {
-    if (name[0] == 0)
-    {
-        write("Directory name cannot be empty!\n");
-        return;
-    }
+    if (!fs_initialized)
+        return FS_ERR_NOT_INIT;
+
+    if (str_count(name) == 0)
+        return FS_ERR_NO_NAME;
+
+    FS_Dir cur;
+    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+        return FS_ERR_IO;
 
     if (str_equal(name, ".."))
     {
-        if (current_dir->parent)
-        {
-            current_dir = current_dir->parent;
-            write("Changed current directory!\n");
-        }
+        if (fs_current_dir_lba == fs_super.root_dir_lba)
+            return FS_OK;
 
-        return;
+        fs_current_dir_lba = cur.parent_lba;
+        return FS_OK;
     }
-    for (int i = 0; i < current_dir->dir_count; i++)
+
+    for (unsigned int i = 0; i < cur.dir_count; i++)
     {
-        if (str_equal(current_dir->subdirs[i]->name, name))
-        {
-            current_dir = current_dir->subdirs[i];
-            write("Changed current directory!\n");
+        unsigned int child_lba = cur.dirs_lba[i];
+        FS_Dir tmp;
 
-            return;
+        if (read_dir_lba(child_lba, &tmp) != FS_OK)
+            return FS_ERR_IO;
+
+        if (str_equal(tmp.name, name))
+        {
+            fs_current_dir_lba = child_lba;
+            return FS_OK;
         }
     }
-    write("Directory not found!\n");
-}
 
-void fs_print_path(Directory *dir)
-{
-    if (dir->parent == (void *)0)
-    {
-        write("/"); // root
-        return;
-    }
-
-    fs_print_path(dir->parent);
-
-    if (dir->parent->parent != (void *)0)
-        write("/");
-    write(dir->name);
+    return FS_ERR_NOT_EXISTS;
 }
 
 void fs_where(void)
 {
-    fs_print_path(current_dir);
+    if (!fs_initialized)
+    {
+        write_colored("Error: File system not initialized.\n", 0x04);
+        return;
+    }
+
+    unsigned int path_lbas[MAX_DIRS];
+    unsigned int depth = 0;
+    unsigned int lba = fs_current_dir_lba;
+
+    while (1)
+    {
+        path_lbas[depth++] = lba;
+        FS_Dir cur;
+
+        if (read_dir_lba(lba, &cur) != FS_OK)
+        {
+            write_colored("Error: I/O error.\n", 0x04);
+            return;
+        }
+
+        if (lba == cur.parent_lba)
+            break;
+
+        lba = cur.parent_lba;
+    }
+
+    write("/");
+
+    for (int i = depth - 2; i >= 0; i--)
+    {
+        FS_Dir cur;
+        if (read_dir_lba(path_lbas[i], &cur) != FS_OK)
+        {
+            write_colored("Error: I/O error.\n", 0x04);
+            return;
+        }
+
+        write(cur.name);
+
+        if (i > 0)
+            write("/");
+    }
+
     write("\n");
+}
+
+int fs_delete_dir(const char *name)
+{
+    if (!fs_initialized)
+        return FS_ERR_NOT_INIT;
+
+    if (str_count(name) == 0)
+        return FS_ERR_NO_NAME;
+
+    FS_Dir cur;
+    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+        return FS_ERR_IO;
+
+    for (unsigned int i = 0; i < cur.dir_count; i++)
+    {
+        unsigned int child_lba = cur.dirs_lba[i];
+        FS_Dir tmp;
+
+        if (read_dir_lba(child_lba, &tmp) != FS_OK)
+            return FS_ERR_IO;
+
+        if (str_equal(tmp.name, name))
+        {
+            if (tmp.dir_count > 0 || tmp.file_count > 0)
+                return FS_ERR_EXISTS;
+
+            int idx = lba_to_dir_index(child_lba);
+            if (idx >= 0)
+                set_dir_bitmap(idx, 0);
+
+            if (store_super() != FS_OK)
+                return FS_ERR_IO;
+
+            for (unsigned int j = i; j + 1 < cur.dir_count; j++)
+                cur.dirs_lba[j] = cur.dirs_lba[j + 1];
+
+            cur.dir_count--;
+
+            if (write_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+                return FS_ERR_IO;
+
+            return FS_OK;
+        }
+    }
+
+    return FS_ERR_NOT_EXISTS;
+}
+
+int fs_delete_file(const char *name)
+{
+    if (!fs_initialized)
+        return FS_ERR_NOT_INIT;
+
+    if (str_count(name) == 0)
+        return FS_ERR_NO_NAME;
+
+    FS_Dir cur;
+    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+        return FS_ERR_IO;
+
+    for (unsigned int i = 0; i < cur.file_count; i++)
+    {
+        unsigned int child_lba = cur.files_lba[i];
+        FS_File tmp;
+
+        if (read_file_lba(child_lba, &tmp) != FS_OK)
+            return FS_ERR_IO;
+
+        if (str_equal(tmp.name, name))
+        {
+            int idx = lba_to_file_index(child_lba);
+            if (idx >= 0)
+                set_file_bitmap(idx, 0);
+
+            if (store_super() != FS_OK)
+                return FS_ERR_IO;
+
+            for (unsigned int j = i; j + 1 < cur.file_count; j++)
+                cur.files_lba[j] = cur.files_lba[j + 1];
+
+            cur.file_count--;
+
+            if (write_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+                return FS_ERR_IO;
+
+            return FS_OK;
+        }
+    }
+
+    return FS_ERR_NOT_EXISTS;
+}
+
+int fs_write_file(const char *name, const char *text)
+{
+    if (!fs_initialized)
+        return FS_ERR_NOT_INIT;
+
+    if (str_count(name) == 0)
+        return FS_ERR_NO_NAME;
+
+    if (str_count(text) == 0)
+        return FS_ERR_NO_TEXT;
+
+    FS_Dir cur;
+    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+        return FS_ERR_IO;
+
+    for (unsigned int i = 0; i < cur.file_count; i++)
+    {
+        unsigned int file_lba = cur.files_lba[i];
+        FS_File f;
+
+        if (read_file_lba(file_lba, &f) != FS_OK)
+            return FS_ERR_IO;
+
+        if (str_equal(f.name, name))
+        {
+            unsigned int len = str_count(text);
+            if (len > 512)
+                len = 512;
+
+            unsigned char buf[512];
+            for (unsigned int j = 0; j < len; j++)
+                buf[j] = text[j];
+
+            for (unsigned int j = len; j < 512; j++)
+                buf[j] = 0;
+
+            f.size = len;
+            if (f.data_lba == 0)
+                f.data_lba = DATA_START_LBA + file_lba;
+
+            if (write_sector(f.data_lba, buf) != FS_OK)
+                return FS_ERR_IO;
+
+            if (write_file_lba(file_lba, &f) != FS_OK)
+                return FS_ERR_IO;
+
+            return FS_OK;
+        }
+    }
+
+    return FS_ERR_NOT_EXISTS;
+}
+
+int fs_read_file(const char *name)
+{
+    if (!fs_initialized)
+        return FS_ERR_NOT_INIT;
+
+    if (str_count(name) == 0)
+        return FS_ERR_NO_NAME;
+
+    FS_Dir cur;
+    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+        return FS_ERR_IO;
+
+    for (unsigned int i = 0; i < cur.file_count; i++)
+    {
+        unsigned int file_lba = cur.files_lba[i];
+        FS_File f;
+
+        if (read_file_lba(file_lba, &f) != FS_OK)
+            return FS_ERR_IO;
+
+        if (str_equal(f.name, name))
+        {
+            if (f.data_lba == 0 || f.size == 0)
+            {
+                write("(empty file)\n");
+                return FS_OK;
+            }
+
+            unsigned char buf[512];
+            if (read_sector(f.data_lba, buf) != FS_OK)
+                return FS_ERR_IO;
+
+            for (unsigned int j = 0; j < f.size; j++)
+                write_char(buf[j]);
+
+            write("\n");
+            return FS_OK;
+        }
+    }
+
+    return FS_ERR_NOT_EXISTS;
 }
 
 void fs_info(const char *name)
 {
-    if (name[0] == 0)
+    if (!fs_initialized)
     {
-        write("Directory/File name cannot be empty!\n");
+        write_colored("Error: File system not initialized.\n", 0x04);
         return;
     }
 
-    // Files
-    for (int i = 0; i < current_dir->file_count; i++)
+    if (str_count(name) == 0)
     {
-        if (str_equal(current_dir->files[i]->name, name))
+        write_colored("Error: No such file or directory.\n", 0x04);
+        return;
+    }
+
+    FS_Dir cur;
+    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+    {
+        write_colored("Error: I/O error occured while reading info.\n", 0x04);
+        return;
+    }
+
+    for (unsigned int i = 0; i < cur.file_count; i++)
+    {
+        unsigned int file_lba = cur.files_lba[i];
+        FS_File f;
+
+        if (read_file_lba(file_lba, &f) != FS_OK)
+            continue;
+
+        if (str_equal(f.name, name))
         {
-            File *f = current_dir->files[i];
             write("File: ");
-            write(f->name);
-            write("\nSize: ");
-
-            char buf[12];
-            int n = f->size;
-            int k = 0;
-            if (n == 0)
-                buf[k++] = '0';
-            while (n > 0)
-            {
-                buf[k++] = '0' + (n % 10);
-                n /= 10;
-            }
-            for (int j = k - 1; j >= 0; j--)
-                write_char(buf[j]);
+            write(f.name);
             write("\n");
+            write("Size: ");
+            write(uint_to_str(f.size));
+            write(" bytes\n");
+            write("In directory: ");
+            write(cur.name);
+            write("\n");
+
             return;
         }
     }
 
-    // Directories
-    for (int i = 0; i < current_dir->dir_count; i++)
+    for (unsigned int i = 0; i < cur.dir_count; i++)
     {
-        if (str_equal(current_dir->subdirs[i]->name, name))
+        unsigned int dir_lba = cur.dirs_lba[i];
+        FS_Dir d;
+
+        if (read_dir_lba(dir_lba, &d) != FS_OK)
+            continue;
+
+        if (str_equal(d.name, name))
         {
-            Directory *d = current_dir->subdirs[i];
             write("Directory: ");
-            write(d->name);
-            write("\nParent: ");
-            if (d->parent)
-                write(d->parent->name);
-            else
-                write("(root)");
-
-            write("\nSubdirs: ");
-
-            char buf[4];
-            int n = d->dir_count;
-            int k = 0;
-            if (n == 0)
-                buf[k++] = '0';
-            while (n > 0)
-            {
-                buf[k++] = '0' + (n % 10);
-                n /= 10;
-            }
-            for (int j = k - 1; j >= 0; j--)
-                write_char(buf[j]);
-
-            write("\nFiles: ");
-            n = d->file_count;
-            k = 0;
-            if (n == 0)
-                buf[k++] = '0';
-            while (n > 0)
-            {
-                buf[k++] = '0' + (n % 10);
-                n /= 10;
-            }
-            for (int j = k - 1; j >= 0; j--)
-                write_char(buf[j]);
-
+            write(d.name);
             write("\n");
-            return;
-        }
-    }
 
-    write("Directory/File not found!\n");
-}
-
-void fs_write_file(const char *name, const char *text)
-{
-    if (name[0] == 0)
-    {
-        write("File name cannot be empty!\n");
-        return;
-    }
-
-    if (text[0] == 0)
-    {
-        write("Text cannot be empty!\n");
-        return;
-    }
-
-    for (int i = 0; i < current_dir->file_count; i++)
-    {
-        if (str_equal(current_dir->files[i]->name, name))
-        {
-            File *f = current_dir->files[i];
-
-            int j = 0;
-            while (text[j] && j < sizeof(f->content) - 1)
+            FS_Dir parent;
+            if (read_dir_lba(d.parent_lba, &parent) != FS_OK)
             {
-                f->content[j] = text[j];
-                j++;
-            }
-            f->content[j] = 0;
-            f->size = j;
-
-            write("File written!\n");
-            return;
-        }
-    }
-    write("File not found!\n");
-}
-
-void fs_read_file(const char *name)
-{
-    if (name[0] == 0)
-    {
-        write("File name cannot be empty!\n");
-        return;
-    }
-
-    for (int i = 0; i < current_dir->file_count; i++)
-    {
-        if (str_equal(current_dir->files[i]->name, name))
-        {
-            File *f = current_dir->files[i];
-            if (f->size == 0)
-            {
-                write("(empty)\n");
+                write_colored("Error: Parent read error.\n", 0x04);
                 return;
             }
-            write(f->content);
+
+            write("Parent directory: ");
+            write(parent.name);
             write("\n");
+
+            write("Files: ");
+            write(uint_to_str(d.file_count));
+            write("\n");
+            write("Subdirectories: ");
+            write(uint_to_str(d.dir_count));
+            write("\n");
+
             return;
         }
     }
-    write("File not found!\n");
+
+    write_colored("Error: No such file or directory.\n", 0x04);
 }

@@ -1,13 +1,9 @@
-#include "system.h"
+#include "rtc.h"
 
-// CMOS ports
 #define CMOS_ADDRESS 0x70
 #define CMOS_DATA 0x71
 
 #define TIMEZONE_OFFSET 2 // UTC+2
-
-#define OS_NAME "BaOS (Jovan Petrovic, 2025)"
-#define KERNEL_VERSION "1.0"
 
 static unsigned char cmos_read(unsigned char reg)
 {
@@ -18,14 +14,17 @@ static unsigned char cmos_read(unsigned char reg)
 static void apply_timezone(DateTime *dt)
 {
     int hour = dt->hour + TIMEZONE_OFFSET;
+
     if (hour >= 24)
     {
         hour -= 24;
         dt->day++;
+
         if (dt->day > 31)
         {
             dt->day = 1;
             dt->month++;
+
             if (dt->month > 12)
             {
                 dt->month = 1;
@@ -33,10 +32,11 @@ static void apply_timezone(DateTime *dt)
             }
         }
     }
+
     dt->hour = hour;
 }
 
-DateTime date(void)
+DateTime rtc_now(void)
 {
     DateTime dt;
 
@@ -65,14 +65,4 @@ DateTime date(void)
     apply_timezone(&dt);
 
     return dt;
-}
-
-const char *os_name(void)
-{
-    return OS_NAME;
-}
-
-const char *kernel_version(void)
-{
-    return KERNEL_VERSION;
 }

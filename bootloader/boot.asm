@@ -22,7 +22,7 @@ mov dh, 0             ; head = 0
 mov dl, 0x80          ; first hard disk
 mov ch, 0             ; cylinder = 0
 mov cl, 2             ; start at sector 2 (after boot sector)
-mov al, 20            ; number of sectors to read
+mov al, 50            ; number of sectors to read
 mov ah, 0x02          ; BIOS read sectors function
 int 0x13
 jc disk_error         ; jump if error

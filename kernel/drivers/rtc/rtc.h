@@ -1,8 +1,8 @@
-#ifndef SYSTEM_H
-#define SYSTEM_H
+#ifndef RTC_H
+#define RTC_H
 
-#include "../util/util.h"
-#include "../ports/ports.h"
+#include "../../helpers/bcd/bcd.h"
+#include "../../helpers/ports/ports.h"
 
 typedef struct
 {
@@ -14,8 +14,6 @@ typedef struct
     unsigned char year;
 } DateTime;
 
-DateTime date(void);
-const char *os_name(void);
-const char *kernel_version(void);
+DateTime rtc_now(void);
 
 #endif

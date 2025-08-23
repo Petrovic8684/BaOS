@@ -2,8 +2,6 @@
 
 void shell_main(void)
 {
-    clear();
-
     char buffer[80];
     while (1)
     {
@@ -130,7 +128,7 @@ void process_command(char *cmd)
         wrapper_kernel_version();
         break;
     default:
-        write("Unknown command!\n");
+        write_colored("Error: Unknown command. Type 'help' for a list of valid commands.\n", 0x04);
         break;
     }
 
