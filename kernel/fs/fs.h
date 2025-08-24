@@ -76,6 +76,7 @@ int fs_delete_dir(const char *name);
 int fs_delete_file(const char *name);
 int fs_write_file(const char *name, const char *text);
 int fs_read_file(const char *name);
+int fs_read_file_buffer(const char *name, unsigned char *out_buf, unsigned int buf_size, unsigned int *out_size);
 void fs_info(const char *name);
 
 #endif

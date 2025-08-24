@@ -755,7 +755,72 @@ int fs_read_file(const char *name)
             for (unsigned int j = 0; j < f.size; j++)
                 write_char(buf[j]);
 
-            write("\n");
+            if (buf[f.size - 1] != '\n')
+                write("\n");
+
+            return FS_OK;
+        }
+    }
+
+    return FS_ERR_NOT_EXISTS;
+}
+
+int fs_read_file_buffer(const char *name, unsigned char *out_buf, unsigned int buf_size, unsigned int *out_size)
+{
+    if (!fs_initialized)
+        return FS_ERR_NOT_INIT;
+
+    if (str_count(name) == 0)
+        return FS_ERR_NO_NAME;
+
+    FS_Dir cur;
+    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+        return FS_ERR_IO;
+
+    for (unsigned int i = 0; i < cur.file_count; i++)
+    {
+        unsigned int file_lba = cur.files_lba[i];
+        FS_File f;
+
+        if (read_file_lba(file_lba, &f) != FS_OK)
+            return FS_ERR_IO;
+
+        if (str_equal(f.name, name))
+        {
+            if (f.data_lba == 0 || f.size == 0)
+            {
+                if (out_size)
+                    *out_size = 0;
+                return FS_OK;
+            }
+
+            unsigned char buf[512];
+            unsigned int remaining = f.size;
+            unsigned int written = 0;
+            unsigned int sector_lba = f.data_lba;
+
+            while (remaining > 0)
+            {
+                if (read_sector(sector_lba, buf) != FS_OK)
+                    return FS_ERR_IO;
+
+                unsigned int to_copy = remaining < 512 ? remaining : 512;
+
+                if (out_buf && buf_size > 0)
+                {
+                    unsigned int can_copy = (buf_size - written) < to_copy ? (buf_size - written) : to_copy;
+                    for (unsigned int j = 0; j < can_copy; j++)
+                        out_buf[written + j] = buf[j];
+                    written += can_copy;
+                }
+
+                remaining -= to_copy;
+                sector_lba++;
+            }
+
+            if (out_size)
+                *out_size = written;
+
             return FS_OK;
         }
     }

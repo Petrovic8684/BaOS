@@ -316,3 +316,9 @@ void wrapper_shutdown(void)
     power_off();
     write_colored("Error: Shutdown failed.\n", 0x02);
 }
+
+void wrapper_filling(const char *name)
+{
+    filling_main(name);
+    clear();
+}

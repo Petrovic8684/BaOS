@@ -27,8 +27,9 @@ KERNEL_SRCS = \
 SHELL_SRCS = \
     shell/shell.c \
     shell/history/history.c \
-    shell/wrappers/wrappers.c
-    
+    shell/wrappers/wrappers.c \
+    shell/filling/filling.c
+
 KERNEL_OBJS = $(KERNEL_SRCS:.c=.o)
 SHELL_OBJS = $(SHELL_SRCS:.c=.o)
 KERNEL_BIN = kernel/kernel.bin

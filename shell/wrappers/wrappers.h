@@ -7,6 +7,7 @@
 #include "../../kernel/fs/fs.h"
 #include "../../kernel/helpers/string/string.h"
 #include "../../kernel/system/system.h"
+#include "../filling/filling.h"
 
 void wrapper_clear(void);
 void wrapper_list_dir(void);
@@ -25,5 +26,6 @@ void wrapper_write_file(const char *name, const char *text);
 void wrapper_read_file(const char *name);
 void wrapper_info(const char *name);
 void wrapper_shutdown(void);
+void wrapper_filling(const char *name);
 
 #endif

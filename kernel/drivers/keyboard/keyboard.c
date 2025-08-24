@@ -43,6 +43,11 @@ char read(void)
         if (scancode == 0x0E)
             return '\b';
 
+        if (scancode == 0x3F)
+            return 26;
+        if (scancode == 0x01)
+            return 27;
+
         switch (scancode)
         {
         case 0x02:

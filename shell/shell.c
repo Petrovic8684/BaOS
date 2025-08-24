@@ -50,6 +50,8 @@ Command parse_command(const char *cmd)
         return CMD_KERNELVERSION;
     if (str_equal(cmd, "shutdown"))
         return CMD_SHUTDOWN;
+    if (str_equal(cmd, "filling"))
+        return CMD_FILLING;
     return CMD_UNKNOWN;
 }
 
@@ -83,6 +85,9 @@ void process_command(char *cmd)
     {
     case CMD_CLEAR:
         wrapper_clear();
+        return;
+    case CMD_FILLING:
+        wrapper_filling(arg1);
         return;
     case CMD_LIST:
         wrapper_list_dir();
