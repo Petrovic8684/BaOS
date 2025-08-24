@@ -10,7 +10,7 @@ Thanks to a custom written **ATA PIO driver**, the entire **file system** is now
 
 The bootloader loads the **kernel** from disk in real mode and then switches the CPU to **protected mode** before jumping to the C kernel, ensuring a **flat memory model**.
 
-Future plans for BaOS include moving the **shell** to **ring 3**, writing **user programs** such as a **text editor** and **calculator**, and eventually developing a **graphical user interface (GUI)**.
+Future plans for BaOS include moving the **shell** to **ring 3**, integrating **user programs** like the **text editor "Filling"** and **calculator** (currently still part of the shell), and eventually developing a **graphical user interface (GUI)**.
 
 ## General architecture 🏛️
 

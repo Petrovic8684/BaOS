@@ -7,6 +7,12 @@ char read(void)
     static unsigned char shift = 0;
     char c;
 
+    static const char normal[128] = {
+        [0x02] = '1', [0x03] = '2', [0x04] = '3', [0x05] = '4', [0x06] = '5', [0x07] = '6', [0x08] = '7', [0x09] = '8', [0x0A] = '9', [0x0B] = '0', [0x0C] = '-', [0x0D] = '=', [0x10] = 'q', [0x11] = 'w', [0x12] = 'e', [0x13] = 'r', [0x14] = 't', [0x15] = 'y', [0x16] = 'u', [0x17] = 'i', [0x18] = 'o', [0x19] = 'p', [0x1A] = '[', [0x1B] = ']', [0x1E] = 'a', [0x1F] = 's', [0x20] = 'd', [0x21] = 'f', [0x22] = 'g', [0x23] = 'h', [0x24] = 'j', [0x25] = 'k', [0x26] = 'l', [0x27] = ';', [0x28] = '\'', [0x2B] = '\\', [0x2C] = 'z', [0x2D] = 'x', [0x2E] = 'c', [0x2F] = 'v', [0x30] = 'b', [0x31] = 'n', [0x32] = 'm', [0x33] = ',', [0x34] = '.', [0x35] = '/', [0x39] = ' '};
+
+    static const char shift_map[128] = {
+        [0x02] = '!', [0x03] = '@', [0x04] = '#', [0x05] = '$', [0x06] = '%', [0x07] = '^', [0x08] = '&', [0x09] = '*', [0x0A] = '(', [0x0B] = ')', [0x0C] = '_', [0x0D] = '+', [0x10] = 'Q', [0x11] = 'W', [0x12] = 'E', [0x13] = 'R', [0x14] = 'T', [0x15] = 'Y', [0x16] = 'U', [0x17] = 'I', [0x18] = 'O', [0x19] = 'P', [0x1A] = '{', [0x1B] = '}', [0x1E] = 'A', [0x1F] = 'S', [0x20] = 'D', [0x21] = 'F', [0x22] = 'G', [0x23] = 'H', [0x24] = 'J', [0x25] = 'K', [0x26] = 'L', [0x27] = ':', [0x28] = '"', [0x2B] = '|', [0x2C] = 'Z', [0x2D] = 'X', [0x2E] = 'C', [0x2F] = 'V', [0x30] = 'B', [0x31] = 'N', [0x32] = 'M', [0x33] = '<', [0x34] = '>', [0x35] = '?', [0x39] = ' '};
+
     while (1)
     {
         do
@@ -25,181 +31,41 @@ char read(void)
             shift = 0;
             continue;
         }
-
         if (scancode & 0x80)
             continue;
 
-        if (scancode == 0x48)
-            return (char)ARR_UP;
-        if (scancode == 0x50)
-            return (char)ARR_DOWN;
-        if (scancode == 0x4B)
-            return (char)ARR_LEFT;
-        if (scancode == 0x4D)
-            return (char)ARR_RIGHT;
-
-        if (scancode == 0x1C)
-            return '\n';
-        if (scancode == 0x0E)
-            return '\b';
-
-        if (scancode == 0x3F)
-            return 26;
-        if (scancode == 0x01)
-            return 27;
-
         switch (scancode)
         {
-        case 0x02:
-            c = shift ? '!' : '1';
-            break;
-        case 0x03:
-            c = shift ? '@' : '2';
-            break;
-        case 0x04:
-            c = shift ? '#' : '3';
-            break;
-        case 0x05:
-            c = shift ? '$' : '4';
-            break;
-        case 0x06:
-            c = shift ? '%' : '5';
-            break;
-        case 0x07:
-            c = shift ? '^' : '6';
-            break;
-        case 0x08:
-            c = shift ? '&' : '7';
-            break;
-        case 0x09:
-            c = shift ? '*' : '8';
-            break;
-        case 0x0A:
-            c = shift ? '(' : '9';
-            break;
-        case 0x0B:
-            c = shift ? ')' : '0';
-            break;
-        case 0x0C:
-            c = shift ? '_' : '-';
-            break;
-        case 0x0D:
-            c = shift ? '+' : '=';
-            break;
+        case 0x48:
+            return ARR_UP;
+        case 0x50:
+            return ARR_DOWN;
+        case 0x4B:
+            return ARR_LEFT;
+        case 0x4D:
+            return ARR_RIGHT;
 
-        case 0x10:
-            c = shift ? 'Q' : 'q';
-            break;
-        case 0x11:
-            c = shift ? 'W' : 'w';
-            break;
-        case 0x12:
-            c = shift ? 'E' : 'e';
-            break;
-        case 0x13:
-            c = shift ? 'R' : 'r';
-            break;
-        case 0x14:
-            c = shift ? 'T' : 't';
-            break;
-        case 0x15:
-            c = shift ? 'Y' : 'y';
-            break;
-        case 0x16:
-            c = shift ? 'U' : 'u';
-            break;
-        case 0x17:
-            c = shift ? 'I' : 'i';
-            break;
-        case 0x18:
-            c = shift ? 'O' : 'o';
-            break;
-        case 0x19:
-            c = shift ? 'P' : 'p';
-            break;
-        case 0x1A:
-            c = shift ? '{' : '[';
-            break;
-        case 0x1B:
-            c = shift ? '}' : ']';
-            break;
+        case 0x1C:
+            return '\n';
+        case 0x0E:
+            return '\b';
+        case 0x01:
+            return 27;
+        case 0x3F:
+            return 26;
 
-        case 0x1E:
-            c = shift ? 'A' : 'a';
-            break;
-        case 0x1F:
-            c = shift ? 'S' : 's';
-            break;
-        case 0x20:
-            c = shift ? 'D' : 'd';
-            break;
-        case 0x21:
-            c = shift ? 'F' : 'f';
-            break;
-        case 0x22:
-            c = shift ? 'G' : 'g';
-            break;
-        case 0x23:
-            c = shift ? 'H' : 'h';
-            break;
-        case 0x24:
-            c = shift ? 'J' : 'j';
-            break;
-        case 0x25:
-            c = shift ? 'K' : 'k';
-            break;
-        case 0x26:
-            c = shift ? 'L' : 'l';
-            break;
-        case 0x27:
-            c = shift ? ':' : ';';
-            break;
-        case 0x28:
-            c = shift ? '"' : '\'';
-            break;
-
-        case 0x2C:
-            c = shift ? 'Z' : 'z';
-            break;
-        case 0x2D:
-            c = shift ? 'X' : 'x';
-            break;
-        case 0x2E:
-            c = shift ? 'C' : 'c';
-            break;
-        case 0x2F:
-            c = shift ? 'V' : 'v';
-            break;
-        case 0x30:
-            c = shift ? 'B' : 'b';
-            break;
-        case 0x31:
-            c = shift ? 'N' : 'n';
-            break;
-        case 0x32:
-            c = shift ? 'M' : 'm';
-            break;
-        case 0x33:
-            c = shift ? '<' : ',';
-            break;
-        case 0x34:
-            c = shift ? '>' : '.';
-            break;
-        case 0x35:
-            c = shift ? '?' : '/';
-            break;
-
-        case 0x2B:
-            c = shift ? '|' : '\\';
-            break;
-        case 0x39:
-            c = ' ';
-            break;
-
-        default:
-            continue;
+        case 0x37:
+            return '*';
+        case 0x4A:
+            return '-';
+        case 0x4E:
+            return '+';
+        case 0x53:
+            return '.';
         }
 
-        return c;
+        c = shift ? shift_map[scancode] : normal[scancode];
+        if (c)
+            return c;
     }
 }

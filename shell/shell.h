@@ -24,7 +24,8 @@ typedef enum
     CMD_OSNAME,
     CMD_KERNELVERSION,
     CMD_SHUTDOWN,
-    CMD_FILLING
+    CMD_FILLING,
+    CMD_CALC
 } Command;
 
 void shell_main(void);

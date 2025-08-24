@@ -291,6 +291,8 @@ void wrapper_help(void)
         "  deletefile   - Delete file\n"
         "  writefile    - Write text into file\n"
         "  readfile     - Read text from file\n"
+        "  calc         - Evaluate arithmetic expression (supports (), + - * / %, decimals)\n"
+        "  filling      - A simple text editor\n"
         "  osname       - Show OS name\n"
         "  version      - Show kernel version\n"
         "  help         - Show this help message\n");
@@ -321,4 +323,43 @@ void wrapper_filling(const char *name)
 {
     filling_main(name);
     clear();
+}
+
+void wrapper_calc(const char *expr)
+{
+    if (!expr || expr[0] == 0)
+    {
+        write_colored("Usage: calc <expression>\n", 0x0E);
+        return;
+    }
+
+    CalcResult r = calc_evaluate(expr);
+
+    if (r.status == CALC_ERR_DIV0)
+    {
+        write_colored("Error: Division by zero.\n", 0x04);
+        return;
+    }
+    else if (r.status == CALC_ERR_SYNTAX)
+    {
+        write_colored("Error: Syntax error in expression.\n", 0x04);
+        return;
+    }
+
+    write_colored("Result: ", 0x02);
+
+    if (is_integer(r.value))
+    {
+        char ibuf[32];
+        itoa((int)r.value, ibuf);
+        write_colored(ibuf, 0x02);
+    }
+    else
+    {
+        char fbuf[64];
+        ftoa_fixed(r.value, fbuf, 6);
+        write_colored(fbuf, 0x02);
+    }
+
+    write("\n");
 }

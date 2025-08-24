@@ -52,6 +52,8 @@ Command parse_command(const char *cmd)
         return CMD_SHUTDOWN;
     if (str_equal(cmd, "filling"))
         return CMD_FILLING;
+    if (str_equal(cmd, "calc"))
+        return CMD_CALC;
     return CMD_UNKNOWN;
 }
 
@@ -136,6 +138,9 @@ void process_command(char *cmd)
         break;
     case CMD_SHUTDOWN:
         wrapper_shutdown();
+        break;
+    case CMD_CALC:
+        wrapper_calc(arg1);
         break;
     default:
         write_colored("Error: Unknown command. Type 'help' for a list of valid commands.\n", 0x04);
