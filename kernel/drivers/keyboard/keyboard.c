@@ -1,22 +1,11 @@
 #include "keyboard.h"
 
-static void redraw_buffer(char *buffer, int len, int prompt_len)
+char read(void)
 {
-    for (int i = 0; i < len; i++)
-        draw_char_at(row, prompt_len + i, buffer[i]);
-
-    draw_char_at(row, prompt_len + len, ' ');
-}
-
-void read(char *buffer, int max_len, int prompt_len)
-{
-    unsigned char scancode, status, shift = 0;
+    unsigned char scancode;
+    unsigned char status;
+    static unsigned char shift = 0;
     char c;
-    int buf_idx = 0;
-    int caret_pos = 0;
-
-    col = prompt_len;
-    update_cursor();
 
     while (1)
     {
@@ -24,7 +13,6 @@ void read(char *buffer, int max_len, int prompt_len)
         {
             __asm__ volatile("inb $0x64, %0" : "=a"(status));
         } while (!(status & 0x01));
-
         __asm__ volatile("inb $0x60, %0" : "=a"(scancode));
 
         if (scancode == 0x2A || scancode == 0x36)
@@ -32,7 +20,6 @@ void read(char *buffer, int max_len, int prompt_len)
             shift = 1;
             continue;
         }
-
         if (scancode == 0xAA || scancode == 0xB6)
         {
             shift = 0;
@@ -42,46 +29,19 @@ void read(char *buffer, int max_len, int prompt_len)
         if (scancode & 0x80)
             continue;
 
-        if (scancode == 0x4B && caret_pos > 0)
-        {
-            caret_pos--;
-            col--;
-            update_cursor();
-            continue;
-        }
-
-        if (scancode == 0x4D && caret_pos < buf_idx)
-        {
-            caret_pos++;
-            col++;
-            update_cursor();
-            continue;
-        }
-
-        if (scancode == 0x0E && caret_pos > 0)
-        {
-            for (int i = caret_pos - 1; i < buf_idx - 1; i++)
-                buffer[i] = buffer[i + 1];
-
-            buf_idx--;
-            caret_pos--;
-
-            redraw_buffer(buffer, buf_idx, prompt_len);
-
-            col = prompt_len + caret_pos;
-            update_cursor();
-            continue;
-        }
+        if (scancode == 0x48)
+            return (char)ARR_UP;
+        if (scancode == 0x50)
+            return (char)ARR_DOWN;
+        if (scancode == 0x4B)
+            return (char)ARR_LEFT;
+        if (scancode == 0x4D)
+            return (char)ARR_RIGHT;
 
         if (scancode == 0x1C)
-        {
-            buffer[buf_idx] = '\0';
-            row++;
-            col = 0;
-            scroll();
-            update_cursor();
-            break;
-        }
+            return '\n';
+        if (scancode == 0x0E)
+            return '\b';
 
         switch (scancode)
         {
@@ -158,6 +118,7 @@ void read(char *buffer, int max_len, int prompt_len)
         case 0x1B:
             c = shift ? '}' : ']';
             break;
+
         case 0x1E:
             c = shift ? 'A' : 'a';
             break;
@@ -191,6 +152,7 @@ void read(char *buffer, int max_len, int prompt_len)
         case 0x28:
             c = shift ? '"' : '\'';
             break;
+
         case 0x2C:
             c = shift ? 'Z' : 'z';
             break;
@@ -221,6 +183,7 @@ void read(char *buffer, int max_len, int prompt_len)
         case 0x35:
             c = shift ? '?' : '/';
             break;
+
         case 0x2B:
             c = shift ? '|' : '\\';
             break;
@@ -232,19 +195,6 @@ void read(char *buffer, int max_len, int prompt_len)
             continue;
         }
 
-        if (buf_idx < max_len - 1)
-        {
-            for (int i = buf_idx; i > caret_pos; i--)
-                buffer[i] = buffer[i - 1];
-
-            buffer[caret_pos] = c;
-            buf_idx++;
-            caret_pos++;
-
-            redraw_buffer(buffer, buf_idx, prompt_len);
-
-            col = prompt_len + caret_pos;
-            update_cursor();
-        }
+        return c;
     }
 }

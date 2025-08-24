@@ -6,7 +6,7 @@
 #include "../../kernel/drivers/rtc/rtc.h"
 #include "../../kernel/fs/fs.h"
 #include "../../kernel/helpers/string/string.h"
-#include "../../kernel/helpers/sysinfo/sysinfo.h"
+#include "../../kernel/system/system.h"
 
 void wrapper_clear(void);
 void wrapper_list_dir(void);
@@ -24,5 +24,6 @@ void wrapper_delete_file(const char *name);
 void wrapper_write_file(const char *name, const char *text);
 void wrapper_read_file(const char *name);
 void wrapper_info(const char *name);
+void wrapper_shutdown(void);
 
 #endif

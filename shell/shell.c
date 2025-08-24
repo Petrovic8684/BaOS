@@ -8,7 +8,7 @@ void shell_main(void)
         write("BaOS ");
         write(fs_get_current_dir_name());
         write("> ");
-        read(buffer, 80, 7 + str_count(fs_get_current_dir_name()));
+        history_read(buffer, 80, 7 + str_count(fs_get_current_dir_name()));
         write("\n");
         process_command(buffer);
     }
@@ -48,6 +48,8 @@ Command parse_command(const char *cmd)
         return CMD_OSNAME;
     if (str_equal(cmd, "version"))
         return CMD_KERNELVERSION;
+    if (str_equal(cmd, "shutdown"))
+        return CMD_SHUTDOWN;
     return CMD_UNKNOWN;
 }
 
@@ -126,6 +128,9 @@ void process_command(char *cmd)
         break;
     case CMD_KERNELVERSION:
         wrapper_kernel_version();
+        break;
+    case CMD_SHUTDOWN:
+        wrapper_shutdown();
         break;
     default:
         write_colored("Error: Unknown command. Type 'help' for a list of valid commands.\n", 0x04);

@@ -105,3 +105,24 @@ void write_char(char ch)
 
     update_cursor();
 }
+
+void redraw_buffer(char *buffer, int len, int prompt_len)
+{
+    for (int i = 0; i < len; i++)
+        draw_char_at(row, prompt_len + i, buffer[i]);
+
+    draw_char_at(row, prompt_len + len, ' ');
+}
+
+void redraw_and_clear(const char *buffer, int len, int prompt_len, int prev_len)
+{
+    int i;
+
+    for (i = 0; i < len; i++)
+        draw_char_at(row, prompt_len + i, buffer[i]);
+
+    for (i = len; i < prev_len; i++)
+        draw_char_at(row, prompt_len + i, ' ');
+
+    draw_char_at(row, prompt_len + len, ' ');
+}

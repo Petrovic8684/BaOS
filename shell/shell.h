@@ -1,6 +1,7 @@
 #ifndef SHELL_H
 #define SHELL_H
 
+#include "./history/history.h"
 #include "./wrappers/wrappers.h"
 
 typedef enum
@@ -21,7 +22,8 @@ typedef enum
     CMD_READFILE,
     CMD_HELP,
     CMD_OSNAME,
-    CMD_KERNELVERSION
+    CMD_KERNELVERSION,
+    CMD_SHUTDOWN
 } Command;
 
 void shell_main(void);

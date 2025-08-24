@@ -309,3 +309,10 @@ void wrapper_kernel_version(void)
     write(kernel_version());
     write("\n");
 }
+
+void wrapper_shutdown(void)
+{
+    write("Shutting down...\n");
+    power_off();
+    write_colored("Error: Shutdown failed.\n", 0x02);
+}

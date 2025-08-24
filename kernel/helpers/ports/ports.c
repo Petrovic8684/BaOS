@@ -12,6 +12,11 @@ unsigned char inb(unsigned short port)
     return ret;
 }
 
+void outw(unsigned short port, unsigned short val)
+{
+    __asm__ volatile("outw %0, %1" : : "a"(val), "Nd"(port));
+}
+
 void outsw(unsigned short port, const void *addr, int count)
 {
     __asm__ volatile("rep outsw"

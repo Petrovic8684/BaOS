@@ -4,11 +4,13 @@
 
 **BaOS** is a simple **x86 operating system** for managing **directories** and **text files**. It currently includes a **custom bootloader** written in assembly and a **C kernel** that runs a basic **shell** for file and directory management.
 
-The kernel initializes a root directory `/` in memory and supports in-memory file storage with up to **32 directories** and **64 files**. **Text input and output** are handled via **VGA**, with scrolling and a simple prompt. The system currently operates entirely in memory.
+The kernel initializes a root directory `/` and supports storage with up to **32 directories** and **64 files**. **Text input and output** are handled via **VGA**, with scrolling and a simple prompt.
+
+Thanks to a custom written **ATA PIO driver**, the entire **file system** is now **persistent on disk** across reboots, instead of being stored only in memory. The kernel uses a **custom file system** implementation for managing files and directories.
 
 The bootloader loads the **kernel** from disk in real mode and then switches the CPU to **protected mode** before jumping to the C kernel, ensuring a **flat memory model**.
 
-In the future, BaOS will implement a **FAT12 file system** for persistent storage and may include additional shell commands or the ability to **run a custom text editor**.
+Future plans for BaOS include moving the **shell** to **ring 3**, writing **user programs** such as a **text editor** and **calculator**, and eventually developing a **graphical user interface (GUI)**.
 
 ## General architecture 🏛️
 
