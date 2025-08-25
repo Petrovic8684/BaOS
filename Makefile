@@ -16,6 +16,8 @@ KERNEL_SRCS = \
     kernel/kernel.c \
     kernel/fs/fs.c \
     kernel/loader/loader.c \
+    kernel/loader/idt/idt.c \
+    kernel/loader/syscalls/syscalls.c \
     kernel/system/system.c \
     kernel/system/acpi/acpi.c \
     kernel/drivers/keyboard/keyboard.c \
@@ -26,17 +28,15 @@ KERNEL_SRCS = \
     kernel/helpers/string/string.c \
     kernel/helpers/bcd/bcd.c \
     kernel/helpers/memory/memory.c \
-    shell/shell.c \
-    shell/history/history.c \
-    shell/wrappers/wrappers.c \
-    shell/filling/filling.c \
-    shell/calc/calc.c
+
+KERNEL_ASM_SRCS = kernel/loader/idt/idt_flush.asm
 
 # User programs (ELF)
-USER_SRCS = shell/test/bao.c
+USER_SRCS = applications/bao.c
 USER_BINS = $(USER_SRCS:.c=.bin)
 
-KERNEL_OBJS = $(KERNEL_SRCS:.c=.o)
+# Objects
+KERNEL_OBJS = $(KERNEL_SRCS:.c=.o) $(KERNEL_ASM_SRCS:.asm=.o)
 KERNEL_BIN = kernel/kernel.bin
 KERNEL_LD  = kernel/link.ld
 IMG = baos.img
@@ -54,6 +54,9 @@ $(BOOT_BIN): $(BOOT_SRC)
 # --------------- Kernel build ---------------
 %.o: %.c
 	$(CC) -ffreestanding -m32 -c $< -o $@
+
+%.o: %.asm
+	$(NASM) -f elf32 $< -o $@
 
 # Link kernel
 $(KERNEL_BIN): $(KERNEL_OBJS) $(KERNEL_LD)

@@ -1,5 +1,28 @@
 #include "loader.h"
 
+#define USER_STACK_TOP 0x100000
+
+static void jump_to_user(unsigned int entry)
+{
+    asm volatile(
+        "cli\n\t"             // Isključi prekide
+        "mov $0x23, %%ax\n\t" // DS, ES, FS, GS = user data segment
+        "mov %%ax, %%ds\n\t"
+        "mov %%ax, %%es\n\t"
+        "mov %%ax, %%fs\n\t"
+        "mov %%ax, %%gs\n\t"
+
+        "pushl $0x23\n\t"    // SS = user data
+        "pushl %[stack]\n\t" // ESP = user stack
+        "pushf\n\t"          // EFLAGS
+        "pushl $0x1B\n\t"    // CS = user code
+        "pushl %[entry]\n\t" // EIP = entry point
+        "iret\n\t"
+        :
+        : [entry] "r"(entry), [stack] "r"(USER_STACK_TOP)
+        : "ax");
+}
+
 void load_user_program(const char *name)
 {
     if (!fs_initialized)
@@ -49,10 +72,7 @@ void load_user_program(const char *name)
             dest[j] = 0;
     }
 
-    write("Jumping to user program...\n");
+    write("Jumping to user program in ring3...\n");
 
-    asm volatile("movl $0x30000, %esp");
-
-    void (*entry)() = (void (*)())(ehdr->e_entry);
-    entry();
+    jump_to_user(ehdr->e_entry);
 }
