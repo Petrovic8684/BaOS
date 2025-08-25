@@ -7,6 +7,7 @@
 #include "../../kernel/fs/fs.h"
 #include "../../kernel/helpers/string/string.h"
 #include "../../kernel/system/system.h"
+#include "../../kernel/loader/loader.h"
 #include "../filling/filling.h"
 #include "../calc/calc.h"
 
@@ -29,5 +30,6 @@ void wrapper_info(const char *name);
 void wrapper_shutdown(void);
 void wrapper_filling(const char *name);
 void wrapper_calc(const char *expr);
+void wrapper_run(const char *name);
 
 #endif

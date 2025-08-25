@@ -1,6 +1,6 @@
 #include "fs.h"
 
-static int fs_initialized = 0;
+int fs_initialized = 0;
 static unsigned int fs_current_dir_lba = 0;
 static FS_SuperOnDisk fs_super;
 

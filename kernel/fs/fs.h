@@ -65,6 +65,8 @@ typedef struct
     unsigned char padding[512 - (7 * 4) - MAX_DIRS - MAX_FILES];
 } FS_SuperOnDisk;
 
+extern int fs_initialized;
+
 void fs_init(void);
 const char *fs_get_current_dir_name(void);
 int fs_make_dir(const char *name);

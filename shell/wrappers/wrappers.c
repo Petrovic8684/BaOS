@@ -363,3 +363,14 @@ void wrapper_calc(const char *expr)
 
     write("\n");
 }
+
+void wrapper_run(const char *name)
+{
+    if (!name || name[0] == 0)
+    {
+        write_colored("Error: No such program in working directory.\n", 0x04);
+        return;
+    }
+
+    load_user_program(name);
+}
