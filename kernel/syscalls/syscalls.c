@@ -1,5 +1,5 @@
-#include "../../drivers/display/display.h"
-#include "../../helpers/string/string.h"
+#include "../drivers/display/display.h"
+#include "../helpers/string/string.h"
 
 #define USER_BUFFER_SIZE 256
 

@@ -1,7 +1,7 @@
 #include "../drivers/display/display.h"
 #include "paging.h"
 
-void page_fault_handler_c(uint32_t cr2, uint32_t error_code)
+void page_fault_handler_c(unsigned int cr2, unsigned int error_code)
 {
     write("Page fault!\nFaulting address: ");
     write_hex(cr2);

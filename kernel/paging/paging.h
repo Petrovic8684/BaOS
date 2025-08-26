@@ -1,9 +1,7 @@
 #ifndef PAGING_H
 #define PAGING_H
 
-typedef unsigned int uint32_t;
-typedef unsigned short uint16_t;
-typedef unsigned char uint8_t;
+#include "../drivers/display/display.h"
 
 #define PAGE_SIZE 4096
 #define PAGE_ENTRIES 1024
@@ -18,15 +16,16 @@ typedef unsigned char uint8_t;
 #define PAGE_SIZE_4MB 0x80
 #define PAGE_GLOBAL 0x100
 
-extern uint32_t page_directory[PAGE_ENTRIES];
+#define PT_POOL_COUNT 16
 
 void paging_install(void);
-void map_page(uint32_t virt, uint32_t phys, uint32_t flags);
-void unmap_page(uint32_t virt);
-void set_user_pages(uint32_t phys_start, uint32_t size);
-uint32_t get_cr2(void);
+void map_page(unsigned int virt, unsigned int phys, unsigned int flags);
+void unmap_page(unsigned int virt);
+void set_user_pages(unsigned int phys_start, unsigned int size);
+unsigned int get_cr2(void);
+unsigned int get_pte(unsigned int virt);
 
-void dump_descriptors_and_ptes(uint32_t user_entry, uint32_t user_stack_top);
+void dump_descriptors_and_ptes(unsigned int user_entry, unsigned int user_stack_top);
 void setup_kernel_gdt_and_tss(void);
 
 #endif

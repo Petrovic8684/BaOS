@@ -1,11 +1,4 @@
 #include "loader.h"
-#include "../paging/paging.h"
-#include "../drivers/display/display.h"
-#include "../fs/fs.h"
-
-#define PAGE_SIZE 4096
-#define USER_STACK_TOP 0x200000
-#define USER_STACK_PAGES 4
 
 static void jump_to_user(unsigned int entry)
 {
@@ -26,17 +19,6 @@ static void jump_to_user(unsigned int entry)
         :
         : [entry] "r"(entry), [stack] "r"(USER_STACK_TOP)
         : "ax");
-}
-
-uint32_t get_pte(uint32_t virt)
-{
-    uint32_t pd_index = (virt >> 22) & 0x3FF;
-    uint32_t pt_index = (virt >> 12) & 0x3FF;
-    uint32_t pde = page_directory[pd_index];
-    if (!(pde & PAGE_PRESENT))
-        return 0;
-    uint32_t *pt = (uint32_t *)(pde & 0xFFFFF000);
-    return pt[pt_index];
 }
 
 void load_user_program(const char *name)
@@ -100,7 +82,7 @@ void load_user_program(const char *name)
 
     write("Jumping to user program in ring3...\n");
 
-    uint32_t pte_entry = get_pte(ehdr->e_entry);
+    unsigned int pte_entry = get_pte(ehdr->e_entry);
     if ((pte_entry & PAGE_PRESENT) && (pte_entry & PAGE_USER))
         jump_to_user(ehdr->e_entry);
     else

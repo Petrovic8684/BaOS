@@ -18,9 +18,11 @@ KERNEL_SRCS = \
 	kernel/paging/paging.c \
 	kernel/paging/page_fault_handler.c \
     kernel/loader/loader.c \
-    kernel/loader/idt/idt.c \
-    kernel/loader/syscalls/syscalls.c \
+    kernel/syscalls/syscalls.c \
     kernel/system/system.c \
+    kernel/system/idt/idt.c \
+    kernel/system/gdt/gdt.c \
+    kernel/system/tss/tss.c \
     kernel/system/acpi/acpi.c \
     kernel/drivers/keyboard/keyboard.c \
     kernel/drivers/display/display.c \
@@ -31,7 +33,7 @@ KERNEL_SRCS = \
     kernel/helpers/bcd/bcd.c \
     kernel/helpers/memory/memory.c \
 
-KERNEL_ASM_SRCS = kernel/loader/idt/idt_flush.asm kernel/paging/page_fault.asm
+KERNEL_ASM_SRCS = kernel/system/idt/idt_flush.asm kernel/paging/page_fault.asm
 
 # User programs (ELF)
 USER_SRCS = applications/bao.c

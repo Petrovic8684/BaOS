@@ -9,6 +9,9 @@
 #define ELF_MAGIC 0x7F454C46
 #define USER_LOAD_ADDR 0x20000
 
+#define USER_STACK_TOP 0x200000
+#define USER_STACK_PAGES 4
+
 typedef unsigned int Elf32_Addr;
 typedef unsigned int Elf32_Off;
 typedef unsigned short Elf32_Half;
@@ -45,7 +48,6 @@ typedef struct
 } Elf32_Phdr;
 
 typedef void (*user_entry_t)(void);
-
 void load_user_program(const char *name);
 
 #endif

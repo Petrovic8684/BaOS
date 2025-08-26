@@ -1,8 +1,8 @@
-#include "./fs/fs.h"
-#include "./loader/idt/idt.h"
+#include "./system/idt/idt.h"
 #include "./paging/paging.h"
-#include "./drivers/display/display.h"
-
+#include "./system/gdt/gdt.h"
+#include "./system/tss/tss.h"
+#include "./fs/fs.h"
 #include "./loader/loader.h"
 
 __attribute__((section(".text"), used, noreturn)) void kernel_main(void)
@@ -10,7 +10,8 @@ __attribute__((section(".text"), used, noreturn)) void kernel_main(void)
     idt_init();
 
     paging_install();
-    setup_kernel_gdt_and_tss();
+    gdt_init();
+    tss_init();
 
     fs_init();
 
