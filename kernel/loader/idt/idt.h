@@ -16,7 +16,7 @@ typedef struct
     unsigned int base;
 } __attribute__((packed)) idt_ptr_t;
 
-void init_idt();
+void idt_init(void);
 void set_idt_entry(int n, unsigned int handler, unsigned short selector, unsigned char type_attr);
 
 #endif

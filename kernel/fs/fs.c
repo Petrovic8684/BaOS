@@ -189,7 +189,6 @@ void fs_init(void)
 {
     static ATA_Driver drv;
 
-    clear();
     write("fs_init: start.\n");
     if (ata_init(&drv, 0x1F0, 0x3F6, 0) != 0)
     {

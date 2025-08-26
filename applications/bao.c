@@ -2,7 +2,7 @@
 
 void _start()
 {
-    write("Hello from ring3!\n"); // ovo se ne ispisuje na ekranu
+    write("Hello from ring3!");
     while (1)
         ;
 }

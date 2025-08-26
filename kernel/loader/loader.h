@@ -1,7 +1,9 @@
 #ifndef LOADER_H
 #define LOADER_H
 
+#include "../drivers/display/display.h"
 #include "../fs/fs.h"
+#include "../paging/paging.h"
 
 #define PT_LOAD 1
 #define ELF_MAGIC 0x7F454C46

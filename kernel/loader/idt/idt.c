@@ -6,6 +6,7 @@ idt_entry_t idt[IDT_SIZE];
 idt_ptr_t idt_ptr;
 
 extern void idt_flush(unsigned int);
+extern void page_fault_handler();
 
 void set_idt_entry(int n, unsigned int handler, unsigned short selector, unsigned char type_attr)
 {
@@ -16,7 +17,7 @@ void set_idt_entry(int n, unsigned int handler, unsigned short selector, unsigne
     idt[n].offset_high = (handler >> 16) & 0xFFFF;
 }
 
-void init_idt()
+void idt_init(void)
 {
     idt_ptr.limit = sizeof(idt_entry_t) * IDT_SIZE - 1;
     idt_ptr.base = (unsigned int)&idt;
@@ -26,6 +27,7 @@ void init_idt()
 
     extern void syscall_interrupt_handler();
     set_idt_entry(0x80, (unsigned int)syscall_interrupt_handler, 0x08, 0xEE);
+    set_idt_entry(14, (unsigned int)page_fault_handler, 0x08, 0x8E);
 
     idt_flush((unsigned int)&idt_ptr);
 }

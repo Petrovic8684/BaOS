@@ -106,6 +106,20 @@ void write_char(char ch)
     update_cursor();
 }
 
+void write_hex(unsigned int val)
+{
+    char buf[11];
+    buf[0] = '0';
+    buf[1] = 'x';
+    for (int i = 0; i < 8; i++)
+    {
+        unsigned char nibble = (val >> ((7 - i) * 4)) & 0xF;
+        buf[2 + i] = (nibble < 10) ? ('0' + nibble) : ('A' + (nibble - 10));
+    }
+    buf[10] = '\0';
+    write(buf);
+}
+
 void redraw_buffer(char *buffer, int len, int prompt_len)
 {
     for (int i = 0; i < len; i++)

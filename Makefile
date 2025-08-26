@@ -6,7 +6,7 @@ LD = i686-elf-ld
 OBJCOPY = i686-elf-objcopy
 DD = dd
 RM = rm -f
-PY = py
+PY = python
 
 # Files
 BOOT_SRC = bootloader/boot.asm
@@ -15,6 +15,8 @@ BOOT_BIN = bootloader/boot.bin
 KERNEL_SRCS = \
     kernel/kernel.c \
     kernel/fs/fs.c \
+	kernel/paging/paging.c \
+	kernel/paging/page_fault_handler.c \
     kernel/loader/loader.c \
     kernel/loader/idt/idt.c \
     kernel/loader/syscalls/syscalls.c \
@@ -29,7 +31,7 @@ KERNEL_SRCS = \
     kernel/helpers/bcd/bcd.c \
     kernel/helpers/memory/memory.c \
 
-KERNEL_ASM_SRCS = kernel/loader/idt/idt_flush.asm
+KERNEL_ASM_SRCS = kernel/loader/idt/idt_flush.asm kernel/paging/page_fault.asm
 
 # User programs (ELF)
 USER_SRCS = applications/bao.c
