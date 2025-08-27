@@ -33,7 +33,7 @@
 #define SYS_LOAD_USER_PROGRAM 24
 #define SYS_UPDATE_CURSOR 25
 
-#define USER_BUFFER_SIZE 256
+#define USER_BUFFER_SIZE 1024
 
 extern unsigned int loader_return_eip;
 extern unsigned int loader_saved_esp;
@@ -61,6 +61,14 @@ void copy_from_user(char *kernel_buf, const char *user_buf, unsigned int max_len
         kernel_buf[i] = user_buf[i];
 
     kernel_buf[i] = '\0';
+}
+
+void copy_to_user(char *user_buf, const char *kernel_buf, unsigned int max_len)
+{
+    unsigned int i;
+    for (i = 0; i < max_len - 1 && kernel_buf[i] != '\0'; i++)
+        user_buf[i] = kernel_buf[i];
+    user_buf[i] = '\0';
 }
 
 unsigned int handle_syscall(unsigned int num, unsigned int arg)
@@ -95,14 +103,18 @@ unsigned int handle_syscall(unsigned int num, unsigned int arg)
 
     case SYS_OS_NAME:
     {
+        char *user_buf = (char *)arg;
         const char *name = os_name();
-        return (unsigned int)name;
+        copy_to_user(user_buf, name, USER_BUFFER_SIZE);
+        return 0;
     }
 
     case SYS_KERNEL_VERSION:
     {
+        char *user_buf = (char *)arg;
         const char *ver = kernel_version();
-        return (unsigned int)ver;
+        copy_to_user(user_buf, ver, USER_BUFFER_SIZE);
+        return 0;
     }
 
     case SYS_WRITE_COLORED:
@@ -142,8 +154,10 @@ unsigned int handle_syscall(unsigned int num, unsigned int arg)
 
     case SYS_FS_GET_CURRENT_DIR:
     {
+        char *user_buf = (char *)arg;
         const char *name = fs_get_current_dir_name();
-        return (unsigned int)name;
+        copy_to_user(user_buf, name, USER_BUFFER_SIZE);
+        return 0;
     }
 
     case SYS_FS_MAKE_DIR:
@@ -185,11 +199,34 @@ unsigned int handle_syscall(unsigned int num, unsigned int arg)
     case SYS_RTC_NOW:
     {
         DateTime dt = rtc_now();
-        return (unsigned int)&dt;
+        char buf[5];
+
+        itoa(dt.day, buf);
+        write(buf);
+        write("-");
+        itoa(dt.month, buf);
+        write(buf);
+        write("-");
+        itoa(dt.year, buf);
+        write(buf);
+        write(" ");
+        itoa(dt.hour, buf);
+        write(buf);
+        write(":");
+        itoa(dt.minute, buf);
+        write(buf);
+        write(":");
+        itoa(dt.second, buf);
+        write(buf);
+        write("\n");
+
+        return 0;
     }
 
     case SYS_POWER_OFF:
-        power_off();
+        loader_post_return_callback = power_off;
+
+        return_to_loader();
         return 0;
 
     case SYS_LOAD_USER_PROGRAM:

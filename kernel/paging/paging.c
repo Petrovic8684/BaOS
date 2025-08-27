@@ -120,7 +120,7 @@ void paging_install(void)
         page_directory[i] = 0;
 
     for (unsigned int i = 0; i < PAGE_ENTRIES; ++i)
-        first_page_table[i] = (i * PAGE_SIZE) | PAGE_PRESENT | PAGE_RW; // no PAGE_USER
+        first_page_table[i] = (i * PAGE_SIZE) | PAGE_PRESENT | PAGE_RW;
 
     page_directory[0] = ((unsigned int)first_page_table & 0xFFFFF000) | PAGE_PRESENT | PAGE_RW;
 
@@ -132,7 +132,7 @@ void paging_install(void)
 
     unsigned int cr0;
     __asm__ volatile("mov %%cr0, %0" : "=r"(cr0));
-    cr0 |= 0x80000000; // PG
+    cr0 |= 0x80000000;
     __asm__ volatile("mov %0, %%cr0" ::"r"(cr0));
 
     write_colored("Paging enabled (kernel protected, first 4MB).\n", 0x02);

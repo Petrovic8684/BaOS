@@ -457,3 +457,20 @@ int sscanf(const char *str, const char *fmt, ...)
     va_end(args);
     return matched;
 }
+
+int fflush(FILE *stream)
+{
+    if (!stream)
+        return EOF;
+
+    if (stream == stdout || stream == stderr)
+        return 0;
+
+    if (stream->buf_pos == 0)
+        return 0;
+
+    fs_write_file(stream->name, (char *)stream->buf);
+    stream->buf_pos = 0;
+
+    return 0;
+}

@@ -5,6 +5,8 @@
 #include "../../helpers/ports/ports.h"
 #include "../../drivers/display/display.h"
 
+#define KERNEL_PHYS_TO_VIRT(addr) ((void *)((unsigned int)(addr) + 0xC0000000))
+
 typedef struct
 {
     char signature[8];

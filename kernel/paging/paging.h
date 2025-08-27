@@ -25,7 +25,4 @@ void set_user_pages(unsigned int phys_start, unsigned int size);
 unsigned int get_cr2(void);
 unsigned int get_pte(unsigned int virt);
 
-void dump_descriptors_and_ptes(unsigned int user_entry, unsigned int user_stack_top);
-void setup_kernel_gdt_and_tss(void);
-
 #endif

@@ -35,8 +35,9 @@ KERNEL_SRCS = \
 
 KERNEL_ASM_SRCS = kernel/system/idt/idt_flush.asm kernel/paging/page_fault.asm
 
-USER_SRCS = applications/bao.c
-USER_BINS = $(USER_SRCS:.c=.bin)
+SHELL_SRCS = applications/shell/shell.c
+SHELL_DEPS = applications/shell/wrappers/wrappers.c applications/shell/history/history.c
+SHELL_BINS = $(SHELL_SRCS:.c=.bin)
 
 KERNEL_OBJS = $(KERNEL_SRCS:.c=.o) $(KERNEL_ASM_SRCS:.asm=.o)
 KERNEL_BIN = kernel/kernel.bin
@@ -45,7 +46,7 @@ IMG = baos.img
 IMG_SIZE = 16
 
 # ---------------- Runtime ----------------
-RUNTIME_SRCS = runtime/runtime.c runtime/src/stdio.c runtime/src/stdlib.c
+RUNTIME_SRCS = runtime/runtime.c runtime/src/stdio.c runtime/src/stdlib.c runtime/src/string.c
 RUNTIME_OBJS = $(RUNTIME_SRCS:.c=.o)
 RUNTIME_INCLUDE = -I./runtime/include
 
@@ -70,20 +71,20 @@ $(KERNEL_BIN): $(KERNEL_OBJS) $(KERNEL_LD)
 %.o: runtime/src/%.c
 	$(CC) -ffreestanding -m32 -c $(RUNTIME_INCLUDE) $< -o $@
 
-# ---------------- User programs build ----------------
+# ---------------- Shell build ----------------
 %.o: %.c
 	$(CC) -ffreestanding -m32 -nostdlib -fno-pie $(RUNTIME_INCLUDE) -c $< -o $@
 
-# Link user program: bao.o + svi runtime obj-ovi
-%.bin: %.o $(RUNTIME_OBJS)
+# Link shell: shell.o + shell deps + runtime obj-ovi
+%.bin: %.o $(SHELL_DEPS:.c=.o) $(RUNTIME_OBJS)
 	$(LD) -m elf_i386 -T kernel/loader/user.ld -o $@ $^
 
 # ---------------- Disk image -----------------
-$(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(USER_BINS)
+$(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BINS)
 	$(DD) if=/dev/zero of=$(IMG) bs=1M count=$(IMG_SIZE)
 	$(DD) if=$(BOOT_BIN) of=$(IMG) conv=notrunc
 	$(DD) if=$(KERNEL_BIN) of=$(IMG) seek=1 conv=notrunc
-	for prog in $(USER_BINS); do \
+	for prog in $(SHELL_BINS); do \
 	    $(PY) tools/mkfs_inject.py $(IMG) $$prog; \
 	done
 
@@ -93,4 +94,4 @@ run: $(IMG)
 
 clean:
 	$(RM) $(BOOT_BIN) $(KERNEL_OBJS) $(KERNEL_BIN) $(IMG) \
-	      $(USER_BINS) $(RUNTIME_OBJS)
+	      $(SHELL_BINS) $(SHELL_DEPS:.c=.o) $(RUNTIME_OBJS)

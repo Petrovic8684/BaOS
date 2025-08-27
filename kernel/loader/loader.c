@@ -4,6 +4,8 @@ unsigned int loader_return_eip = 0;
 unsigned int loader_saved_esp = 0;
 unsigned int loader_saved_ebp = 0;
 
+void (*loader_post_return_callback)(void) = 0;
+
 static void jump_to_user(unsigned int entry)
 {
     asm volatile("cli\n\t"
@@ -29,7 +31,7 @@ void load_user_program(const char *name)
         return;
     }
 
-    unsigned char buf[8192];
+    unsigned char buf[65536];
     unsigned int size = 0;
 
     if (fs_read_file_buffer(name, buf, sizeof(buf), &size) != FS_OK)
@@ -97,5 +99,11 @@ user_return:
     loader_saved_ebp = 0;
 
     tss_set_esp0(0x00090000);
+
+    if (loader_post_return_callback)
+        loader_post_return_callback();
+
+    loader_post_return_callback = 0;
+
     return;
 }

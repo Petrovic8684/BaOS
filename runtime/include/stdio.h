@@ -38,5 +38,6 @@ void read_line(char *buf, int max_len);
 int scanf(const char *fmt, ...);
 int fscanf(FILE *stream, const char *fmt, ...);
 int sscanf(const char *str, const char *fmt, ...);
+int fflush(FILE *stream);
 
 #endif

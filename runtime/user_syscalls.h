@@ -28,6 +28,8 @@
 #define SYS_LOAD_USER_PROGRAM 24
 #define SYS_UPDATE_CURSOR 25
 
+#define USER_BUFFER_SIZE 1024
+
 static inline void sys_exit(int code)
 {
     asm volatile(
@@ -98,28 +100,34 @@ static inline int get_cursor_col(void)
 
 static inline const char *os_name(void)
 {
-    const char *name;
+    static char buffer[USER_BUFFER_SIZE];
     asm volatile(
         "movl %[num], %%eax\n\t"
+        "movl %[buffer], %%ebx\n\t"
+        "movl %[size], %%ecx\n\t"
         "int $0x80\n\t"
-        "movl %%ebx, %[res]\n\t"
-        : [res] "=r"(name)
-        : [num] "i"(SYS_OS_NAME)
-        : "eax", "ebx", "memory");
-    return name;
+        :
+        : [num] "i"(SYS_OS_NAME),
+          [buffer] "r"(buffer),
+          [size] "r"(USER_BUFFER_SIZE)
+        : "eax", "ebx", "ecx", "memory");
+    return buffer;
 }
 
 static inline const char *kernel_version(void)
 {
-    const char *ver;
+    static char buffer[USER_BUFFER_SIZE];
     asm volatile(
         "movl %[num], %%eax\n\t"
+        "movl %[buffer], %%ebx\n\t"
+        "movl %[size], %%ecx\n\t"
         "int $0x80\n\t"
-        "movl %%ebx, %[res]\n\t"
-        : [res] "=r"(ver)
-        : [num] "i"(SYS_KERNEL_VERSION)
-        : "eax", "ebx", "memory");
-    return ver;
+        :
+        : [num] "i"(SYS_KERNEL_VERSION),
+          [buffer] "r"(buffer),
+          [size] "r"(USER_BUFFER_SIZE)
+        : "eax", "ebx", "ecx", "memory");
+    return buffer;
 }
 
 static inline void write_colored(const char *str, unsigned char color)
@@ -182,15 +190,18 @@ static inline void fs_where(void)
 
 static inline const char *fs_get_current_dir_name(void)
 {
-    const char *ret;
+    static char buffer[USER_BUFFER_SIZE];
     asm volatile(
         "movl %[num], %%eax\n\t"
+        "movl %[buffer], %%ebx\n\t"
+        "movl %[size], %%ecx\n\t"
         "int $0x80\n\t"
-        "movl %%ebx, %[res]\n\t"
-        : [res] "=r"(ret)
-        : [num] "i"(SYS_FS_GET_CURRENT_DIR)
-        : "eax", "ebx", "memory");
-    return ret;
+        :
+        : [num] "i"(SYS_FS_GET_CURRENT_DIR),
+          [buffer] "r"(buffer),
+          [size] "r"(USER_BUFFER_SIZE)
+        : "eax", "ebx", "ecx", "memory");
+    return buffer;
 }
 
 static inline int fs_make_dir(const char *name)
@@ -317,29 +328,14 @@ static inline void fs_info(const char *name)
         : "eax", "ebx", "memory");
 }
 
-typedef struct
+static inline void rtc_now(void)
 {
-    unsigned char second;
-    unsigned char minute;
-    unsigned char hour;
-    unsigned char day;
-    unsigned char month;
-    unsigned char year;
-} DateTime;
-
-static inline DateTime rtc_now(void)
-{
-    DateTime dt;
-    DateTime *ret;
     asm volatile(
         "movl %[num], %%eax\n\t"
         "int $0x80\n\t"
-        "movl %%ebx, %[res]\n\t"
-        : [res] "=r"(ret)
+        :
         : [num] "i"(SYS_RTC_NOW)
-        : "eax", "ebx", "memory");
-    dt = *ret;
-    return dt;
+        : "eax", "memory");
 }
 
 static inline void power_off(void)
@@ -352,7 +348,7 @@ static inline void power_off(void)
         : "eax", "memory");
 }
 
-static inline void load_user_program(const char *name)
+static inline void load_user_program(const char *name) // ?
 {
     asm volatile(
         "movl %[num], %%eax\n\t"

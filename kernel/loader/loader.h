@@ -48,6 +48,8 @@ typedef struct
     Elf32_Word p_align;
 } Elf32_Phdr;
 
+extern void (*loader_post_return_callback)(void);
+
 typedef void (*user_entry_t)(void);
 void load_user_program(const char *name);
 

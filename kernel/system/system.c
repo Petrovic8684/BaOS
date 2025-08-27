@@ -2,6 +2,8 @@
 
 void power_off(void)
 {
+    write("Shutting down...");
+
     acpi_rsdp_t *rsdp = find_rsdp();
     if (!rsdp)
         return;
@@ -16,8 +18,9 @@ void power_off(void)
         return;
 
     outw(port, (1 << 13) | (ACPI_POWER_OFF << 10));
-    while (1)
-        __asm__("hlt");
+
+    for (;;)
+        __asm__ volatile("hlt");
 }
 
 const char *os_name(void)
