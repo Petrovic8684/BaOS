@@ -17,5 +17,6 @@ typedef struct
 } __attribute__((packed)) tss_t;
 
 void tss_init(void);
+void tss_set_esp0(unsigned int esp0);
 
 #endif

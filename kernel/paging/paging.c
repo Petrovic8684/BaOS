@@ -20,11 +20,9 @@ static unsigned int alloc_page_table_phys()
         }
     }
 
-    write("Out of page-tables pool!\n");
+    write_colored("Out of page-tables pool. Halting...\n", 0x04);
     for (;;)
-    {
         __asm__ volatile("hlt");
-    }
 }
 
 void map_page(unsigned int virt, unsigned int phys, unsigned int flags)
@@ -41,9 +39,7 @@ void map_page(unsigned int virt, unsigned int phys, unsigned int flags)
         page_table = (unsigned int *)(new_pt_phys);
     }
     else
-    {
         page_table = (unsigned int *)(pde & 0xFFFFF000);
-    }
 
     ((unsigned int *)page_table)[pt_index] = (phys & 0xFFFFF000) | (flags & 0xFFF) | PAGE_PRESENT;
     __asm__ volatile("invlpg (%0)" ::"r"(virt) : "memory");
@@ -139,5 +135,5 @@ void paging_install(void)
     cr0 |= 0x80000000; // PG
     __asm__ volatile("mov %0, %%cr0" ::"r"(cr0));
 
-    write("Paging enabled (kernel protected, first 4MB)\n");
+    write_colored("Paging enabled (kernel protected, first 4MB).\n", 0x02);
 }

@@ -2,11 +2,8 @@
 
 void _start()
 {
-    clear();
-    write("Hello from ring3!");
+    // clear();
+    write("Hello from ring3!\n");
 
-    // exit(0);
-
-    while (1)
-        ;
+    exit(1);
 }

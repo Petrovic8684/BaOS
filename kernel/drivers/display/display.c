@@ -120,6 +120,30 @@ void write_hex(unsigned int val)
     write(buf);
 }
 
+void write_dec(unsigned int v)
+{
+    char buf[12];
+    int i = 0;
+    if (v == 0)
+    {
+        buf[i++] = '0';
+    }
+    else
+    {
+        char rev[12];
+        int j = 0;
+        while (v > 0 && j < (int)sizeof(rev))
+        {
+            rev[j++] = '0' + (v % 10);
+            v /= 10;
+        }
+        while (j-- > 0)
+            buf[i++] = rev[j];
+    }
+    buf[i] = '\0';
+    write(buf);
+}
+
 void redraw_buffer(char *buffer, int len, int prompt_len)
 {
     for (int i = 0; i < len; i++)

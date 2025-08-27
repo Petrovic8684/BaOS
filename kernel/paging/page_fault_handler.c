@@ -3,7 +3,8 @@
 
 void page_fault_handler_c(unsigned int cr2, unsigned int error_code)
 {
-    write("Page fault!\nFaulting address: ");
+    write_colored("\nFATAL ERROR: Page fault.\n", 0x04);
+    write("Faulting address: ");
     write_hex(cr2);
     write("\nError code: ");
     write_hex(error_code);

@@ -22,5 +22,10 @@ void tss_init(void)
 
     asm volatile("ltr %%ax" ::"a"(0x28));
 
-    write("TSS loaded.\n");
+    write_colored("TSS loaded.\n", 0x02);
+}
+
+void tss_set_esp0(unsigned int esp0)
+{
+    kernel_tss.esp0 = esp0;
 }

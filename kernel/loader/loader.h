@@ -4,6 +4,7 @@
 #include "../drivers/display/display.h"
 #include "../fs/fs.h"
 #include "../paging/paging.h"
+#include "../system/tss/tss.h"
 
 #define PT_LOAD 1
 #define ELF_MAGIC 0x7F454C46
@@ -49,13 +50,5 @@ typedef struct
 
 typedef void (*user_entry_t)(void);
 void load_user_program(const char *name);
-
-extern unsigned int loader_return_eip;    /* address in kernel to resume execution */
-extern unsigned int loader_return_eflags; /* eflags value to restore on return */
-extern unsigned int user_mem_start;       /* first vaddr mapped for user program */
-extern unsigned int user_mem_end;         /* end vaddr (exclusive) mapped for user program */
-extern unsigned int user_stack_bottom;    /* bottom of user stack */
-extern unsigned int user_stack_size;
-extern unsigned int loader_continuation;
 
 #endif

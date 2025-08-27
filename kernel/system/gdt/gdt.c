@@ -40,5 +40,5 @@ void gdt_init(void)
         "mov %%ax, %%gs\n\t"
         "mov %%ax, %%ss\n\t" ::: "ax");
 
-    write("GDT loaded.\n");
+    write_colored("GDT loaded.\n", 0x02);
 }
