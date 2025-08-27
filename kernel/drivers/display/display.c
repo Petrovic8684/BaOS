@@ -8,9 +8,12 @@ void draw_char_at(int r, int c, char ch)
     video[r * 80 + c] = (0x07 << 8) | ch;
 }
 
-void update_cursor()
+void update_cursor(int new_row, int new_col)
 {
-    unsigned short pos = row * 80 + col;
+    row = new_row;
+    col = new_col;
+
+    unsigned short pos = new_row * 80 + new_col;
 
     outb(0x3D4, 0x0F);
     outb(0x3D5, (unsigned char)(pos & 0xFF));
@@ -31,7 +34,7 @@ void scroll(void)
         video[24 * 80 + c] = (0x07 << 8) | ' ';
 
     row = 24;
-    update_cursor();
+    update_cursor(row, col);
 }
 
 void clear(void)
@@ -42,7 +45,7 @@ void clear(void)
     row = 0;
     col = 0;
 
-    update_cursor();
+    update_cursor(row, col);
 }
 
 void write(const char *str)
@@ -76,7 +79,7 @@ void write_colored(const char *str, unsigned char color)
         }
 
         str++;
-        update_cursor();
+        update_cursor(row, col);
     }
 }
 
@@ -103,7 +106,7 @@ void write_char(char ch)
         }
     }
 
-    update_cursor();
+    update_cursor(row, col);
 }
 
 void write_hex(unsigned int val)
@@ -144,6 +147,17 @@ void write_dec(unsigned int v)
     write(buf);
 }
 
+int get_cursor_row(void)
+{
+    return row;
+}
+
+int get_cursor_col(void)
+{
+    return col;
+}
+
+/*
 void redraw_buffer(char *buffer, int len, int prompt_len)
 {
     for (int i = 0; i < len; i++)
@@ -163,4 +177,4 @@ void redraw_and_clear(const char *buffer, int len, int prompt_len, int prev_len)
         draw_char_at(row, prompt_len + i, ' ');
 
     draw_char_at(row, prompt_len + len, ' ');
-}
+}*/

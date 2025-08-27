@@ -519,7 +519,6 @@ int fs_change_dir(const char *name)
         if (str_equal(tmp.name, name))
         {
             fs_current_dir_lba = child_lba;
-            fs_where();
             return FS_OK;
         }
     }

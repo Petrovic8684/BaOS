@@ -1,9 +1,14 @@
-#include "./include/user_syscalls.h"
+#include <stdio.h>
 
-void _start()
+void main(void)
 {
-    // clear();
-    write("Hello from ring3!\n");
+    clear();
 
-    exit(1);
+    char buf[100];
+    printf("Your name: ");
+    scanf("%s", buf);
+
+    printf("Hello, %s.", buf);
+
+    return;
 }
