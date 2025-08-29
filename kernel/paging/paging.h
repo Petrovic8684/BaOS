@@ -22,6 +22,7 @@ void paging_install(void);
 void map_page(unsigned int virt, unsigned int phys, unsigned int flags);
 void unmap_page(unsigned int virt);
 void set_user_pages(unsigned int phys_start, unsigned int size);
+void unmap_user_range(unsigned int virt_start, unsigned int size);
 unsigned int get_cr2(void);
 unsigned int get_pte(unsigned int virt);
 

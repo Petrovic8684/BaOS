@@ -13,6 +13,9 @@ const char **next_prog_argv = 0;
 
 void (*loader_post_return_callback)(void) = 0;
 
+static unsigned int last_user_region_start = 0;
+static unsigned int last_user_region_size = 0;
+
 static void copy_from_user(char *kernel_buf, const char *user_buf, unsigned int max_len)
 {
     unsigned int i = 0;
@@ -41,10 +44,22 @@ static void jump_to_user(unsigned int entry, unsigned int stack)
                  : "ax");
 }
 
+static void cleanup_previous_user_space(void)
+{
+    if (last_user_region_size && last_user_region_start)
+    {
+        unmap_user_range(last_user_region_start, last_user_region_size);
+        last_user_region_start = 0;
+        last_user_region_size = 0;
+    }
+
+    unmap_user_range(USER_STACK_BOTTOM, USER_STACK_PAGES * PAGE_SIZE);
+}
+
 static void load_shell_again(void)
 {
     write("\n");
-    load_user_program("shell.bin", ((void *)0));
+    load_user_program("shell", ((void *)0));
 }
 
 void load_next_program(void)
@@ -69,9 +84,10 @@ void load_user_program(const char *name, const char **user_argv)
     {
         write_colored("FS not initialized.\n", 0x04);
         load_shell_again();
-
         return;
     }
+
+    cleanup_previous_user_space();
 
     unsigned char buf[65536];
     unsigned int size = 0;
@@ -80,7 +96,6 @@ void load_user_program(const char *name, const char **user_argv)
     {
         write_colored("Failed to read user program.\n", 0x04);
         load_shell_again();
-
         return;
     }
 
@@ -88,7 +103,6 @@ void load_user_program(const char *name, const char **user_argv)
     {
         write("User program empty.\n");
         load_shell_again();
-
         return;
     }
 
@@ -97,11 +111,14 @@ void load_user_program(const char *name, const char **user_argv)
     {
         write_colored("Not a valid ELF file.\n", 0x04);
         load_shell_again();
-
         return;
     }
 
     Elf32_Phdr *phdr = (Elf32_Phdr *)(buf + ehdr->e_phoff);
+
+    unsigned int map_min = 0xFFFFFFFFu;
+    unsigned int map_max = 0;
+
     for (int i = 0; i < ehdr->e_phnum; i++)
     {
         if (phdr[i].p_type != PT_LOAD)
@@ -113,6 +130,12 @@ void load_user_program(const char *name, const char **user_argv)
             continue;
         }
 
+        if (phdr[i].p_vaddr < map_min)
+            map_min = phdr[i].p_vaddr;
+        unsigned int seg_end = phdr[i].p_vaddr + phdr[i].p_memsz;
+        if (seg_end > map_max)
+            map_max = seg_end;
+
         set_user_pages(phdr[i].p_vaddr, phdr[i].p_memsz);
 
         unsigned char *dest = (unsigned char *)(phdr[i].p_vaddr);
@@ -123,6 +146,19 @@ void load_user_program(const char *name, const char **user_argv)
 
         for (Elf32_Word j = phdr[i].p_filesz; j < phdr[i].p_memsz; j++)
             dest[j] = 0;
+    }
+
+    if (map_max > map_min && map_min != 0xFFFFFFFFu)
+    {
+        unsigned int aligned_start = map_min & 0xFFFFF000u;
+        unsigned int aligned_end = (map_max + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+        last_user_region_start = aligned_start;
+        last_user_region_size = aligned_end - aligned_start;
+    }
+    else
+    {
+        last_user_region_start = 0;
+        last_user_region_size = 0;
     }
 
     set_user_pages(USER_STACK_BOTTOM, USER_STACK_PAGES * PAGE_SIZE);
@@ -149,7 +185,6 @@ void load_user_program(const char *name, const char **user_argv)
         {
             write_colored("Not enough user stack space for args.\n", 0x04);
             load_shell_again();
-
             return;
         }
 
@@ -169,7 +204,6 @@ void load_user_program(const char *name, const char **user_argv)
     {
         write_colored("Not enough user stack space for argv array.\n", 0x04);
         load_shell_again();
-
         return;
     }
 
@@ -183,7 +217,6 @@ void load_user_program(const char *name, const char **user_argv)
     {
         write_colored("Not enough user stack space for argc/argv ptr.\n", 0x04);
         load_shell_again();
-
         return;
     }
 
@@ -194,8 +227,6 @@ void load_user_program(const char *name, const char **user_argv)
     asm volatile("mov %%esp, %0" : "=r"(loader_saved_esp));
     asm volatile("mov %%ebp, %0" : "=r"(loader_saved_ebp));
 
-    tss_set_esp0(loader_saved_esp);
-
     unsigned int pte_entry = get_pte(ehdr->e_entry);
     if ((pte_entry & PAGE_PRESENT) && (pte_entry & PAGE_USER))
         jump_to_user(ehdr->e_entry, final_stack);
@@ -203,7 +234,6 @@ void load_user_program(const char *name, const char **user_argv)
     {
         write_colored("Entry not mapped as user (abort jump).\n", 0x04);
         load_shell_again();
-
         return;
     }
 
@@ -212,7 +242,7 @@ user_return:
     loader_saved_esp = 0;
     loader_saved_ebp = 0;
 
-    tss_set_esp0(0x00090000);
+    cleanup_previous_user_space();
 
     if (loader_post_return_callback)
         loader_post_return_callback();

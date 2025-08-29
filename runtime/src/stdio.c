@@ -299,6 +299,58 @@ int vfprintf(FILE *stream, const char *fmt, va_list args)
                     total++;
                 }
             }
+            else if (*p == 'f' || *p == 'g')
+            {
+                double val = va_arg(args, double);
+                if (val < 0)
+                {
+                    fputc('-', stream);
+                    total++;
+                    val = -val;
+                }
+
+                long int_part = (long)val;
+                double frac_part = val - int_part;
+
+                int i = 0;
+                if (int_part == 0)
+                    tmp[i++] = '0';
+                else
+                {
+                    long tmpval = int_part;
+                    char tmpbuf[32];
+                    int j = 0;
+                    while (tmpval > 0)
+                    {
+                        tmpbuf[j++] = '0' + tmpval % 10;
+                        tmpval /= 10;
+                    }
+                    while (j-- > 0)
+                        tmp[i++] = tmpbuf[j];
+                }
+                tmp[i] = 0;
+                fputs(tmp, stream);
+                total += i;
+
+                fputc('.', stream);
+                total++;
+
+                for (int d = 0; d < 10; d++)
+                {
+                    frac_part *= 10;
+                    int digit = (int)frac_part;
+                    fputc('0' + digit, stream);
+                    total++;
+                    frac_part -= digit;
+                }
+
+                if (*p == 'g')
+                {
+                    int end = total - 1;
+                    while (tmp[end] == '0')
+                        end--;
+                }
+            }
             else if (*p == '%')
             {
                 if (fputc('%', stream) == EOF)
@@ -423,6 +475,14 @@ void read_line(char *buf, int max_len)
             break;
         }
 
+        if (c == 27)
+        {
+            buf[len] = 27;
+            update_cursor(row, col + len);
+            write("\n");
+            break;
+        }
+
         if (c == 3)
         {
             if (cursor > 0)
@@ -430,7 +490,6 @@ void read_line(char *buf, int max_len)
             update_cursor(row, col + cursor);
             continue;
         }
-
         if (c == 4)
         {
             if (cursor < len)

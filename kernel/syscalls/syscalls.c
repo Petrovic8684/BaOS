@@ -47,6 +47,9 @@ static const char *saved_prog_argv_ptrs[MAX_ARGC + 1];
 __attribute__((naked)) void return_to_loader(void)
 {
     asm volatile(".intel_syntax noprefix\n\t"
+                 "mov ax, 0x10\n\t"
+                 "mov ds, ax\n\t"
+                 "mov es, ax\n\t"
                  "mov eax, dword ptr [loader_return_eip]\n\t"
                  "test eax, eax\n\t"
                  "jz 1f\n\t"

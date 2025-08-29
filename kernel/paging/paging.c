@@ -4,6 +4,7 @@ unsigned int page_directory[PAGE_ENTRIES] __attribute__((aligned(4096)));
 static unsigned int first_page_table[PAGE_ENTRIES] __attribute__((aligned(4096)));
 static unsigned int page_table_pool[PT_POOL_COUNT][PAGE_ENTRIES] __attribute__((aligned(4096)));
 static unsigned char page_table_used[PT_POOL_COUNT] = {0};
+
 static unsigned int get_physical_addr(void *p) { return (unsigned int)p; }
 
 static unsigned int alloc_page_table_phys()
@@ -16,13 +17,30 @@ static unsigned int alloc_page_table_phys()
             for (int j = 0; j < PAGE_ENTRIES; ++j)
                 page_table_pool[i][j] = 0;
 
-            return get_physical_addr(page_table_pool[i]);
+            return get_physical_addr(&page_table_pool[i][0]);
         }
     }
 
     write_colored("Out of page-tables pool. Halting...\n", 0x04);
     for (;;)
         __asm__ volatile("hlt");
+}
+
+static void free_page_table_phys(unsigned int phys)
+{
+    if ((phys & 0xFFFFF000) == ((unsigned int)first_page_table & 0xFFFFF000))
+        return;
+
+    for (int i = 0; i < PT_POOL_COUNT; ++i)
+    {
+        if (((unsigned int)&page_table_pool[i][0] & 0xFFFFF000) == (phys & 0xFFFFF000))
+        {
+            for (int j = 0; j < PAGE_ENTRIES; ++j)
+                page_table_pool[i][j] = 0;
+            page_table_used[i] = 0;
+            return;
+        }
+    }
 }
 
 void map_page(unsigned int virt, unsigned int phys, unsigned int flags)
@@ -41,8 +59,65 @@ void map_page(unsigned int virt, unsigned int phys, unsigned int flags)
     else
         page_table = (unsigned int *)(pde & 0xFFFFF000);
 
-    ((unsigned int *)page_table)[pt_index] = (phys & 0xFFFFF000) | (flags & 0xFFF) | PAGE_PRESENT;
+    page_table[pt_index] = (phys & 0xFFFFF000) | (flags & 0xFFF) | PAGE_PRESENT;
     __asm__ volatile("invlpg (%0)" ::"r"(virt) : "memory");
+}
+
+void set_user_pages(unsigned int virt_start, unsigned int size)
+{
+    unsigned int addr;
+    unsigned int end = virt_start + size;
+    for (addr = virt_start & 0xFFFFF000; addr < end; addr += PAGE_SIZE)
+    {
+        unsigned int pd_index = (addr >> 22) & 0x3FF;
+        unsigned int pt_index = (addr >> 12) & 0x3FF;
+        unsigned int pde = page_directory[pd_index];
+
+        unsigned int *table;
+        unsigned int table_phys;
+
+        if (!(pde & PAGE_PRESENT))
+        {
+            unsigned int new_pt_phys = alloc_page_table_phys();
+            page_directory[pd_index] = (new_pt_phys & 0xFFFFF000) | PAGE_PRESENT | PAGE_RW | PAGE_USER;
+            table = (unsigned int *)new_pt_phys;
+            table_phys = new_pt_phys;
+        }
+        else
+        {
+            table_phys = pde & 0xFFFFF000;
+
+            if (table_phys == ((unsigned int)first_page_table & 0xFFFFF000))
+            {
+                unsigned int new_pt_phys = alloc_page_table_phys();
+
+                unsigned int *old_table = (unsigned int *)table_phys;
+                unsigned int *new_table = (unsigned int *)new_pt_phys;
+
+                for (int i = 0; i < PAGE_ENTRIES; ++i)
+                {
+                    unsigned int ent = old_table[i];
+                    if (ent & PAGE_PRESENT)
+                        new_table[i] = ent;
+                    else
+                        new_table[i] = 0;
+                }
+
+                page_directory[pd_index] = (new_pt_phys & 0xFFFFF000) | PAGE_PRESENT | PAGE_RW | PAGE_USER;
+
+                table = new_table;
+                table_phys = new_pt_phys;
+            }
+            else
+            {
+                table = (unsigned int *)table_phys;
+                page_directory[pd_index] = (page_directory[pd_index] | PAGE_USER);
+            }
+        }
+
+        table[pt_index] = (addr & 0xFFFFF000) | PAGE_PRESENT | PAGE_RW | PAGE_USER;
+        __asm__ volatile("invlpg (%0)" ::"r"(addr) : "memory");
+    }
 }
 
 void unmap_page(unsigned int virt)
@@ -54,41 +129,43 @@ void unmap_page(unsigned int virt)
     if (!(pde & PAGE_PRESENT))
         return;
 
-    unsigned int *page_table = (unsigned int *)(pde & 0xFFFFF000);
+    if (!(pde & PAGE_USER))
+        return;
+
+    unsigned int table_phys = pde & 0xFFFFF000;
+    unsigned int *page_table = (unsigned int *)table_phys;
+
     page_table[pt_index] = 0;
     __asm__ volatile("invlpg (%0)" ::"r"(virt) : "memory");
+
+    int empty = 1;
+    for (int i = 0; i < PAGE_ENTRIES; ++i)
+    {
+        unsigned int ent = page_table[i];
+        if (ent & PAGE_PRESENT)
+        {
+            empty = 0;
+            break;
+        }
+    }
+
+    if (empty)
+    {
+        page_directory[pd_index] = 0;
+        free_page_table_phys(table_phys);
+    }
 }
 
-void set_user_pages(unsigned int phys_start, unsigned int size)
+void unmap_user_range(unsigned int virt_start, unsigned int size)
 {
-    unsigned int addr;
-    unsigned int end = phys_start + size;
-    for (addr = phys_start & 0xFFFFF000; addr < end; addr += PAGE_SIZE)
-    {
-        unsigned int pd_index = (addr >> 22) & 0x3FF;
-        unsigned int pt_index = (addr >> 12) & 0x3FF;
-        unsigned int pde = page_directory[pd_index];
+    if (size == 0)
+        return;
 
-        if (!(pde & PAGE_PRESENT))
-        {
-            unsigned int new_pt_phys = alloc_page_table_phys();
-            page_directory[pd_index] = (new_pt_phys & 0xFFFFF000) | PAGE_PRESENT | PAGE_RW | PAGE_USER;
-            unsigned int *table = (unsigned int *)new_pt_phys;
+    unsigned int start = virt_start & 0xFFFFF000u;
+    unsigned int end = (virt_start + size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
 
-            for (int i = 0; i < PAGE_ENTRIES; i++)
-                table[i] = 0;
-
-            table[pt_index] = (addr & 0xFFFFF000) | PAGE_PRESENT | PAGE_RW | PAGE_USER;
-        }
-        else
-        {
-            page_directory[pd_index] |= PAGE_USER;
-
-            unsigned int *table = (unsigned int *)(pde & 0xFFFFF000);
-            table[pt_index] = (table[pt_index] & 0xFFFFF000) | PAGE_PRESENT | PAGE_RW | PAGE_USER;
-        }
-        __asm__ volatile("invlpg (%0)" ::"r"(addr) : "memory");
-    }
+    for (unsigned int addr = start; addr < end; addr += PAGE_SIZE)
+        unmap_page(addr);
 }
 
 unsigned int get_pte(unsigned int virt)

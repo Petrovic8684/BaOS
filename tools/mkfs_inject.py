@@ -185,6 +185,8 @@ def main():
 
         for b in bins:
             name = os.path.basename(b)
+            if name.lower().endswith('.bin'):
+                name = name[:-4]
             if len(name) >= MAX_NAME:
                 raise Exception("name too long: " + name)
             dup = False

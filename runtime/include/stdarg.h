@@ -1,12 +1,10 @@
 #ifndef STDARG_H
 #define STDARG_H
 
-#include <stddef.h>
-
 typedef char *va_list;
 
 #define _VA_ROUND_SIZEOF(type) \
-    ((sizeof(type) + sizeof(uintptr_t) - 1) & ~(sizeof(uintptr_t) - 1))
+    ((sizeof(type) + sizeof(void *) - 1) & ~(sizeof(void *) - 1))
 
 #define va_start(ap, last) \
     (ap = (char *)&(last) + _VA_ROUND_SIZEOF(last))

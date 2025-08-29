@@ -34,9 +34,7 @@ void page_fault_handler_c(unsigned int cr2, unsigned int error_code)
     loader_saved_esp = 0;
     loader_saved_ebp = 0;
 
-    tss_set_esp0(0x00090000);
-
-    load_user_program("shell.bin", ((void *)0));
+    load_user_program("shell", ((void *)0));
 
     for (;;)
         __asm__ volatile("hlt");

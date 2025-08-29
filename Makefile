@@ -37,14 +37,15 @@ KERNEL_ASM_SRCS = kernel/system/idt/idt_flush.asm kernel/paging/page_fault.asm
 
 SHELL_SRCS = applications/shell/shell.c
 SHELL_DEPS = applications/shell/wrappers/wrappers.c
-SHELL_BINS = $(SHELL_SRCS:.c=.bin)
+SHELL_BIN = $(SHELL_SRCS:.c=.bin)
 
-TEST_SRC = applications/test.c
-TEST_BIN = $(TEST_SRC:.c=.bin)
+CALC_SRC = applications/calc/calc.c
+CALC_BIN = $(CALC_SRC:.c=.bin)
 
 KERNEL_OBJS = $(KERNEL_SRCS:.c=.o) $(KERNEL_ASM_SRCS:.asm=.o)
 KERNEL_BIN = kernel/kernel.bin
 KERNEL_LD  = kernel/link.ld
+
 IMG = baos.img
 IMG_SIZE = 16
 
@@ -55,6 +56,7 @@ RUNTIME_SRCS =  runtime/runtime.c \
                 runtime/src/dirent.c runtime/src/sys_stat.c \
                 runtime/src/sys_utsname.c runtime/src/time.c \
                 runtime/src/unistd.c \
+                runtime/src/math.c \
                 
 RUNTIME_OBJS = $(RUNTIME_SRCS:.c=.o)
 RUNTIME_INCLUDE = -I./runtime/include
@@ -88,7 +90,7 @@ $(KERNEL_BIN): $(KERNEL_OBJS) $(KERNEL_LD)
 %.bin: %.o $(SHELL_DEPS:.c=.o) $(RUNTIME_OBJS)
 	$(LD) -m elf_i386 -T kernel/loader/user.ld -o $@ $^
 
-# ------------- Test program build ------------
+# ------------- Calc program build ------------
 %.bin: %.o $(RUNTIME_OBJS)
 	$(LD) -m elf_i386 -T kernel/loader/user.ld -o $@ $^
 
@@ -96,11 +98,11 @@ $(KERNEL_BIN): $(KERNEL_OBJS) $(KERNEL_LD)
 	$(CC) -ffreestanding -m32 -nostdlib -fno-pie $(RUNTIME_INCLUDE) -c $< -o $@
 
 # ---------------- Disk image -----------------
-$(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BINS) $(TEST_BIN)
+$(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN)
 	$(DD) if=/dev/zero of=$(IMG) bs=1M count=$(IMG_SIZE)
 	$(DD) if=$(BOOT_BIN) of=$(IMG) conv=notrunc
 	$(DD) if=$(KERNEL_BIN) of=$(IMG) seek=1 conv=notrunc
-	for prog in $(SHELL_BINS) $(TEST_BIN); do \
+	for prog in $(SHELL_BIN) $(CALC_BIN); do \
 	    $(PY) tools/mkfs_inject.py $(IMG) $$prog; \
 	done
 
@@ -110,4 +112,4 @@ run: $(IMG)
 
 clean:
 	$(RM) $(BOOT_BIN) $(KERNEL_OBJS) $(KERNEL_BIN) $(IMG) \
-	      $(SHELL_BINS) $(SHELL_DEPS:.c=.o) $(TEST_BIN) $(RUNTIME_OBJS)
+	      $(SHELL_BIN) $(SHELL_DEPS:.c=.o) $(CALC_BIN) $(RUNTIME_OBJS)

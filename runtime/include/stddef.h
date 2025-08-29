@@ -7,6 +7,5 @@
 
 typedef unsigned int size_t;
 typedef int ptrdiff_t;
-typedef unsigned int uintptr_t;
 
 #endif
