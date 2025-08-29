@@ -271,18 +271,6 @@ void fs_init(void)
     write_colored("fs_init: created new FS.\n\n", 0x02);
 }
 
-const char *fs_get_current_dir_name(void)
-{
-    static FS_Dir cur;
-    if (!fs_initialized)
-        return "(fs not init)";
-
-    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
-        return "(io error)";
-
-    return cur.name;
-}
-
 int fs_make_dir(const char *name)
 {
     if (!fs_initialized)
@@ -424,22 +412,25 @@ int fs_make_file(const char *name)
     return FS_OK;
 }
 
-void fs_list_dir(void)
+const char *fs_list_dir(void)
 {
+    static char output[MAX_BUFF_SIZE];
+    int pos = 0;
+    output[0] = '\0';
+
     if (!fs_initialized)
     {
-        write_colored("Error: File system not initialized.\n", 0x04);
-        return;
+        return "Error: File system not initialized.\n";
     }
 
     FS_Dir cur;
     if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
     {
-        write_colored("Error: I/O error.\n", 0x04);
-        return;
+        return "Error: I/O error.\n";
     }
 
     int printed = 0;
+
     for (unsigned int i = 0; i < cur.dir_count; i++)
     {
         unsigned int child_lba = cur.dirs_lba[i];
@@ -448,15 +439,13 @@ void fs_list_dir(void)
         if (read_dir_lba(child_lba, &tmp) != FS_OK)
             continue;
 
-        char out[32];
-        unsigned int ni = 0;
-        for (unsigned int k = 0; k < MAX_NAME && tmp.name[k]; k++)
-            out[ni++] = tmp.name[k];
+        for (unsigned int k = 0; k < MAX_NAME && tmp.name[k] && pos < MAX_BUFF_SIZE - 1; k++)
+            output[pos++] = tmp.name[k];
 
-        out[ni++] = ' ';
-        out[ni] = '\0';
+        if (pos < MAX_BUFF_SIZE - 1)
+            output[pos++] = ' ';
 
-        write_colored(out, 0x09);
+        output[pos] = '\0';
         printed = 1;
     }
 
@@ -468,23 +457,31 @@ void fs_list_dir(void)
         if (read_file_lba(child_lba, &tmp) != FS_OK)
             continue;
 
-        char out[32];
-        unsigned int ni = 0;
+        for (unsigned int k = 0; k < MAX_NAME && tmp.name[k] && pos < MAX_BUFF_SIZE - 1; k++)
+            output[pos++] = tmp.name[k];
 
-        for (unsigned int k = 0; k < MAX_NAME && tmp.name[k]; k++)
-            out[ni++] = tmp.name[k];
+        if (pos < MAX_BUFF_SIZE - 1)
+            output[pos++] = ' ';
 
-        out[ni++] = ' ';
-        out[ni] = '\0';
-
-        write(out);
+        output[pos] = '\0';
         printed = 1;
     }
 
     if (!printed)
-        write("(empty directory)\n");
+    {
+        const char *empty_msg = "(empty directory)\n";
+        for (int i = 0; empty_msg[i] && pos < MAX_BUFF_SIZE - 1; i++)
+            output[pos++] = empty_msg[i];
+        output[pos] = '\0';
+    }
     else
-        write("\n");
+    {
+        if (pos < MAX_BUFF_SIZE - 1)
+            output[pos++] = '\n';
+        output[pos] = '\0';
+    }
+
+    return output;
 }
 
 int fs_change_dir(const char *name)
@@ -526,13 +523,13 @@ int fs_change_dir(const char *name)
     return FS_ERR_NOT_EXISTS;
 }
 
-void fs_where(void)
+const char *fs_where(void)
 {
+    static char path[MAX_BUFF_SIZE];
+    path[0] = '\0';
+
     if (!fs_initialized)
-    {
-        write_colored("Error: File system not initialized.\n", 0x04);
-        return;
-    }
+        return "Error: File system not initialized.\n";
 
     unsigned int path_lbas[MAX_DIRS];
     unsigned int depth = 0;
@@ -544,10 +541,7 @@ void fs_where(void)
         FS_Dir cur;
 
         if (read_dir_lba(lba, &cur) != FS_OK)
-        {
-            write_colored("Error: I/O error.\n", 0x04);
-            return;
-        }
+            return "Error: I/O error.\n";
 
         if (lba == cur.parent_lba)
             break;
@@ -555,24 +549,26 @@ void fs_where(void)
         lba = cur.parent_lba;
     }
 
-    write("/");
+    int pos = 0;
+    path[pos++] = '/';
+    path[pos] = '\0';
 
     for (int i = depth - 2; i >= 0; i--)
     {
         FS_Dir cur;
         if (read_dir_lba(path_lbas[i], &cur) != FS_OK)
-        {
-            write_colored("Error: I/O error.\n", 0x04);
-            return;
-        }
+            return "Error: I/O error.\n";
 
-        write(cur.name);
+        for (int j = 0; cur.name[j] != '\0' && pos < MAX_BUFF_SIZE - 1; j++)
+            path[pos++] = cur.name[j];
 
-        if (i > 0)
-            write("/");
+        if (i > 0 && pos < MAX_BUFF_SIZE - 1)
+            path[pos++] = '/';
+
+        path[pos] = '\0';
     }
 
-    write("\n");
+    return path;
 }
 
 int fs_delete_dir(const char *name)
@@ -825,88 +821,4 @@ int fs_read_file_buffer(const char *name, unsigned char *out_buf, unsigned int b
     }
 
     return FS_ERR_NOT_EXISTS;
-}
-
-void fs_info(const char *name)
-{
-    if (!fs_initialized)
-    {
-        write_colored("Error: File system not initialized.\n", 0x04);
-        return;
-    }
-
-    if (str_count(name) == 0)
-    {
-        write_colored("Error: No such file or directory.\n", 0x04);
-        return;
-    }
-
-    FS_Dir cur;
-    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
-    {
-        write_colored("Error: I/O error occured while reading info.\n", 0x04);
-        return;
-    }
-
-    for (unsigned int i = 0; i < cur.file_count; i++)
-    {
-        unsigned int file_lba = cur.files_lba[i];
-        FS_File f;
-
-        if (read_file_lba(file_lba, &f) != FS_OK)
-            continue;
-
-        if (str_equal(f.name, name))
-        {
-            write("File: ");
-            write(f.name);
-            write("\n");
-            write("Size: ");
-            write(uint_to_str(f.size));
-            write(" bytes\n");
-            write("In directory: ");
-            write(cur.name);
-            write("\n");
-
-            return;
-        }
-    }
-
-    for (unsigned int i = 0; i < cur.dir_count; i++)
-    {
-        unsigned int dir_lba = cur.dirs_lba[i];
-        FS_Dir d;
-
-        if (read_dir_lba(dir_lba, &d) != FS_OK)
-            continue;
-
-        if (str_equal(d.name, name))
-        {
-            write("Directory: ");
-            write(d.name);
-            write("\n");
-
-            FS_Dir parent;
-            if (read_dir_lba(d.parent_lba, &parent) != FS_OK)
-            {
-                write_colored("Error: Parent read error.\n", 0x04);
-                return;
-            }
-
-            write("Parent directory: ");
-            write(parent.name);
-            write("\n");
-
-            write("Files: ");
-            write(uint_to_str(d.file_count));
-            write("\n");
-            write("Subdirectories: ");
-            write(uint_to_str(d.dir_count));
-            write("\n");
-
-            return;
-        }
-    }
-
-    write_colored("Error: No such file or directory.\n", 0x04);
 }

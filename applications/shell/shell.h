@@ -1,7 +1,7 @@
 #ifndef SHELL_H
 #define SHELL_H
 
-#include "./history/history.h"
+#include <stdbool.h>
 #include "./wrappers/wrappers.h"
 
 typedef enum
@@ -18,14 +18,12 @@ typedef enum
     CMD_DELETEDIR,
     CMD_DELETEFILE,
     CMD_WRITEFILE,
-    CMD_INFO,
     CMD_READFILE,
     CMD_HELP,
     CMD_OSNAME,
     CMD_KERNELVERSION,
     CMD_SHUTDOWN,
-    CMD_FILLING,
-    CMD_CALC
+    CMD_RUN
 } Command;
 
 Command parse_command(const char *cmd);

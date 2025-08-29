@@ -7,6 +7,8 @@
 #include "../helpers/memory/memory.h"
 #include "../helpers/ports/ports.h"
 
+#define MAX_BUFF_SIZE 1024
+
 #define FS_OK 0
 #define FS_ERR_NO_DRV -1
 #define FS_ERR_IO -2
@@ -68,17 +70,15 @@ typedef struct
 extern int fs_initialized;
 
 void fs_init(void);
-const char *fs_get_current_dir_name(void);
 int fs_make_dir(const char *name);
 int fs_make_file(const char *name);
-void fs_list_dir(void);
+const char *fs_list_dir(void);
 int fs_change_dir(const char *name);
-void fs_where(void);
+const char *fs_where(void);
 int fs_delete_dir(const char *name);
 int fs_delete_file(const char *name);
 int fs_write_file(const char *name, const char *text);
 int fs_read_file(const char *name);
 int fs_read_file_buffer(const char *name, unsigned char *out_buf, unsigned int buf_size, unsigned int *out_size);
-void fs_info(const char *name);
 
 #endif

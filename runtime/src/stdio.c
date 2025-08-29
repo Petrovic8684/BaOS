@@ -1,5 +1,200 @@
 #include <stdio.h>
-#include <stdarg.h>
+#include <string.h>
+
+#define SYS_WRITE 1
+#define SYS_GET_CURSOR_ROW 4
+#define SYS_GET_CURSOR_COL 5
+#define SYS_DRAW_CHAR_AT 9
+#define SYS_READ 10
+#define SYS_UPDATE_CURSOR 25
+#define SYS_FS_MAKE_FILE 14
+#define SYS_FS_DELETE_FILE 18
+#define SYS_FS_WRITE_FILE 19
+#define SYS_FS_READ_FILE 20
+
+#define MAX_OPEN_FILES 16
+
+static inline void write(const char *str)
+{
+    asm volatile(
+        "movl %[num], %%eax\n\t"
+        "movl %[s], %%ebx\n\t"
+        "int $0x80\n\t"
+        :
+        : [num] "i"(SYS_WRITE), [s] "r"(str)
+        : "eax", "ebx", "memory");
+}
+
+static inline int get_cursor_row(void)
+{
+    int row;
+    asm volatile(
+        "movl %[num], %%eax\n\t"
+        "int $0x80\n\t"
+        "movl %%ebx, %[res]\n\t"
+        : [res] "=r"(row)
+        : [num] "i"(SYS_GET_CURSOR_ROW)
+        : "eax", "ebx", "memory");
+    return row;
+}
+
+static inline int get_cursor_col(void)
+{
+    int col;
+    asm volatile(
+        "movl %[num], %%eax\n\t"
+        "int $0x80\n\t"
+        "movl %%ebx, %[res]\n\t"
+        : [res] "=r"(col)
+        : [num] "i"(SYS_GET_CURSOR_COL)
+        : "eax", "ebx", "memory");
+    return col;
+}
+
+static inline void draw_char_at(int r, int c, char ch)
+{
+    struct
+    {
+        int r;
+        int c;
+        char ch;
+    } args = {r, c, ch};
+
+    asm volatile(
+        "movl %[num], %%eax\n\t"
+        "movl %[a], %%ebx\n\t"
+        "int $0x80\n\t"
+        :
+        : [num] "i"(SYS_DRAW_CHAR_AT), [a] "r"(&args)
+        : "eax", "ebx", "memory");
+}
+
+static inline void update_cursor(int row, int col)
+{
+    struct
+    {
+        int row;
+        int col;
+    } args = {row, col};
+
+    asm volatile(
+        "movl %[num], %%eax\n\t"
+        "movl %[a], %%ebx\n\t"
+        "int $0x80\n\t"
+        :
+        : [num] "i"(SYS_UPDATE_CURSOR), [a] "r"(&args)
+        : "eax", "ebx", "memory");
+}
+
+static inline char read(void)
+{
+    unsigned int ret;
+    asm volatile(
+        "movl %[num], %%eax\n\t"
+        "int $0x80\n\t"
+        "movl %%ebx, %[res]\n\t"
+        : [res] "=r"(ret)
+        : [num] "i"(SYS_READ)
+        : "eax", "ebx", "memory");
+    return (char)(ret & 0xFF);
+}
+
+static inline int fs_make_file(const char *name)
+{
+    unsigned int ret;
+    asm volatile(
+        "movl %[num], %%eax\n\t"
+        "movl %[n], %%ebx\n\t"
+        "int $0x80\n\t"
+        "movl %%ebx, %[res]\n\t"
+        : [res] "=r"(ret)
+        : [num] "i"(SYS_FS_MAKE_FILE), [n] "r"(name)
+        : "eax", "ebx", "memory");
+    return (int)ret;
+}
+
+static inline int fs_delete_file(const char *name)
+{
+    unsigned int ret;
+    asm volatile(
+        "movl %[num], %%eax\n\t"
+        "movl %[n], %%ebx\n\t"
+        "int $0x80\n\t"
+        "movl %%ebx, %[res]\n\t"
+        : [res] "=r"(ret)
+        : [num] "i"(SYS_FS_DELETE_FILE), [n] "r"(name)
+        : "eax", "ebx", "memory");
+    return (int)ret;
+}
+
+static inline int fs_write_file(const char *name, const char *text)
+{
+    struct
+    {
+        const char *name;
+        const char *text;
+    } args = {name, text};
+    unsigned int ret;
+    asm volatile(
+        "movl %[num], %%eax\n\t"
+        "movl %[a], %%ebx\n\t"
+        "int $0x80\n\t"
+        "movl %%ebx, %[res]\n\t"
+        : [res] "=r"(ret)
+        : [num] "i"(SYS_FS_WRITE_FILE), [a] "r"(&args)
+        : "eax", "ebx", "memory");
+    return (int)ret;
+}
+
+static inline int fs_read_file(const char *name)
+{
+    unsigned int ret;
+    asm volatile(
+        "movl %[num], %%eax\n\t"
+        "movl %[n], %%ebx\n\t"
+        "int $0x80\n\t"
+        "movl %%ebx, %[res]\n\t"
+        : [res] "=r"(ret)
+        : [num] "i"(SYS_FS_READ_FILE), [n] "r"(name)
+        : "eax", "ebx", "memory");
+    return (int)ret;
+}
+
+static FILE _file_table[MAX_OPEN_FILES];
+
+static FILE *alloc_file_slot(void)
+{
+    for (int i = 0; i < MAX_OPEN_FILES; i++)
+    {
+        if (_file_table[i].name == NULL)
+        {
+            _file_table[i].name = NULL;
+            _file_table[i].mode = 0;
+            _file_table[i].pos = 0;
+            _file_table[i].buf_pos = 0;
+            _file_table[i].buf_end = 0;
+            _file_table[i].eof = 0;
+            _file_table[i].err = 0;
+            return &_file_table[i];
+        }
+    }
+
+    return NULL;
+}
+
+static void free_file_slot(FILE *f)
+{
+    if (!f)
+        return;
+
+    f->name = NULL;
+    f->mode = 0;
+    f->pos = 0;
+    f->buf_pos = 0;
+    f->buf_end = 0;
+    f->eof = 0;
+    f->err = 0;
+}
 
 static int stdin_ungetc = -1;
 
@@ -16,11 +211,13 @@ int fputc(int c, FILE *stream)
         return EOF;
 
     stream->buf[stream->buf_pos++] = (unsigned char)c;
-    if (stream->buf_pos >= BUFSIZE)
+
+    if (stream->buf_pos >= BUFSIZ)
     {
         fs_write_file(stream->name, (char *)stream->buf);
         stream->buf_pos = 0;
     }
+
     return c;
 }
 
@@ -179,14 +376,22 @@ int fgetc(FILE *stream)
     if (stream == stdout || stream == stderr)
         return EOF;
 
-    if (stream->buf_pos == 0)
+    if (stream->buf_pos >= stream->buf_end)
     {
         int size = fs_read_file(stream->name);
         if (size <= 0)
+        {
+            stream->eof = 1;
             return EOF;
+        }
+        stream->buf_end = (unsigned int)size;
+        stream->buf_pos = 0;
     }
 
-    return (int)stream->buf[stream->buf_pos++];
+    int ch = (int)stream->buf[stream->buf_pos++];
+    if (stream->buf_pos >= stream->buf_end)
+        stream->eof = 1;
+    return ch;
 }
 
 static void redraw_buffer(const char *buf, int len, int start_row, int start_col)
@@ -469,8 +674,265 @@ int fflush(FILE *stream)
     if (stream->buf_pos == 0)
         return 0;
 
-    fs_write_file(stream->name, (char *)stream->buf);
+    int res = fs_write_file(stream->name, (char *)stream->buf);
     stream->buf_pos = 0;
 
+    if (res < 0)
+    {
+        stream->err = 1;
+        return EOF;
+    }
     return 0;
+}
+
+FILE *fopen(const char *pathname, const char *mode)
+{
+    if (!pathname || !mode)
+        return NULL;
+
+    FILE *f = alloc_file_slot();
+    if (!f)
+        return NULL;
+
+    f->name = pathname;
+    f->pos = 0;
+    f->buf_pos = 0;
+    f->buf_end = 0;
+    f->eof = 0;
+    f->err = 0;
+
+    if (mode[0] == 'r')
+    {
+        f->mode = 0;
+        int size = fs_read_file(f->name);
+        if (size > 0)
+        {
+            f->buf_end = (unsigned int)size;
+            f->buf_pos = 0;
+        }
+        else
+        {
+            f->buf_end = 0;
+            f->buf_pos = 0;
+        }
+    }
+    else if (mode[0] == 'w')
+    {
+        f->mode = 1;
+        fs_make_file(f->name);
+        f->buf_pos = 0;
+        f->buf_end = 0;
+    }
+    else if (mode[0] == 'a')
+    {
+        f->mode = 1;
+        int size = fs_read_file(f->name);
+        if (size > 0)
+        {
+            f->buf_end = (unsigned int)size;
+            f->buf_pos = f->buf_end % BUFSIZ;
+        }
+        else
+        {
+            fs_make_file(f->name);
+            f->buf_pos = 0;
+            f->buf_end = 0;
+        }
+    }
+    else
+    {
+        free_file_slot(f);
+        return NULL;
+    }
+
+    return f;
+}
+
+int fclose(FILE *stream)
+{
+    if (!stream)
+        return EOF;
+
+    if (stream == stdout || stream == stderr || stream == stdin)
+        return EOF;
+
+    if (stream->mode == 1 && stream->buf_pos > 0)
+        if (fflush(stream) == EOF)
+            stream->err = 1;
+
+    free_file_slot(stream);
+    return 0;
+}
+
+size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream)
+{
+    if (!ptr || !stream || size == 0 || nmemb == 0)
+        return 0;
+    size_t total = size * nmemb;
+    size_t i;
+    unsigned char *out = (unsigned char *)ptr;
+    for (i = 0; i < total; i++)
+    {
+        int c = fgetc(stream);
+        if (c == EOF)
+            break;
+        out[i] = (unsigned char)c;
+    }
+    return i / size;
+}
+
+size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream)
+{
+    if (!ptr || !stream || size == 0 || nmemb == 0)
+        return 0;
+    size_t total = size * nmemb;
+    const unsigned char *in = (const unsigned char *)ptr;
+    size_t i;
+    for (i = 0; i < total; i++)
+        if (fputc(in[i], stream) == EOF)
+            break;
+
+    return i / size;
+}
+
+int fseek(FILE *stream, long offset, int whence)
+{
+    if (!stream)
+        return -1;
+    if (stream == stdout || stream == stderr)
+        return -1;
+
+    if (whence == SEEK_SET)
+    {
+        if (offset < 0)
+            return -1;
+        if ((unsigned long)offset <= stream->buf_end)
+        {
+            stream->buf_pos = (unsigned int)offset;
+            stream->eof = (stream->buf_pos >= stream->buf_end);
+            return 0;
+        }
+        if (stream->mode == 0)
+        {
+            int size = fs_read_file(stream->name);
+            if (size >= 0)
+            {
+                stream->buf_end = (unsigned int)size;
+                if ((unsigned long)offset <= stream->buf_end)
+                {
+                    stream->buf_pos = (unsigned int)offset;
+                    stream->eof = (stream->buf_pos >= stream->buf_end);
+                    return 0;
+                }
+            }
+        }
+        return -1;
+    }
+    else if (whence == SEEK_CUR)
+    {
+        long newpos = (long)stream->buf_pos + offset;
+        return fseek(stream, newpos, SEEK_SET);
+    }
+    else if (whence == SEEK_END)
+    {
+        long newpos = (long)stream->buf_end + offset;
+        return fseek(stream, newpos, SEEK_SET);
+    }
+    return -1;
+}
+
+long ftell(FILE *stream)
+{
+    if (!stream)
+        return -1;
+    return (long)stream->buf_pos;
+}
+
+void rewind(FILE *stream)
+{
+    if (!stream)
+        return;
+    fseek(stream, 0, SEEK_SET);
+    clearerr(stream);
+}
+
+int remove(const char *pathname)
+{
+    if (!pathname)
+        return -1;
+    int res = fs_delete_file(pathname);
+    return (res == 0) ? 0 : -1;
+}
+
+int rename(const char *oldpath, const char *newpath)
+{
+    if (!oldpath || !newpath)
+        return -1;
+
+    FILE *oldf = fopen(oldpath, "r");
+    if (!oldf)
+        return -1;
+
+    FILE *newf = fopen(newpath, "w");
+    if (!newf)
+    {
+        fclose(oldf);
+        return -1;
+    }
+
+    int ch;
+    while ((ch = fgetc(oldf)) != EOF)
+        if (fputc(ch, newf) == EOF)
+        {
+            fclose(oldf);
+            fclose(newf);
+            return -1;
+        }
+
+    fflush(newf);
+    fclose(oldf);
+    fclose(newf);
+
+    int del = fs_delete_file(oldpath);
+    if (del != 0)
+        return -1;
+
+    return 0;
+}
+
+int feof(FILE *stream)
+{
+    if (!stream)
+        return 0;
+    return stream->eof;
+}
+
+int ferror(FILE *stream)
+{
+    if (!stream)
+        return 0;
+    return stream->err;
+}
+
+void clearerr(FILE *stream)
+{
+    if (!stream)
+        return;
+    stream->err = 0;
+    stream->eof = 0;
+}
+
+int setvbuf(FILE *stream, char *buf, int mode, size_t size)
+{
+    (void)stream;
+    (void)buf;
+    (void)mode;
+    (void)size;
+    return 0;
+}
+
+void setbuf(FILE *stream, char *buf)
+{
+    (void)stream;
+    (void)buf;
 }

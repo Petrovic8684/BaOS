@@ -1,4 +1,5 @@
 #include "../drivers/display/display.h"
+#include "../loader/loader.h"
 #include "paging.h"
 
 void page_fault_handler_c(unsigned int cr2, unsigned int error_code)
@@ -27,6 +28,16 @@ void page_fault_handler_c(unsigned int cr2, unsigned int error_code)
     if (error_code & 0x10)
         write("  - Instruction fetch\n");
 
+    write_colored("\nAborting user program, returning to shell...\n\n", 0x0E);
+
+    loader_return_eip = 0;
+    loader_saved_esp = 0;
+    loader_saved_ebp = 0;
+
+    tss_set_esp0(0x00090000);
+
+    load_user_program("shell.bin", ((void *)0));
+
     for (;;)
-        ;
+        __asm__ volatile("hlt");
 }

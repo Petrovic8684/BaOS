@@ -1,10 +1,12 @@
-#include "./user_syscalls.h"
-
-extern int main(int argc, char **argv);
-
-void _start()
+__attribute__((naked)) void _start(void)
 {
-    int ret = main(0, ((void *)0));
-
-    sys_exit(ret);
+    asm volatile(
+        "movl (%esp), %eax\n\t"
+        "movl 4(%esp), %ebx\n\t"
+        "pushl %ebx\n\t"
+        "pushl %eax\n\t"
+        "call main\n\t"
+        "movl %eax, %ebx\n\t"
+        "movl $0, %eax\n\t"
+        "int $0x80\n\t");
 }

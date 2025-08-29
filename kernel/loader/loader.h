@@ -48,9 +48,14 @@ typedef struct
     Elf32_Word p_align;
 } Elf32_Phdr;
 
+extern unsigned int loader_return_eip;
+extern unsigned int loader_saved_esp;
+extern unsigned int loader_saved_ebp;
+
 extern void (*loader_post_return_callback)(void);
 
 typedef void (*user_entry_t)(void);
-void load_user_program(const char *name);
+void load_next_program(void);
+void load_user_program(const char *name, const char **user_argv);
 
 #endif

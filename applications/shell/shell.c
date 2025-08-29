@@ -4,9 +4,9 @@ void main(void)
 {
     char buffer[80];
 
-    while (1)
+    while (true)
     {
-        printf("BaOS %s> ", fs_get_current_dir_name());
+        printf("BaOS %s> ", wrapper_get_current_dir_name());
         read_line(buffer, 80);
         printf("\n");
         process_command(buffer);
@@ -37,8 +37,6 @@ Command parse_command(const char *cmd)
         return CMD_DELETEFILE;
     if (strcmp(cmd, "writefile") == 0)
         return CMD_WRITEFILE;
-    if (strcmp(cmd, "info") == 0)
-        return CMD_INFO;
     if (strcmp(cmd, "readfile") == 0)
         return CMD_READFILE;
     if (strcmp(cmd, "help") == 0)
@@ -49,36 +47,28 @@ Command parse_command(const char *cmd)
         return CMD_KERNELVERSION;
     if (strcmp(cmd, "shutdown") == 0)
         return CMD_SHUTDOWN;
-    if (strcmp(cmd, "filling") == 0)
-        return CMD_FILLING;
-    if (strcmp(cmd, "calc") == 0)
-        return CMD_CALC;
+    if (strcmp(cmd, "run") == 0)
+        return CMD_RUN;
     return CMD_UNKNOWN;
 }
 
 void process_command(char *cmd)
 {
-    int i = 0, j;
-    char command[32], arg1[32], arg2[256];
+    char command[32] = {0};
+    char arg1[32] = {0};
+    char arg2[256] = {0};
 
-    j = 0;
-    while (cmd[i] && cmd[i] != ' ')
-        command[j++] = cmd[i++];
-    command[j] = 0;
+    char *token = strtok(cmd, " ");
+    if (token)
+        strncpy(command, token, sizeof(command) - 1);
 
-    while (cmd[i] == ' ')
-        i++;
-    j = 0;
-    while (cmd[i] && cmd[i] != ' ')
-        arg1[j++] = cmd[i++];
-    arg1[j] = 0;
+    token = strtok(NULL, " ");
+    if (token)
+        strncpy(arg1, token, sizeof(arg1) - 1);
 
-    while (cmd[i] == ' ')
-        i++;
-    j = 0;
-    while (cmd[i])
-        arg2[j++] = cmd[i++];
-    arg2[j] = 0;
+    token = strtok(NULL, "");
+    if (token)
+        strncpy(arg2, token, sizeof(arg2) - 1);
 
     Command c = parse_command(command);
 
@@ -86,9 +76,6 @@ void process_command(char *cmd)
     {
     case CMD_CLEAR:
         wrapper_clear();
-        return;
-    case CMD_FILLING:
-        wrapper_filling(arg1);
         return;
     case CMD_LIST:
         wrapper_list_dir();
@@ -120,9 +107,6 @@ void process_command(char *cmd)
     case CMD_WRITEFILE:
         wrapper_write_file(arg1, arg2);
         break;
-    case CMD_INFO:
-        wrapper_info(arg1);
-        break;
     case CMD_READFILE:
         wrapper_read_file(arg1);
         break;
@@ -138,8 +122,8 @@ void process_command(char *cmd)
     case CMD_SHUTDOWN:
         wrapper_shutdown();
         break;
-    case CMD_CALC:
-        wrapper_calc(arg1);
+    case CMD_RUN:
+        wrapper_run(arg1, arg2);
         break;
     default:
         printf("Error: Unknown command. Type 'help' for a list of valid commands.\n");

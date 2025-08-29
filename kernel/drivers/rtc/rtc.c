@@ -3,66 +3,56 @@
 #define CMOS_ADDRESS 0x70
 #define CMOS_DATA 0x71
 
-#define TIMEZONE_OFFSET 2 // UTC+2
-
 static unsigned char cmos_read(unsigned char reg)
 {
     outb(CMOS_ADDRESS, reg);
     return inb(CMOS_DATA);
 }
 
-static void apply_timezone(DateTime *dt)
+static int is_leap_year(int y)
 {
-    int hour = dt->hour + TIMEZONE_OFFSET;
-
-    if (hour >= 24)
-    {
-        hour -= 24;
-        dt->day++;
-
-        if (dt->day > 31)
-        {
-            dt->day = 1;
-            dt->month++;
-
-            if (dt->month > 12)
-            {
-                dt->month = 1;
-                dt->year++;
-            }
-        }
-    }
-
-    dt->hour = hour;
+    return ((y % 4 == 0 && y % 100 != 0) || (y % 400 == 0));
 }
 
-DateTime rtc_now(void)
+static long days_from_civil(int y, unsigned m, unsigned d)
 {
-    DateTime dt;
+    y -= m <= 2;
+    const long era = (y >= 0 ? y : y - 399) / 400;
+    const unsigned yoe = (unsigned)(y - era * 400);
+    const unsigned doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+    const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + (long)doe - 719468;
+}
 
+unsigned int rtc_now(void)
+{
+    unsigned char sec, min, hour, day, mon, year;
     unsigned char regB;
+
     outb(CMOS_ADDRESS, 0x0B);
     regB = inb(CMOS_DATA);
 
-    dt.second = cmos_read(0x00);
-    dt.minute = cmos_read(0x02);
-    dt.hour = cmos_read(0x04);
-    dt.day = cmos_read(0x07);
-    dt.month = cmos_read(0x08);
-    dt.year = cmos_read(0x09);
+    sec = cmos_read(0x00);
+    min = cmos_read(0x02);
+    hour = cmos_read(0x04);
+    day = cmos_read(0x07);
+    mon = cmos_read(0x08);
+    year = cmos_read(0x09);
 
-    // Convert from BCD
-    if (!(regB & 0x04))
+    if (!(regB & 0x04)) // BCD to binary
     {
-        dt.second = bcd_to_bin(dt.second);
-        dt.minute = bcd_to_bin(dt.minute);
-        dt.hour = bcd_to_bin(dt.hour);
-        dt.day = bcd_to_bin(dt.day);
-        dt.month = bcd_to_bin(dt.month);
-        dt.year = bcd_to_bin(dt.year);
+        sec = bcd_to_bin(sec);
+        min = bcd_to_bin(min);
+        hour = bcd_to_bin(hour);
+        day = bcd_to_bin(day);
+        mon = bcd_to_bin(mon);
+        year = bcd_to_bin(year);
     }
 
-    apply_timezone(&dt);
+    int yr = (year < 100) ? (2000 + year) : year;
 
-    return dt;
+    long days = days_from_civil(yr, mon, day);
+    long seconds = days * 86400 + hour * 3600 + min * 60 + sec;
+
+    return (unsigned int)seconds;
 }
