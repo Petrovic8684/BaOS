@@ -208,7 +208,7 @@ static unsigned int get_cr2(void)
     return v;
 }
 
-void paging_install(void)
+void paging_init(void)
 {
     clear();
     write("About to enable paging...\n");

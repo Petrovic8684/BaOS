@@ -4,13 +4,12 @@
 #include "./paging/paging.h"
 #include "./fs/fs.h"
 #include "./loader/loader.h"
-#include "./drivers/display/display.h"
 
 __attribute__((section(".text"), used, noreturn)) void kernel_main(void)
 {
     idt_init();
 
-    paging_install();
+    paging_init();
     gdt_init();
     tss_init();
 

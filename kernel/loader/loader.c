@@ -73,35 +73,38 @@ void load_next_program(void)
 {
     if (!next_prog_argv || !next_prog_argv[0])
     {
-        write("\033[31mload_next_program: no next program set\n\033[0m");
+        write("\033[31mError: No next program set.\033[0m\n");
         return;
     }
 
     loader_post_return_callback = load_shell_again;
 
-    load_user_program(next_prog_argv[0], next_prog_argv);
+    const char *prog = next_prog_argv[0];
+    const char **argv = next_prog_argv;
 
     next_prog_name = 0;
     next_prog_argv = 0;
+
+    load_user_program(prog, argv);
 }
 
 void load_user_program(const char *name, const char **user_argv)
 {
     if (!fs_is_initialized())
     {
-        write("\033\[31mFS not initialized.\n\033\[0m");
+        write("\033\[31mError: FS not initialized.\n\033\[0m");
         load_shell_again();
         return;
     }
 
     cleanup_previous_user_space();
 
-    unsigned char buf[65536];
+    static unsigned char buf[65536];
     unsigned int size = 0;
 
     if (fs_read_file(name, buf, sizeof(buf), &size) != FS_OK)
     {
-        write("\033\[31mFailed to read user program.\n\033\[0m");
+        write("\033[31mError: Failed to read user program.\n\033[0m");
         load_shell_again();
         return;
     }
@@ -116,7 +119,7 @@ void load_user_program(const char *name, const char **user_argv)
     Elf32_Ehdr *ehdr = (Elf32_Ehdr *)buf;
     if (ehdr->e_ident[0] != 0x7F || ehdr->e_ident[1] != 'E' || ehdr->e_ident[2] != 'L' || ehdr->e_ident[3] != 'F')
     {
-        write("\033\[31mNot a valid ELF file.\n\033\[0m");
+        write("\033\[31mError: Not a valid ELF file.\n\033\[0m");
         load_shell_again();
         return;
     }
@@ -133,7 +136,7 @@ void load_user_program(const char *name, const char **user_argv)
 
         if (phdr[i].p_vaddr == 0)
         {
-            write("\033\[31mWarning: PHDR has p_vaddr == 0, skipping\n\033\[0m");
+            write("\033\[Error: PHDR has p_vaddr == 0, skipping.\n\033\[0m");
             continue;
         }
 
@@ -190,7 +193,7 @@ void load_user_program(const char *name, const char **user_argv)
 
         if (cur < USER_STACK_BOTTOM + needed)
         {
-            write("\033\[31mNot enough user stack space for args.\n\033\[0m");
+            write("\033\[31mError: Not enough user stack space for args.\n\033\[0m");
             load_shell_again();
             return;
         }
@@ -209,7 +212,7 @@ void load_user_program(const char *name, const char **user_argv)
     unsigned int argv_array_addr = cur - ((argc + 1) * sizeof(char *));
     if (argv_array_addr < USER_STACK_BOTTOM)
     {
-        write("\033\[31mNot enough user stack space for argv array.\n\033\[0m");
+        write("\033\[31mError: Not enough user stack space for argv array.\n\033\[0m");
         load_shell_again();
         return;
     }
@@ -222,7 +225,7 @@ void load_user_program(const char *name, const char **user_argv)
     unsigned int final_stack = argv_array_addr - 2 * sizeof(unsigned int);
     if (final_stack < USER_STACK_BOTTOM)
     {
-        write("\033\[31mNot enough user stack space for argc/argv ptr.\n\033\[0m");
+        write("\033\[31mError: Not enough user stack space for argc/argv ptr.\n\033\[0m");
         load_shell_again();
         return;
     }
@@ -239,7 +242,7 @@ void load_user_program(const char *name, const char **user_argv)
         jump_to_user(ehdr->e_entry, final_stack);
     else
     {
-        write("\033\[31mEntry not mapped as user (abort jump).\n\033\[0m");
+        write("\033\[31mError: Entry not mapped as user (abort jump).\n\033\[0m");
         load_shell_again();
         return;
     }

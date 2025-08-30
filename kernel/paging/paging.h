@@ -14,7 +14,7 @@
 #define PAGE_SIZE_4MB 0x80
 #define PAGE_GLOBAL 0x100
 
-void paging_install(void);
+void paging_init(void);
 unsigned int get_pte(unsigned int virt);
 void unmap_user_range(unsigned int virt_start, unsigned int size);
 void ensure_phys_range_mapped(unsigned int phys_start, unsigned int size);
