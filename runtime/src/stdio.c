@@ -1,20 +1,21 @@
 #include <stdio.h>
+#include <stdarg.h>
+#include <stddef.h>
 #include <string.h>
+#include <stdint.h>
 
 #define SYS_WRITE 1
-#define SYS_GET_CURSOR_ROW 4
-#define SYS_GET_CURSOR_COL 5
-#define SYS_DRAW_CHAR_AT 9
-#define SYS_READ 10
-#define SYS_UPDATE_CURSOR 25
-#define SYS_FS_MAKE_FILE 14
-#define SYS_FS_DELETE_FILE 18
-#define SYS_FS_WRITE_FILE 19
-#define SYS_FS_READ_FILE 20
+#define SYS_READ 3
+#define SYS_FS_MAKE_FILE 13
+#define SYS_FS_DELETE_FILE 14
+#define SYS_FS_WRITE_FILE 15
+#define SYS_FS_READ_FILE 16
+#define SYS_GET_CURSOR_ROW 18
+#define SYS_GET_CURSOR_COL 19
 
 #define MAX_OPEN_FILES 16
 
-static inline void write(const char *str)
+static inline void sys_write(const char *str)
 {
     asm volatile(
         "movl %[num], %%eax\n\t"
@@ -25,68 +26,7 @@ static inline void write(const char *str)
         : "eax", "ebx", "memory");
 }
 
-static inline int get_cursor_row(void)
-{
-    int row;
-    asm volatile(
-        "movl %[num], %%eax\n\t"
-        "int $0x80\n\t"
-        "movl %%ebx, %[res]\n\t"
-        : [res] "=r"(row)
-        : [num] "i"(SYS_GET_CURSOR_ROW)
-        : "eax", "ebx", "memory");
-    return row;
-}
-
-static inline int get_cursor_col(void)
-{
-    int col;
-    asm volatile(
-        "movl %[num], %%eax\n\t"
-        "int $0x80\n\t"
-        "movl %%ebx, %[res]\n\t"
-        : [res] "=r"(col)
-        : [num] "i"(SYS_GET_CURSOR_COL)
-        : "eax", "ebx", "memory");
-    return col;
-}
-
-static inline void draw_char_at(int r, int c, char ch)
-{
-    struct
-    {
-        int r;
-        int c;
-        char ch;
-    } args = {r, c, ch};
-
-    asm volatile(
-        "movl %[num], %%eax\n\t"
-        "movl %[a], %%ebx\n\t"
-        "int $0x80\n\t"
-        :
-        : [num] "i"(SYS_DRAW_CHAR_AT), [a] "r"(&args)
-        : "eax", "ebx", "memory");
-}
-
-static inline void update_cursor(int row, int col)
-{
-    struct
-    {
-        int row;
-        int col;
-    } args = {row, col};
-
-    asm volatile(
-        "movl %[num], %%eax\n\t"
-        "movl %[a], %%ebx\n\t"
-        "int $0x80\n\t"
-        :
-        : [num] "i"(SYS_UPDATE_CURSOR), [a] "r"(&args)
-        : "eax", "ebx", "memory");
-}
-
-static inline char read(void)
+static inline char sys_read(void)
 {
     unsigned int ret;
     asm volatile(
@@ -146,18 +86,414 @@ static inline int fs_write_file(const char *name, const char *text)
     return (int)ret;
 }
 
-static inline int fs_read_file(const char *name)
+static inline int fs_read_file(const char *name, unsigned char *out_buf, unsigned int buf_size, unsigned int *out_size)
+{
+    struct
+    {
+        const char *name;
+        unsigned char *out_buf;
+        unsigned int buf_size;
+        unsigned int *out_size;
+    } args = {name, out_buf, buf_size, out_size};
+
+    unsigned int ret;
+    asm volatile(
+        "movl %[num], %%eax\n\t"
+        "movl %[a], %%ebx\n\t"
+        "int $0x80\n\t"
+        "movl %%ebx, %[res]\n\t"
+        : [res] "=r"(ret)
+        : [num] "i"(SYS_FS_READ_FILE), [a] "r"(&args)
+        : "eax", "ebx", "memory");
+    return (int)ret;
+}
+
+static inline int fs_read_file_size(const char *name)
+{
+    unsigned int out = 0;
+    int rc = fs_read_file(name, NULL, 0, &out);
+    return (rc == 0) ? (int)out : -1;
+}
+
+static inline int sys_get_cursor_row(void)
 {
     unsigned int ret;
     asm volatile(
         "movl %[num], %%eax\n\t"
-        "movl %[n], %%ebx\n\t"
         "int $0x80\n\t"
         "movl %%ebx, %[res]\n\t"
         : [res] "=r"(ret)
-        : [num] "i"(SYS_FS_READ_FILE), [n] "r"(name)
+        : [num] "i"(SYS_GET_CURSOR_ROW)
         : "eax", "ebx", "memory");
     return (int)ret;
+}
+
+static inline int sys_get_cursor_col(void)
+{
+    unsigned int ret;
+    asm volatile(
+        "movl %[num], %%eax\n\t"
+        "int $0x80\n\t"
+        "movl %%ebx, %[res]\n\t"
+        : [res] "=r"(ret)
+        : [num] "i"(SYS_GET_CURSOR_COL)
+        : "eax", "ebx", "memory");
+    return (int)ret;
+}
+
+static int tty_row = 0;
+static int tty_col = 0;
+static unsigned char tty_attr = 0x07;
+
+enum ansi_state
+{
+    ANSI_NORMAL_ST = 0,
+    ANSI_ESC_ST,
+    ANSI_CSI_ST
+};
+
+static int ansi_state = ANSI_NORMAL_ST;
+static char ansi_params[64];
+static int ansi_params_len = 0;
+
+static char *int_to_dec_str(unsigned int v, char *out_end)
+{
+    char buf[16];
+    int i = 0;
+    if (v == 0)
+    {
+        buf[i++] = '0';
+    }
+    else
+    {
+        while (v > 0 && i < (int)sizeof(buf))
+        {
+            buf[i++] = '0' + (v % 10);
+            v /= 10;
+        }
+    }
+    char *p = out_end;
+    while (i-- > 0)
+        *p++ = buf[i];
+    *p = '\0';
+    return out_end;
+}
+
+static void send_move_syscall(int r, int c)
+{
+    char seq[32];
+    char *p = seq;
+    *p++ = 0x1B;
+    *p++ = '[';
+    char numbuf[12];
+    int_to_dec_str((unsigned int)r, numbuf);
+    for (char *q = numbuf; *q; q++)
+        *p++ = *q;
+    *p++ = ';';
+    int_to_dec_str((unsigned int)c, numbuf);
+    for (char *q = numbuf; *q; q++)
+        *p++ = *q;
+    *p++ = 'H';
+    *p = '\0';
+    sys_write(seq);
+}
+
+static void update_cursor(int new_row, int new_col)
+{
+    if (new_row < 0)
+        new_row = 0;
+    if (new_row > 24)
+        new_row = 24;
+    if (new_col < 0)
+        new_col = 0;
+    if (new_col > 79)
+        new_col = 79;
+
+    tty_row = new_row;
+    tty_col = new_col;
+    send_move_syscall(tty_row + 1, tty_col + 1);
+}
+
+static int get_cursor_row(void) { return tty_row; }
+static int get_cursor_col(void) { return tty_col; }
+
+static void tty_parse_after_write(const char *s)
+{
+    for (const unsigned char *p = (const unsigned char *)s; *p; p++)
+    {
+        unsigned char ch = *p;
+        switch (ansi_state)
+        {
+        case ANSI_NORMAL_ST:
+            if (ch == 0x1B)
+            {
+                ansi_state = ANSI_ESC_ST;
+                ansi_params_len = 0;
+                ansi_params[0] = '\0';
+            }
+            else if (ch == '\n')
+            {
+                tty_col = 0;
+                tty_row++;
+                if (tty_row > 24)
+                    tty_row = 24;
+            }
+            else if (ch == '\r')
+            {
+                tty_col = 0;
+            }
+            else if (ch == '\t')
+            {
+                int spaces = 4 - (tty_col % 4);
+                tty_col += spaces;
+                if (tty_col > 79)
+                {
+                    tty_col = 0;
+                    tty_row++;
+                    if (tty_row > 24)
+                        tty_row = 24;
+                }
+            }
+            else if (ch == '\b')
+            {
+                if (tty_col > 0)
+                    tty_col--;
+                else if (tty_row > 0)
+                {
+                    tty_row--;
+                    tty_col = 79;
+                }
+            }
+            else
+            {
+                tty_col++;
+                if (tty_col >= 80)
+                {
+                    tty_col = 0;
+                    tty_row++;
+                    if (tty_row > 24)
+                        tty_row = 24;
+                }
+            }
+            break;
+
+        case ANSI_ESC_ST:
+            if (ch == '[')
+            {
+                ansi_state = ANSI_CSI_ST;
+                ansi_params_len = 0;
+                ansi_params[0] = '\0';
+            }
+            else
+            {
+                ansi_state = ANSI_NORMAL_ST;
+            }
+            break;
+
+        case ANSI_CSI_ST:
+            if (ch >= 0x40 && ch <= 0x7E)
+            {
+                ansi_params[ansi_params_len] = '\0';
+                int pvals[8];
+                for (int i = 0; i < 8; i++)
+                    pvals[i] = -1;
+                int pcount = 0;
+
+                const char *sp = ansi_params;
+                while (*sp && pcount < 8)
+                {
+                    while (*sp == ';')
+                        sp++;
+                    if (!*sp)
+                        break;
+                    int val = 0;
+                    int seen = 0;
+                    while (*sp >= '0' && *sp <= '9')
+                    {
+                        seen = 1;
+                        val = val * 10 + (*sp - '0');
+                        sp++;
+                    }
+                    if (!seen)
+                        pvals[pcount++] = -1;
+                    else
+                        pvals[pcount++] = val;
+                    if (*sp == ';')
+                        sp++;
+                }
+
+                char final = (char)ch;
+                switch (final)
+                {
+                case 'A':
+                {
+                    int n = (pcount >= 1 && pvals[0] > 0) ? pvals[0] : 1;
+                    tty_row -= n;
+                    if (tty_row < 0)
+                        tty_row = 0;
+                    break;
+                }
+                case 'B':
+                {
+                    int n = (pcount >= 1 && pvals[0] > 0) ? pvals[0] : 1;
+                    tty_row += n;
+                    if (tty_row > 24)
+                        tty_row = 24;
+                    break;
+                }
+                case 'C':
+                {
+                    int n = (pcount >= 1 && pvals[0] > 0) ? pvals[0] : 1;
+                    tty_col += n;
+                    if (tty_col > 79)
+                        tty_col = 79;
+                    break;
+                }
+                case 'D':
+                {
+                    int n = (pcount >= 1 && pvals[0] > 0) ? pvals[0] : 1;
+                    tty_col -= n;
+                    if (tty_col < 0)
+                        tty_col = 0;
+                    break;
+                }
+                case 'H':
+                case 'f':
+                {
+                    int r = (pcount >= 1 && pvals[0] > 0) ? pvals[0] : 1;
+                    int c = (pcount >= 2 && pvals[1] > 0) ? pvals[1] : 1;
+                    tty_row = r - 1;
+                    tty_col = c - 1;
+                    if (tty_row < 0)
+                        tty_row = 0;
+                    if (tty_row > 24)
+                        tty_row = 24;
+                    if (tty_col < 0)
+                        tty_col = 0;
+                    if (tty_col > 79)
+                        tty_col = 79;
+                    break;
+                }
+                case 'J':
+                {
+                    int mode = (pcount >= 1 && pvals[0] >= 0) ? pvals[0] : 0;
+                    if (mode == 2)
+                    {
+                        tty_row = 0;
+                        tty_col = 0;
+                    }
+                    break;
+                }
+                case 'K':
+                {
+                    break;
+                }
+                case 'm':
+                {
+                    if (pcount == 0)
+                    {
+                        tty_attr = 0x07;
+                    }
+                    else
+                    {
+                        for (int i = 0; i < pcount; i++)
+                        {
+                            int p = pvals[i];
+                            if (p == -1)
+                                p = 0;
+                            if (p == 0)
+                                tty_attr = 0x07;
+                            else if (p == 1)
+                                tty_attr |= 0x08;
+                            else if (p >= 30 && p <= 37)
+                            {
+                                int fg = (p - 30) & 0x07;
+                                unsigned char bg = tty_attr & 0xF0;
+                                unsigned char intensity = tty_attr & 0x08;
+                                tty_attr = bg | ((fg | intensity) & 0x0F);
+                            }
+                            else if (p >= 40 && p <= 47)
+                            {
+                                int bg = (p - 40) & 0x07;
+                                unsigned char fg = tty_attr & 0x0F;
+                                tty_attr = (unsigned char)((bg << 4) | fg);
+                            }
+                        }
+                    }
+                    break;
+                }
+                default:
+                    break;
+                }
+
+                ansi_state = ANSI_NORMAL_ST;
+                ansi_params_len = 0;
+            }
+            else
+            {
+                if (ansi_params_len < (int)sizeof(ansi_params) - 1)
+                    ansi_params[ansi_params_len++] = (char)ch;
+                else
+                {
+                    ansi_state = ANSI_NORMAL_ST;
+                    ansi_params_len = 0;
+                }
+            }
+            break;
+        }
+    }
+}
+
+void write(const char *str)
+{
+    if (!str)
+        return;
+    sys_write(str);
+    tty_parse_after_write(str);
+}
+
+void write_char(char ch)
+{
+    char tmp[2] = {ch, 0};
+    write(tmp);
+}
+
+void write_dec(unsigned int v)
+{
+    char buf[12];
+    int i = 0;
+    if (v == 0)
+    {
+        buf[i++] = '0';
+    }
+    else
+    {
+        char rev[12];
+        int j = 0;
+        while (v > 0 && j < (int)sizeof(rev))
+        {
+            rev[j++] = '0' + (v % 10);
+            v /= 10;
+        }
+        while (j-- > 0)
+            buf[i++] = rev[j];
+    }
+    buf[i] = '\0';
+    write(buf);
+}
+
+void write_hex(unsigned int val)
+{
+    char buf[11];
+    buf[0] = '0';
+    buf[1] = 'x';
+    for (int i = 0; i < 8; i++)
+    {
+        unsigned char nibble = (val >> ((7 - i) * 4)) & 0xF;
+        buf[2 + i] = (nibble < 10) ? ('0' + nibble) : ('A' + (nibble - 10));
+    }
+    buf[10] = '\0';
+    write(buf);
 }
 
 static FILE _file_table[MAX_OPEN_FILES];
@@ -214,7 +550,11 @@ int fputc(int c, FILE *stream)
 
     if (stream->buf_pos >= BUFSIZ)
     {
-        fs_write_file(stream->name, (char *)stream->buf);
+        char tmp[BUFSIZ + 1];
+        memcpy(tmp, stream->buf, BUFSIZ);
+        tmp[BUFSIZ] = '\0';
+
+        fs_write_file(stream->name, tmp);
         stream->buf_pos = 0;
     }
 
@@ -403,7 +743,7 @@ int getchar(void)
         stdin_ungetc = -1;
         return c;
     }
-    return (int)read();
+    return (int)sys_read();
 }
 
 int ungetc(int c, FILE *stream)
@@ -430,29 +770,33 @@ int fgetc(FILE *stream)
 
     if (stream->buf_pos >= stream->buf_end)
     {
-        int size = fs_read_file(stream->name);
-        if (size <= 0)
-        {
-            stream->eof = 1;
-            return EOF;
-        }
-        stream->buf_end = (unsigned int)size;
-        stream->buf_pos = 0;
+        stream->eof = 1;
+        return EOF;
     }
 
-    int ch = (int)stream->buf[stream->buf_pos++];
+    int ch = (unsigned char)stream->buf[stream->buf_pos++];
     if (stream->buf_pos >= stream->buf_end)
         stream->eof = 1;
+
     return ch;
 }
 
 static void redraw_buffer(const char *buf, int len, int start_row, int start_col)
 {
-    for (int i = 0; i < len; i++)
-        draw_char_at(start_row, start_col + i, buf[i]);
+    send_move_syscall(start_row + 1, start_col + 1);
 
-    draw_char_at(start_row, start_col + len, ' ');
+    if (len > 0)
+    {
+        char tmp[BUFSIZ + 1];
+        if (len > BUFSIZ)
+            len = BUFSIZ;
+        memcpy(tmp, buf, len);
+        tmp[len] = '\0';
+        write(tmp);
+    }
 
+    send_move_syscall(start_row + 1, start_col + len + 1);
+    sys_write(" ");
     update_cursor(start_row, start_col + len);
 }
 
@@ -460,12 +804,16 @@ void read_line(char *buf, int max_len)
 {
     int len = 0;
     int cursor = 0;
-    int row = get_cursor_row();
-    int col = get_cursor_col();
+
+    tty_row = sys_get_cursor_row();
+    tty_col = sys_get_cursor_col();
+
+    int row = tty_row;
+    int col = tty_col;
 
     while (1)
     {
-        char c = read();
+        char c = sys_read();
 
         if (c == '\n' || c == '\r')
         {
@@ -481,6 +829,12 @@ void read_line(char *buf, int max_len)
             update_cursor(row, col + len);
             write("\n");
             break;
+        }
+
+        if (c == 1 || c == 2)
+        {
+            buf[0] = c;
+            buf[1] = 0;
         }
 
         if (c == 3)
@@ -596,7 +950,7 @@ int fscanf(FILE *stream, const char *fmt, ...)
     if (!stream)
         return 0;
 
-    int file_size = fs_read_file(stream->name);
+    int file_size = fs_read_file_size(stream->name);
     if (file_size <= 0)
         return 0;
 
@@ -733,15 +1087,22 @@ int fflush(FILE *stream)
     if (stream->buf_pos == 0)
         return 0;
 
-    int res = fs_write_file(stream->name, (char *)stream->buf);
-    stream->buf_pos = 0;
-
-    if (res < 0)
     {
-        stream->err = 1;
-        return EOF;
+        size_t n = stream->buf_pos;
+        char tmp[BUFSIZ + 1];
+        if (n > BUFSIZ)
+            n = BUFSIZ;
+        memcpy(tmp, stream->buf, n);
+        tmp[n] = '\0';
+        int res = fs_write_file(stream->name, tmp);
+        stream->buf_pos = 0;
+        if (res < 0)
+        {
+            stream->err = 1;
+            return EOF;
+        }
+        return 0;
     }
-    return 0;
 }
 
 FILE *fopen(const char *pathname, const char *mode)
@@ -763,29 +1124,33 @@ FILE *fopen(const char *pathname, const char *mode)
     if (mode[0] == 'r')
     {
         f->mode = 0;
-        int size = fs_read_file(f->name);
-        if (size > 0)
+        unsigned int got = 0;
+        int rc = fs_read_file(f->name, f->buf, BUFSIZ, &got);
+        if (rc == 0 && got > 0)
         {
-            f->buf_end = (unsigned int)size;
+            f->buf_end = got;
             f->buf_pos = 0;
         }
         else
         {
-            f->buf_end = 0;
-            f->buf_pos = 0;
+            free_file_slot(f);
+            return NULL;
         }
     }
     else if (mode[0] == 'w')
     {
         f->mode = 1;
+
+        fs_delete_file(f->name);
         fs_make_file(f->name);
+
         f->buf_pos = 0;
         f->buf_end = 0;
     }
     else if (mode[0] == 'a')
     {
         f->mode = 1;
-        int size = fs_read_file(f->name);
+        int size = fs_read_file_size(f->name);
         if (size > 0)
         {
             f->buf_end = (unsigned int)size;
@@ -873,7 +1238,7 @@ int fseek(FILE *stream, long offset, int whence)
         }
         if (stream->mode == 0)
         {
-            int size = fs_read_file(stream->name);
+            int size = fs_read_file_size(stream->name);
             if (size >= 0)
             {
                 stream->buf_end = (unsigned int)size;

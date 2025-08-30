@@ -1,14 +1,12 @@
 #include "idt.h"
 
-#define IDT_SIZE 256
-
-idt_entry_t idt[IDT_SIZE];
-idt_ptr_t idt_ptr;
+static idt_entry_t idt[IDT_SIZE];
+static idt_ptr_t idt_ptr;
 
 extern void idt_flush(unsigned int);
 extern void page_fault_handler();
 
-void set_idt_entry(int n, unsigned int handler, unsigned short selector, unsigned char type_attr)
+static void set_idt_entry(int n, unsigned int handler, unsigned short selector, unsigned char type_attr)
 {
     idt[n].offset_low = handler & 0xFFFF;
     idt[n].selector = selector;
@@ -26,6 +24,7 @@ void idt_init(void)
         set_idt_entry(i, 0, 0, 0);
 
     extern void syscall_interrupt_handler();
+
     set_idt_entry(0x80, (unsigned int)syscall_interrupt_handler, 0x08, 0xEE);
     set_idt_entry(14, (unsigned int)page_fault_handler, 0x08, 0x8E);
 

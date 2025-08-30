@@ -1,13 +1,17 @@
 #include "wrappers.h"
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <dirent.h>
+#include <unistd.h>
+#include <sys_stat.h>
+#include <sys_utsname.h>
 
 void wrapper_clear(void)
 {
-    asm volatile(
-        "movl %[num], %%eax\n\t"
-        "int $0x80\n\t"
-        :
-        : [num] "i"(SYS_CLEAR)
-        : "eax", "memory");
+    printf("\033[2J");
 }
 
 void wrapper_list_dir(void)
@@ -15,7 +19,7 @@ void wrapper_list_dir(void)
     DIR *d = opendir(NULL);
     if (!d)
     {
-        printf("Error: Could not open current directory for listing.\n");
+        printf("\033[31mError: Could not open current directory for listing.\033[0m\n");
         return;
     }
 
@@ -23,7 +27,11 @@ void wrapper_list_dir(void)
     int printed_any = 0;
     while ((ent = readdir(d)) != NULL)
     {
-        printf("%s ", ent->d_name);
+        if (ent->d_type == DT_DIR)
+            printf("\033[1;34m%s\033[0m ", ent->d_name);
+        else
+            printf("%s ", ent->d_name);
+
         printed_any = 1;
     }
 
@@ -38,13 +46,13 @@ void wrapper_make_dir(const char *name)
 {
     if (!name || name[0] == '\0')
     {
-        printf("Error: Invalid name provided.\n");
+        printf("\033[31mError: Invalid name provided.\033[0m\n");
         return;
     }
 
     if (mkdir(name, 0755) == 0)
     {
-        printf("Directory created successfully.\n");
+        printf("\033[32mDirectory created successfully.\033[0m\n");
         return;
     }
 }
@@ -53,23 +61,23 @@ void wrapper_make_file(const char *name)
 {
     if (!name || name[0] == '\0')
     {
-        printf("Error: Invalid name provided.\n");
+        printf("\033[31mError: Invalid name provided.\033[0m\n");
         return;
     }
 
     FILE *f = fopen(name, "w");
     if (!f)
     {
-        printf("Error: Could not create file '%s'.\n", name);
+        printf("\033[31mError: Could not create file '%s'.\033[0m\n", name);
         return;
     }
     if (fclose(f) != 0)
     {
-        printf("Error: Failed to finalize file '%s'.\n", name);
+        printf("\033[31mError: Failed to finalize file '%s'.\033[0m\n", name);
         return;
     }
 
-    printf("File created successfully.\n");
+    printf("\033[32mFile created successfully.\033[0m\n");
 }
 
 static const char *where(void)
@@ -133,23 +141,23 @@ const char *wrapper_get_current_dir_name(void)
 void wrapper_change_dir(const char *name)
 {
     if (chdir(name) == 0)
-        printf("Changed directory successfully.\n");
+        printf("\033[32mChanged directory successfully.\033[0m\n");
     else
-        printf("Error: could not change directory to '%s'.\n", name);
+        printf("\033[31mError: could not change directory to '%s'.\033[0m\n", name);
 }
 
 void wrapper_delete_dir(const char *name)
 {
     if (!name || name[0] == '\0')
     {
-        printf("Error: Invalid name provided.\n");
+        printf("\033[31mError: Invalid name provided.\033[0m\n");
         return;
     }
 
     int ret = rmdir(name);
     if (ret == 0)
     {
-        printf("Directory deleted successfully.\n");
+        printf("\033[32mDirectory deleted successfully.\033[0m\n");
         return;
     }
 }
@@ -158,30 +166,30 @@ void wrapper_delete_file(const char *name)
 {
     if (!name || name[0] == '\0')
     {
-        printf("Error: Invalid name provided.\n");
+        printf("\033[31mError: Invalid name provided.\033[0m\n");
         return;
     }
 
     int r = remove(name);
 
     if (r == 0)
-        printf("File deleted successfully.\n");
+        printf("\033[32mFile deleted successfully.\033[0m\n");
     else
-        printf("Error: Could not delete file '%s'.\n", name);
+        printf("\033[31mError: Could not delete file '%s'.\033[0m\n", name);
 }
 
 void wrapper_write_file(const char *name, const char *text)
 {
-    if (!name || !text)
+    if (!name || name[0] == '\0' || !text || text[0] == '\0')
     {
-        printf("Error: Invalid name or text provided.\n");
+        printf("\033[31mError: Invalid name or text provided.\033[0m\n");
         return;
     }
 
     FILE *f = fopen(name, "w");
     if (!f)
     {
-        printf("Error: Could not open file '%s' for writing.\n", name);
+        printf("\033[31mError: Could not open file '%s' for writing.\033[0m\n", name);
         return;
     }
 
@@ -192,39 +200,47 @@ void wrapper_write_file(const char *name, const char *text)
     size_t written = fwrite(text, 1, len, f);
     if (written != len)
     {
-        printf("Error: I/O error occurred while writing to file '%s'.\n", name);
+        printf("\033[31mError: I/O error occurred while writing to file '%s'.\033[0m\n", name);
+        fclose(f);
+        return;
+    }
+
+    const char newline = '\n';
+    if (fwrite(&newline, 1, 1, f) != 1)
+    {
+        printf("\033[31mError: Failed to write newline to file '%s'.\033[0m\n", name);
         fclose(f);
         return;
     }
 
     if (fflush(f) == EOF)
     {
-        printf("Error: I/O error occurred while writing to file '%s'.\n", name);
+        printf("\033[31mError: I/O error occurred while writing to file '%s'.\033[0m\n", name);
         fclose(f);
         return;
     }
 
     if (fclose(f) != 0)
     {
-        printf("Error: Failed to close file '%s' after writing.\n", name);
+        printf("\033[31mError: Failed to close file '%s' after writing.\033[0m\n", name);
         return;
     }
 
-    printf("File written successfully.\n");
+    printf("\033[32mFile written successfully.\033[0m\n");
 }
 
 void wrapper_read_file(const char *name)
 {
     if (!name || name[0] == '\0')
     {
-        printf("Error: Invalid name provided.\n");
+        printf("\033[31mError: Invalid name provided.\033[0m\n");
         return;
     }
 
     FILE *f = fopen(name, "r");
     if (!f)
     {
-        printf("Error: Could not open file '%s' for reading.\n", name);
+        printf("\033[31mError: Could not open file '%s' for reading.\033[0m\n", name);
         return;
     }
 
@@ -240,13 +256,10 @@ void wrapper_read_file(const char *name)
 
     if (ferror(f))
     {
-        printf("\nError: I/O error occurred while reading file '%s'.\n", name);
+        printf("\n\033[31mError: I/O error occurred while reading file '%s'.\033[0m\n", name);
         fclose(f);
         return;
     }
-
-    if (any)
-        printf("\n");
 
     fclose(f);
 }
@@ -255,7 +268,7 @@ void wrapper_echo(const char *arg1, const char *arg2)
 {
     if ((!arg1 || arg1[0] == 0) && (!arg2 || arg2[0] == 0))
     {
-        printf("Error: Invalid text provided.\n");
+        printf("\033[31mError: Invalid text provided.\033[0m\n");
         return;
     }
 
@@ -278,7 +291,7 @@ void wrapper_help(void)
 {
     wrapper_clear();
     printf(
-        "Commands:\n"
+        "\nCommands:\n"
         "  where        - Show current directory\n"
         "  list         - List files and directories\n"
         "  echo         - Print text to the console\n"
@@ -365,7 +378,7 @@ void wrapper_run(const char *name, const char *args)
     char *pname = copy_into_argbuf(argbuf, sizeof(argbuf), &used, name ? name : "");
     if (!pname)
     {
-        printf("Error: program name too long.\n");
+        printf("\033[31mError: program name too long.\033[0m\n");
         return;
     }
     argv[argc++] = pname;
@@ -375,7 +388,7 @@ void wrapper_run(const char *name, const char *args)
         char *pargs = copy_into_argbuf(argbuf, sizeof(argbuf), &used, args);
         if (!pargs)
         {
-            printf("Error: args too long.\n");
+            printf("\033[31mError: args too long.\033[0m\n");
             return;
         }
 

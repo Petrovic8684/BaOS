@@ -1,4 +1,8 @@
 #include "shell.h"
+#include "./wrappers/wrappers.h"
+#include <stdbool.h>
+#include <stdio.h>
+#include <string.h>
 
 void main(void)
 {
@@ -76,7 +80,7 @@ void process_command(char *cmd)
     {
     case CMD_CLEAR:
         wrapper_clear();
-        return;
+        break;
     case CMD_LIST:
         wrapper_list_dir();
         break;
@@ -126,7 +130,7 @@ void process_command(char *cmd)
         wrapper_run(arg1, arg2);
         break;
     default:
-        printf("Error: Unknown command. Type 'help' for a list of valid commands.\n");
+        printf("\033[31mError: Unknown command. Type 'help' for a list of valid commands.\033[0m\n");
         break;
     }
 

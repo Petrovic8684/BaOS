@@ -1,8 +1,9 @@
 #include <time.h>
 #include <string.h>
 
+#define SYS_RTC_NOW 5
+
 #define TIMEZONE_OFFSET 2 // UTC+2
-#define SYS_RTC_NOW 22
 
 static int is_leap(int y)
 {

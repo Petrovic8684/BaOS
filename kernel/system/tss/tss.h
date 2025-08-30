@@ -1,9 +1,6 @@
 #ifndef TSS_H
 #define TSS_H
 
-#include "../../drivers/display/display.h"
-#include "../gdt/gdt.h"
-
 typedef struct
 {
     unsigned int prev_tss;

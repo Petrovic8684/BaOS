@@ -1,11 +1,31 @@
 #include "fs.h"
 
-int fs_initialized = 0;
+#include "../drivers/display/display.h"
+#include "../drivers/disk/ata.h"
+#include "../helpers/string/string.h"
+#include "../helpers/memory/memory.h"
+#include "../helpers/ports/ports.h"
+
+#define FS_MAGIC 0x46535953u // 'FSYS'
+
+#define SUPERBLOCK_LBA 2048u
+#define DIR_TABLE_START_LBA (SUPERBLOCK_LBA + 1u)
+#define DIR_TABLE_SECTORS (MAX_DIRS)
+#define FILE_TABLE_START_LBA (DIR_TABLE_START_LBA + DIR_TABLE_SECTORS)
+#define FILE_TABLE_SECTORS (MAX_FILES)
+#define DATA_START_LBA (FILE_TABLE_START_LBA + FILE_TABLE_SECTORS)
+
+#define MAX_BUFF_SIZE 1024
+
+static int fs_initialized = 0;
+
 static unsigned int fs_current_dir_lba = 0;
 static FS_SuperOnDisk fs_super;
 
 static int read_sector(unsigned int lba, void *buf)
 {
+    ATA_Driver *fs_drv = ata_get_fs_drv();
+
     if (!fs_drv || !fs_drv->exists)
         return FS_ERR_NO_DRV;
 
@@ -18,6 +38,8 @@ static int read_sector(unsigned int lba, void *buf)
 
 static int write_sector(unsigned int lba, const void *buf)
 {
+    ATA_Driver *fs_drv = ata_get_fs_drv();
+
     if (!fs_drv || !fs_drv->exists)
         return FS_ERR_NO_DRV;
 
@@ -185,26 +207,32 @@ static void set_file_bitmap(int idx, unsigned char val)
         fs_super.file_bitmap[idx] = val ? 1 : 0;
 }
 
+int fs_is_initialized(void)
+{
+    return fs_initialized;
+}
+
 void fs_init(void)
 {
-    static ATA_Driver drv;
+    static ATA_Driver drv_inst;
+    ATA_Driver *drv = &drv_inst;
 
     write("fs_init: start.\n");
-    if (ata_init(&drv, 0x1F0, 0x3F6, 0) != 0)
+    if (ata_init(drv, 0x1F0, 0x3F6, 0) != 0)
     {
-        write_colored("fs_init: ATA init failed.\n", 0x04);
+        write("\033[31mfs_init: ATA init failed.\033[0m\n");
 
         fs_initialized = 0;
-        fs_drv = 0;
+        ata_set_fs_drv(((void *)0));
         return;
     }
 
-    fs_drv = &drv;
-    write_colored("fs_init: ATA init ok.\n", 0x02);
+    ata_set_fs_drv(drv);
+    write("\033[32mfs_init: ATA init ok.\033[0m\n");
 
-    if (!fs_drv->exists)
+    if (!drv->exists)
     {
-        write_colored("fs_init: no ata device.\n", 0x04);
+        write("\033[31mfs_init: no ata device.\033[0m\n");
 
         fs_initialized = 0;
         return;
@@ -216,11 +244,11 @@ void fs_init(void)
         fs_current_dir_lba = fs_super.root_dir_lba;
         fs_initialized = 1;
 
-        write_colored("fs_init: using existing FS on disk.\n\n", 0x02);
+        write("\033[32mfs_init: using existing FS on disk.\033[0m\n\n");
         return;
     }
 
-    write_colored("fs_init: no valid super - formatting new FS.\n", 0x02);
+    write("\033[32mfs_init: no valid super - formatting new FS.\033[0m\n");
 
     mem_set(&fs_super, 0, sizeof(FS_SuperOnDisk));
 
@@ -247,7 +275,7 @@ void fs_init(void)
     write("fs_init: writing root dir.\n");
     if (write_dir_lba(root_lba, &root) != FS_OK)
     {
-        write_colored("fs_init: failed to write root dir.\n", 0x04);
+        write("\033[31mfs_init: failed to write root dir.\033[0m\n");
 
         fs_initialized = 0;
         return;
@@ -259,7 +287,7 @@ void fs_init(void)
     write("fs_init: storing super.\n");
     if (store_super() != FS_OK)
     {
-        write_colored("fs_init: failed to write/verify super\n", 0x04);
+        write("\033[31mfs_init: failed to write/verify super\033[0m\n");
 
         fs_initialized = 0;
         return;
@@ -268,7 +296,7 @@ void fs_init(void)
     fs_current_dir_lba = root_lba;
     fs_initialized = 1;
 
-    write_colored("fs_init: created new FS.\n\n", 0x02);
+    write("\033[32mfs_init: created new FS.\033[0m\n\n");
 }
 
 int fs_make_dir(const char *name)
@@ -419,15 +447,11 @@ const char *fs_list_dir(void)
     output[0] = '\0';
 
     if (!fs_initialized)
-    {
         return "Error: File system not initialized.\n";
-    }
 
     FS_Dir cur;
     if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
-    {
         return "Error: I/O error.\n";
-    }
 
     int printed = 0;
 
@@ -439,8 +463,11 @@ const char *fs_list_dir(void)
         if (read_dir_lba(child_lba, &tmp) != FS_OK)
             continue;
 
-        for (unsigned int k = 0; k < MAX_NAME && tmp.name[k] && pos < MAX_BUFF_SIZE - 1; k++)
+        for (unsigned int k = 0; k < MAX_NAME && tmp.name[k] && pos < MAX_BUFF_SIZE - 2; k++)
             output[pos++] = tmp.name[k];
+
+        if (pos < MAX_BUFF_SIZE - 2)
+            output[pos++] = '/';
 
         if (pos < MAX_BUFF_SIZE - 1)
             output[pos++] = ' ';
@@ -632,15 +659,26 @@ int fs_delete_file(const char *name)
 
     for (unsigned int i = 0; i < cur.file_count; i++)
     {
-        unsigned int child_lba = cur.files_lba[i];
-        FS_File tmp;
-
-        if (read_file_lba(child_lba, &tmp) != FS_OK)
+        unsigned int file_lba = cur.files_lba[i];
+        FS_File f;
+        if (read_file_lba(file_lba, &f) != FS_OK)
             return FS_ERR_IO;
 
-        if (str_equal(tmp.name, name))
+        if (str_equal(f.name, name))
         {
-            int idx = lba_to_file_index(child_lba);
+            if (f.data_lba != 0 && f.size > 0)
+            {
+                unsigned char zero[512];
+                mem_set(zero, 0, sizeof(zero));
+                if (write_sector(f.data_lba, zero) != FS_OK)
+                    return FS_ERR_IO;
+            }
+
+            mem_set(&f, 0, sizeof(FS_File));
+            if (write_file_lba(file_lba, &f) != FS_OK)
+                return FS_ERR_IO;
+
+            int idx = lba_to_file_index(file_lba);
             if (idx >= 0)
                 set_file_bitmap(idx, 0);
 
@@ -649,7 +687,6 @@ int fs_delete_file(const char *name)
 
             for (unsigned int j = i; j + 1 < cur.file_count; j++)
                 cur.files_lba[j] = cur.files_lba[j + 1];
-
             cur.file_count--;
 
             if (write_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
@@ -715,52 +752,7 @@ int fs_write_file(const char *name, const char *text)
     return FS_ERR_NOT_EXISTS;
 }
 
-int fs_read_file(const char *name)
-{
-    if (!fs_initialized)
-        return FS_ERR_NOT_INIT;
-
-    if (str_count(name) == 0)
-        return FS_ERR_NO_NAME;
-
-    FS_Dir cur;
-    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
-        return FS_ERR_IO;
-
-    for (unsigned int i = 0; i < cur.file_count; i++)
-    {
-        unsigned int file_lba = cur.files_lba[i];
-        FS_File f;
-
-        if (read_file_lba(file_lba, &f) != FS_OK)
-            return FS_ERR_IO;
-
-        if (str_equal(f.name, name))
-        {
-            if (f.data_lba == 0 || f.size == 0)
-            {
-                write("(empty file)\n");
-                return FS_OK;
-            }
-
-            unsigned char buf[512];
-            if (read_sector(f.data_lba, buf) != FS_OK)
-                return FS_ERR_IO;
-
-            for (unsigned int j = 0; j < f.size; j++)
-                write_char(buf[j]);
-
-            if (buf[f.size - 1] != '\n')
-                write("\n");
-
-            return FS_OK;
-        }
-    }
-
-    return FS_ERR_NOT_EXISTS;
-}
-
-int fs_read_file_buffer(const char *name, unsigned char *out_buf, unsigned int buf_size, unsigned int *out_size)
+int fs_read_file(const char *name, unsigned char *out_buf, unsigned int buf_size, unsigned int *out_size)
 {
     if (!fs_initialized)
         return FS_ERR_NOT_INIT;

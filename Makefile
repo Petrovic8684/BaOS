@@ -18,8 +18,8 @@ KERNEL_SRCS = \
     kernel/paging/paging.c \
     kernel/paging/page_fault_handler.c \
     kernel/loader/loader.c \
-    kernel/syscalls/syscalls.c \
-    kernel/system/system.c \
+    kernel/api/syscalls.c \
+    kernel/info/info.c \
     kernel/system/idt/idt.c \
     kernel/system/gdt/gdt.c \
     kernel/system/tss/tss.c \

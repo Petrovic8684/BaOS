@@ -1,9 +1,6 @@
 #ifndef SHELL_H
 #define SHELL_H
 
-#include <stdbool.h>
-#include "./wrappers/wrappers.h"
-
 typedef enum
 {
     CMD_UNKNOWN,

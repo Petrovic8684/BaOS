@@ -1,173 +1,479 @@
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
-#include <stdlib.h>
 
-#define MAX_LINES 1000
-#define MAX_COL 1024
+#define MAX_LINES 25
+#define MAX_COLS 80
+#define WELCOME_LINES 2
+#define TERM_ROWS 25
 
-static char buf[MAX_LINES][MAX_COL];
-static int lines = 0;
+static char buffer[MAX_LINES][MAX_COLS];
+static char filename[128] = "NO NAME";
+static int cur_row = 0, cur_col = 0;
+static int modified = 0;
+static int welcome_active = 1;
 
-/*static void print_buffer(void)
+static void clear_screen_and_home(void)
 {
-    int i;
-    for (i = 0; i < lines; i++)
-        printf("%4d  %s", i + 1, buf[i]);
+    printf("\033[2J");
+    printf("\033[H");
 }
 
-static int load_file(const char *fn)
+static void editor_redraw(void)
 {
-    FILE *f = fopen(fn, "r");
-    if (!f)
-        return 0;
-    lines = 0;
-    while (lines < MAX_LINES && fgets(buf[lines], MAX_COL, f))
+    int i, j;
+    printf("\033[2J");
+    printf("\033[H");
+
+    int line_no = 1;
+
+    if (welcome_active)
     {
-        if (buf[lines][0] == 0)
-            break;
-        lines++;
+        printf("\033[%d;1H", line_no++);
+        printf("\033[30;47m BaOS FILLING text editor: Press ESC to exit. \033[0K\033[0m\n");
+        printf("\033[%d;1H", line_no++);
+        printf("\n");
     }
-    fclose(f);
-    return 1;
-}
 
-static int save_file(const char *fn)
-{
-    FILE *f = fopen(fn, "w");
-    if (!f)
-        return 0;
-    int i;
-    for (i = 0; i < lines; i++)
-        fprintf(f, "%s", buf[i]);
-    fclose(f);
-    return 1;
-}
-
-static void insert_line(int pos, const char *text)
-{
-    if (pos < 0)
-        pos = 0;
-    if (pos > lines)
-        pos = lines;
-    if (lines >= MAX_LINES)
-        return;
-    int i;
-    for (i = lines; i > pos; i--)
-        strcpy(buf[i], buf[i - 1]);
-    strncpy(buf[pos], text, MAX_COL - 1);
-    buf[pos][MAX_COL - 1] = '\0';
-    if (strlen(buf[pos]) == 0 || buf[pos][strlen(buf[pos]) - 1] != '\n')
+    for (i = 0; i < MAX_LINES; ++i, ++line_no)
     {
-        size_t l = strlen(buf[pos]);
-        if (l < MAX_COL - 1)
+        printf("\033[%d;1H", line_no);
+
+        int len = (int)strlen(buffer[i]);
+        if (len > MAX_COLS - 1)
+            len = MAX_COLS - 1;
+
+        if (len > 0)
         {
-            buf[pos][l] = '\n';
-            buf[pos][l + 1] = '\0';
+            int j;
+            for (j = 0; j < len; ++j)
+                putchar(buffer[i][j]);
+        }
+
+        printf("\033[0K");
+    }
+
+    {
+        int offset = welcome_active ? WELCOME_LINES : 0;
+        int screen_row = offset + cur_row + 1;
+        int screen_col = cur_col + 1;
+        printf("\033[%d;%dH", screen_row, screen_col);
+    }
+
+    fflush(stdout);
+}
+
+static void shift_lines_down(int from)
+{
+    int i;
+    if (from < 0 || from >= MAX_LINES)
+        return;
+    for (i = MAX_LINES - 1; i > from; --i)
+    {
+        memcpy(buffer[i], buffer[i - 1], MAX_COLS);
+        buffer[i][MAX_COLS - 1] = '\0';
+    }
+    memset(buffer[from], 0, MAX_COLS);
+    buffer[from][MAX_COLS - 1] = '\0';
+}
+
+static void shift_lines_up(int from)
+{
+    int i;
+    if (from < 0 || from >= MAX_LINES)
+        return;
+    for (i = from; i < MAX_LINES - 1; ++i)
+    {
+        memcpy(buffer[i], buffer[i + 1], MAX_COLS);
+        buffer[i][MAX_COLS - 1] = '\0';
+    }
+    memset(buffer[MAX_LINES - 1], 0, MAX_COLS);
+    buffer[MAX_LINES - 1][MAX_COLS - 1] = '\0';
+}
+
+static void insert_char_at_cursor(int c)
+{
+    int i;
+    char *row = buffer[cur_row];
+    int len = (int)strlen(row);
+    if (len >= MAX_COLS - 1)
+    {
+        return;
+    }
+    if (cur_col < 0)
+        cur_col = 0;
+    if (cur_col > len)
+        cur_col = len;
+    for (i = len; i >= cur_col; --i)
+    {
+        row[i + 1] = row[i];
+    }
+    row[cur_col] = (char)c;
+    row[len + 1] = '\0';
+    cur_col++;
+    modified = 1;
+}
+
+static void backspace_before_cursor(void)
+{
+    char *row = buffer[cur_row];
+    int len = (int)strlen(row);
+    if (cur_col > 0)
+    {
+        int i;
+        for (i = cur_col - 1; i < len; ++i)
+            row[i] = row[i + 1];
+        cur_col--;
+        modified = 1;
+    }
+    else
+    {
+        if (cur_row > 0)
+        {
+            int prev_len = (int)strlen(buffer[cur_row - 1]);
+            int this_len = len;
+            if (prev_len + this_len >= MAX_COLS)
+            {
+                int copy_len = MAX_COLS - 1 - prev_len;
+                if (copy_len > 0)
+                {
+                    strncat(buffer[cur_row - 1], buffer[cur_row], copy_len);
+                }
+            }
+            else
+            {
+                strcat(buffer[cur_row - 1], buffer[cur_row]);
+            }
+            shift_lines_up(cur_row);
+            cur_row--;
+            cur_col = prev_len;
+            modified = 1;
         }
     }
-    lines++;
 }
 
-static void delete_line(int pos)
+static void insert_newline_at_cursor(void)
 {
-    if (pos < 0 || pos >= lines)
+    char *row = buffer[cur_row];
+    int len = (int)strlen(row);
+    if (cur_row >= MAX_LINES - 1)
+    {
+        cur_col = len;
         return;
-    int i;
-    for (i = pos; i < lines - 1; i++)
-        strcpy(buf[i], buf[i + 1]);
-    buf[lines - 1][0] = '\0';
-    lines--;
-}*/
+    }
+    shift_lines_down(cur_row + 1);
+    if (cur_col < len)
+    {
+        int right_len = len - cur_col;
+        if (right_len >= MAX_COLS)
+            right_len = MAX_COLS - 1;
+        memset(buffer[cur_row + 1], 0, MAX_COLS);
+        strncpy(buffer[cur_row + 1], row + cur_col, right_len);
+        buffer[cur_row + 1][right_len] = '\0';
+        row[cur_col] = '\0';
+    }
+    else
+    {
+        memset(buffer[cur_row + 1], 0, MAX_COLS);
+    }
+    cur_row++;
+    cur_col = 0;
+    modified = 1;
+}
+
+static void move_left(void)
+{
+    if (cur_col > 0)
+        cur_col--;
+    else if (cur_row > 0)
+    {
+        cur_row--;
+        cur_col = (int)strlen(buffer[cur_row]);
+    }
+}
+static void move_right(void)
+{
+    int len = (int)strlen(buffer[cur_row]);
+    if (cur_col < len)
+        cur_col++;
+    else if (cur_row < MAX_LINES - 1)
+    {
+        cur_row++;
+        cur_col = 0;
+    }
+}
+static void move_up(void)
+{
+    if (cur_row > 0)
+    {
+        cur_row--;
+        int len = (int)strlen(buffer[cur_row]);
+        if (cur_col > len)
+            cur_col = len;
+    }
+}
+static void move_down(void)
+{
+    if (cur_row < MAX_LINES - 1)
+    {
+        cur_row++;
+        int len = (int)strlen(buffer[cur_row]);
+        if (cur_col > len)
+            cur_col = len;
+    }
+}
+
+static void editor_open_file(const char *path)
+{
+    FILE *f = fopen(path, "r");
+    if (!f)
+        return;
+
+    for (int i = 0; i < MAX_LINES; ++i)
+        buffer[i][0] = '\0';
+
+    char tmp[4096];
+    size_t r = fread(tmp, 1, sizeof(tmp) - 1, f);
+    tmp[r] = '\0';
+    fclose(f);
+
+    int line = 0;
+    char *p = tmp;
+    char *nl;
+    while (line < MAX_LINES && p && *p)
+    {
+        nl = strchr(p, '\n');
+        if (nl)
+        {
+            int len = (int)(nl - p);
+            if (len >= MAX_COLS)
+                len = MAX_COLS - 1;
+            strncpy(buffer[line], p, len);
+            buffer[line][len] = '\0';
+            p = nl + 1;
+        }
+        else
+        {
+            int len = (int)strlen(p);
+            if (len >= MAX_COLS)
+                len = MAX_COLS - 1;
+            strncpy(buffer[line], p, len);
+            buffer[line][len] = '\0';
+            break;
+        }
+        line++;
+    }
+
+    modified = 0;
+
+    int last_line = 0;
+    for (int i = 0; i < MAX_LINES; ++i)
+    {
+        if (buffer[i][0] != '\0')
+            last_line = i;
+    }
+    cur_row = last_line;
+    cur_col = (int)strlen(buffer[last_line]);
+}
+
+static int editor_save_to_file(const char *path)
+{
+    FILE *f = fopen(path, "w");
+    if (!f)
+        return 0;
+
+    int last_line = MAX_LINES - 1;
+    while (last_line >= 0 && buffer[last_line][0] == '\0')
+        last_line--;
+
+    for (int i = 0; i <= last_line; ++i)
+    {
+        size_t len = strlen(buffer[i]);
+        if (len > 0)
+            fwrite(buffer[i], 1, len, f);
+        fwrite("\n", 1, 1, f);
+    }
+
+    fclose(f);
+    modified = 0;
+    return 1;
+}
+
+static void prompt_filename_and_save(void)
+{
+    char namebuf[128];
+
+    while (1)
+    {
+        for (int i = 0; i < MAX_LINES; ++i)
+        {
+            printf("\033[%d;1H", i + 1);
+            printf("%s\033[0K", buffer[i]);
+        }
+
+        while (1)
+        {
+            printf("\033[%d;1H\033[0K\033[30;47mEnter file name:\033[0m", TERM_ROWS);
+            printf(" ");
+            fflush(stdout);
+
+            int pos = 0;
+            int c;
+            memset(namebuf, 0, sizeof(namebuf));
+            while ((c = getchar()) != '\n' && c != '\r' && c != EOF && pos < (int)sizeof(namebuf) - 1)
+            {
+                namebuf[pos++] = (char)c;
+                putchar(c);
+                fflush(stdout);
+            }
+            namebuf[pos] = '\0';
+
+            int start = 0;
+            while (namebuf[start] && isspace((unsigned char)namebuf[start]))
+                start++;
+            int end = (int)strlen(namebuf) - 1;
+            while (end >= start && isspace((unsigned char)namebuf[end]))
+            {
+                namebuf[end] = '\0';
+                end--;
+            }
+
+            if (namebuf[start] == '\0')
+            {
+                printf("\033[%d;1H\033[0K\033[47;30mFile name cannot be empty. Press Enter to try again.\033[0m", TERM_ROWS);
+                printf(" ");
+                fflush(stdout);
+
+                while ((c = getchar()) != '\n' && c != '\r' && c != EOF)
+                    ;
+                continue;
+            }
+            else
+            {
+                strncpy(filename, namebuf + start, sizeof(filename) - 1);
+                filename[sizeof(filename) - 1] = '\0';
+                editor_save_to_file(filename);
+                return;
+            }
+        }
+    }
+}
 
 int main(int argc, char **argv)
 {
-    /*char cmd[128];
-    char arg[1024];
-    if (argc > 1)
-        load_file(argv[1]);
-    printf("Simple C editor. Commands: o <file>, s <file>, p, i <n>, a, d <n>, q\n");
-    while (1)
+    for (int i = 0; i < MAX_LINES; ++i)
+        buffer[i][0] = '\0';
+
+    cur_row = 0;
+    cur_col = 0;
+    modified = 0;
+    welcome_active = 1;
+
+    if (argc >= 2)
     {
-        printf("> ");
-        if (!fgets(cmd, sizeof cmd, stdin))
+        strncpy(filename, argv[1], sizeof(filename) - 1);
+        filename[sizeof(filename) - 1] = '\0';
+        editor_open_file(filename);
+    }
+    else
+    {
+        strncpy(filename, "NO NAME", sizeof(filename) - 1);
+    }
+
+    editor_redraw();
+
+    int running = 1;
+    while (running)
+    {
+        int c = getchar();
+        if (c == EOF)
             break;
-        int i = 0;
-        while (cmd[i] && isspace((unsigned char)cmd[i]))
-            i++;
-        if (cmd[i] == 0)
-            continue;
-        char c = cmd[i];
-        if (c == 'q')
-            break;
-        if (c == 'p')
+
+        if (c == 1)
+            move_up();
+        if (c == 2)
+            move_down();
+        if (c == 3)
+            move_left();
+        if (c == 4)
+            move_right();
+
+        if (c == 27)
         {
-            print_buffer();
-            continue;
-        }
-        if (c == 'o')
-        {
-            while (cmd[i] && !isspace((unsigned char)cmd[i]))
-                i++;
-            while (cmd[i] && isspace((unsigned char)cmd[i]))
-                i++;
-            strncpy(arg, cmd + i, sizeof arg - 1);
-            arg[sizeof arg - 1] = 0;
-            size_t ln = strlen(arg);
-            if (ln && arg[ln - 1] == '\n')
-                arg[ln - 1] = 0;
-            if (load_file(arg))
-                printf("Loaded %s (%d lines)\n", arg, lines);
-            else
-                printf("Failed to open %s\n", arg);
-            continue;
-        }
-        if (c == 's')
-        {
-            while (cmd[i] && !isspace((unsigned char)cmd[i]))
-                i++;
-            while (cmd[i] && isspace((unsigned char)cmd[i]))
-                i++;
-            strncpy(arg, cmd + i, sizeof arg - 1);
-            arg[sizeof arg - 1] = 0;
-            size_t ln = strlen(arg);
-            if (ln && arg[ln - 1] == '\n')
-                arg[ln - 1] = 0;
-            if (save_file(arg))
-                printf("Saved %s\n", arg);
-            else
-                printf("Failed to save %s\n", arg);
-            continue;
-        }
-        if (c == 'i')
-        {
-            int num = 0;
-            if (sscanf(cmd + i, "i %d", &num) >= 1)
-                num--;
-            printf("Enter line text (single line). End with newline.\n");
-            if (!fgets(arg, sizeof arg, stdin))
-                continue;
-            insert_line(num, arg);
-            continue;
-        }
-        if (c == 'a')
-        {
-            printf("Enter line text to append.\n");
-            if (!fgets(arg, sizeof arg, stdin))
-                continue;
-            insert_line(lines, arg);
-            continue;
-        }
-        if (c == 'd')
-        {
-            int num = 0;
-            if (sscanf(cmd + i, "d %d", &num) >= 1)
+            editor_redraw();
+
+            while (1)
             {
-                delete_line(num - 1);
+                printf("\033[%d;1H", TERM_ROWS);
+                printf("\033[30;47m Save file? (y - yes, n - no)\033[0m");
+                printf(" ");
+                fflush(stdout);
+
+                int yn = getchar();
+                if (yn == EOF)
+                {
+                    running = 0;
+                    break;
+                }
+
+                if (yn == 'y' || yn == 'Y')
+                {
+                    if (strcmp(filename, "NO NAME") == 0)
+                    {
+                        prompt_filename_and_save();
+                    }
+                    else
+                    {
+                        editor_save_to_file(filename);
+                    }
+                    running = 0;
+                    break;
+                }
+                else if (yn == 'n' || yn == 'N')
+                {
+                    running = 0;
+                    break;
+                }
+                else
+                {
+                    continue;
+                }
             }
-            continue;
         }
-        printf("Unknown command\n");
-    }*/
+
+        else if (c == '\r' || c == '\n')
+        {
+            insert_newline_at_cursor();
+            welcome_active = 0;
+            editor_redraw();
+        }
+        else if (c == 127 || c == 8)
+        {
+            backspace_before_cursor();
+            welcome_active = 0;
+            editor_redraw();
+        }
+        else if (c == '\t')
+        {
+            insert_char_at_cursor(' ');
+            insert_char_at_cursor(' ');
+            insert_char_at_cursor(' ');
+            insert_char_at_cursor(' ');
+            welcome_active = 0;
+            editor_redraw();
+        }
+        else if (c >= 32 && c <= 126)
+        {
+            insert_char_at_cursor(c);
+            welcome_active = 0;
+            editor_redraw();
+        }
+        else
+        {
+            editor_redraw();
+        }
+    }
+
+    clear_screen_and_home();
     return 0;
 }

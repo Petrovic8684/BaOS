@@ -3,12 +3,6 @@
 
 #define ACPI_POWER_OFF 5
 
-#include "../../helpers/ports/ports.h"
-#include "../../drivers/display/display.h"
-#include "../../paging/paging.h"
-
-#define KERNEL_PHYS_TO_VIRT(addr) ((void *)((unsigned int)(addr)))
-
 typedef struct
 {
     char signature[8];
@@ -80,8 +74,6 @@ typedef struct
     unsigned int flags;
 } __attribute__((packed)) acpi_fadt_t;
 
-acpi_rsdp_t *find_rsdp(void);
-acpi_fadt_t *find_fadt(acpi_rsdt_t *rsdt);
 void power_off(void);
 
 #endif

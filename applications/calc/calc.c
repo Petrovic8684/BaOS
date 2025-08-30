@@ -191,6 +191,18 @@ static bool buf_has_esc(const char *buf, int len)
     return false;
 }
 
+static void set_scroll_region_big(void)
+{
+    printf("\033[3;9999r");
+    fflush(stdout);
+}
+
+static void reset_scroll_region(void)
+{
+    printf("\033[r");
+    fflush(stdout);
+}
+
 int main(int argc, char **argv)
 {
     if (argc > 1)
@@ -201,25 +213,40 @@ int main(int argc, char **argv)
             if (res.status == CALC_OK)
                 printf("%s = %g\n", argv[i], res.value);
             else if (res.status == CALC_ERR_DIV0)
-                printf("%s : Division by zero.\n", argv[i]);
+                printf("\033[31m%s : Division by zero.\033[0m\n", argv[i]);
             else
-                printf("%s : Syntax error.\n", argv[i]);
+                printf("\033[31m%s : Syntax error.\033[0m\n", argv[i]);
         }
         return 0;
     }
 
-    printf("CALC utility: Press ESC to exit.\n");
+    printf("\033[2J\033[1;1H");
+    printf("\033[30;47m BaOS CALC utility : Press ESC to exit. \033[0K\033[0m\n\n");
+
+    set_scroll_region_big();
 
     char buf[INPUT_BUF];
+    char last_result[128] = "";
+
     while (1)
     {
-        printf("\n> ");
+        printf("\033[2;1H\033[J");
+        printf("\033[5;1H");
+
+        if (last_result[0] != '\0')
+            printf("%s\n\n", last_result);
+
+        printf("\033[3;1H\033[2K");
+        printf("> ");
         fflush(stdout);
 
         read_line(buf, INPUT_BUF);
 
         if (buf_has_esc(buf, INPUT_BUF))
+        {
+            printf("\033[2J");
             break;
+        }
 
         size_t len = strlen(buf);
         if (len > 0 && buf[len - 1] == '\n')
@@ -229,13 +256,78 @@ int main(int argc, char **argv)
             continue;
 
         CalcResult res = calc_evaluate(buf);
+        last_result[0] = '\0';
+
+        int i = 0;
+
+        for (size_t j = 0; j < strlen(buf); j++)
+            last_result[i++] = buf[j];
+
+        last_result[i++] = ' ';
+
         if (res.status == CALC_OK)
-            printf("\n%g\n", res.value);
+        {
+            last_result[i++] = '=';
+            last_result[i++] = ' ';
+
+            double val = res.value;
+            if (val < 0)
+            {
+                last_result[i++] = '-';
+                val = -val;
+            }
+
+            int whole = (int)val;
+            double frac = val - whole;
+
+            if (whole == 0)
+                last_result[i++] = '0';
+            else
+            {
+                char tmp[32];
+                int j = 0;
+                int temp = whole;
+                while (temp > 0)
+                {
+                    tmp[j++] = '0' + (temp % 10);
+                    temp /= 10;
+                }
+                for (int k = j - 1; k >= 0; k--)
+                    last_result[i++] = tmp[k];
+            }
+
+            last_result[i++] = '.';
+
+            for (int d = 0; d < 10; d++)
+            {
+                frac *= 10;
+                int digit = (int)frac;
+                last_result[i++] = '0' + digit;
+                frac -= digit;
+            }
+        }
         else if (res.status == CALC_ERR_DIV0)
-            printf("\nDivision by zero.\n");
+        {
+            last_result[i++] = ':';
+            last_result[i++] = ' ';
+            const char *msg = "\033[31mDivision by zero.\033[0m";
+            for (size_t j = 0; j < strlen(msg); j++)
+                last_result[i++] = msg[j];
+        }
         else
-            printf("\nSyntax error.\n");
+        {
+            last_result[i++] = ':';
+            last_result[i++] = ' ';
+            const char *msg = "\033[31mSyntax error.\033[0m";
+            for (size_t j = 0; j < strlen(msg); j++)
+                last_result[i++] = msg[j];
+        }
+
+        last_result[i] = '\0';
     }
+
+    reset_scroll_region();
+    fflush(stdout);
 
     return 0;
 }

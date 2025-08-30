@@ -1,6 +1,11 @@
 #include "acpi.h"
+#include "../../helpers/ports/ports.h"
+#include "../../drivers/display/display.h"
+#include "../../paging/paging.h"
 
-acpi_rsdp_t *find_rsdp(void)
+#define KERNEL_PHYS_TO_VIRT(addr) ((void *)((unsigned int)(addr)))
+
+static acpi_rsdp_t *find_rsdp(void)
 {
     unsigned long addr;
     for (addr = 0xE0000UL; addr < 0x100000UL; addr += 16)
@@ -15,7 +20,7 @@ acpi_rsdp_t *find_rsdp(void)
     return 0;
 }
 
-acpi_fadt_t *find_fadt(acpi_rsdt_t *rsdt)
+static acpi_fadt_t *find_fadt(acpi_rsdt_t *rsdt)
 {
     if (!rsdt)
         return 0;
@@ -51,13 +56,13 @@ void power_off(void)
     acpi_rsdp_t *rsdp = find_rsdp();
     if (!rsdp)
     {
-        write_colored("Error: ACPI RSDP not found.\n", 0x04);
+        write("\033\[31mError: ACPI RSDP not found.\n\033\[0m");
         return;
     }
 
     if (rsdp->rsdt_address == 0)
     {
-        write_colored("Error: RSDT address == 0 (maybe XSDT/ACPIv2). Cannot power off.\n", 0x04);
+        write("\033\[31mError: RSDT address == 0 (maybe XSDT/ACPIv2). Cannot power off.\n\033\[0m");
         return;
     }
 
@@ -65,14 +70,14 @@ void power_off(void)
     acpi_rsdt_t *rsdt = (acpi_rsdt_t *)KERNEL_PHYS_TO_VIRT(rsdp->rsdt_address);
     if (rsdt == 0)
     {
-        write_colored("Error: RSDT pointer null after conversion.\n", 0x04);
+        write("\033\[31mError: RSDT pointer null after conversion.\n\033\[0m");
         return;
     }
 
     if (rsdt->header.signature[0] != 'R' || rsdt->header.signature[1] != 'S' ||
         rsdt->header.signature[2] != 'D' || rsdt->header.signature[3] != 'T')
     {
-        write_colored("Error: RSDT signature mismatch.\n", 0x04);
+        write("\033\[31mError: RSDT signature mismatch.\n\033\[0m");
         return;
     }
 
@@ -82,15 +87,14 @@ void power_off(void)
     acpi_fadt_t *fadt = find_fadt(rsdt);
     if (!fadt)
     {
-        write_colored("Error: FADT not found in RSDT.\n", 0x04);
-
+        write("\033\[31mError: FADT not found in RSDT.\n\033\[0m");
         return;
     }
 
     unsigned int pm1 = fadt->pm1a_control_block;
     if (pm1 == 0)
     {
-        write_colored("Error: pm1a_control_block == 0.\n", 0x04);
+        write("\033\[31mError: pm1a_control_block == 0.\n\033\[0m");
         return;
     }
 

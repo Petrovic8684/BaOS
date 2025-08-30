@@ -3,8 +3,6 @@
 
 #define GDT_ENTRIES 6
 
-#include "../../drivers/display/display.h"
-
 typedef struct
 {
     unsigned short limit_low;

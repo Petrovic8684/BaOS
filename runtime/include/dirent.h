@@ -7,10 +7,15 @@
 #define DIRENT_MAX_ENTRIES 32
 #define DIRENT_MAX_STREAMS 4
 
+#define DT_UNKNOWN 0
+#define DT_REG 1
+#define DT_DIR 2
+
 struct dirent
 {
     unsigned long d_ino;
     char d_name[DIRENT_NAME_MAX + 1];
+    unsigned char d_type;
 };
 
 typedef struct DIR DIR;

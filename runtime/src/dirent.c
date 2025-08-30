@@ -2,9 +2,9 @@
 #include <stddef.h>
 #include <string.h>
 
-#define SYS_FS_WHERE 11
-#define SYS_FS_CHANGE_DIR 16
-#define SYS_FS_LIST_DIR 15
+#define SYS_FS_WHERE 8
+#define SYS_FS_LIST_DIR 9
+#define SYS_FS_CHANGE_DIR 10
 
 #define USER_BUFFER_SIZE 1024
 
@@ -58,6 +58,7 @@ struct DIR
 {
     int in_use;
     char names[DIRENT_MAX_ENTRIES][DIRENT_NAME_MAX + 1];
+    unsigned char types[DIRENT_MAX_ENTRIES];
     unsigned int count;
     long pos;
     struct dirent dent;
@@ -94,14 +95,34 @@ static unsigned int parse_list_into_dir(struct DIR *d, const char *list)
         if (list[i] == '\0')
             break;
 
+        char temp[DIRENT_NAME_MAX + 2];
         unsigned int j = 0;
-        while (list[i] != '\0' && list[i] != ' ' && list[i] != '\t' && list[i] != '\r' && list[i] != '\n' && j < DIRENT_NAME_MAX)
-            d->names[out][j++] = list[i++];
-
-        d->names[out][j] = '\0';
+        while (list[i] != '\0' && list[i] != ' ' && list[i] != '\t' && list[i] != '\r' && list[i] != '\n' && j < (DIRENT_NAME_MAX + 1))
+            temp[j++] = list[i++];
+        temp[j] = '\0';
 
         while (list[i] != '\0' && list[i] != ' ' && list[i] != '\t' && list[i] != '\r' && list[i] != '\n')
             i++;
+
+        if (temp[0] == '\0')
+            continue;
+
+        unsigned char typ = DT_UNKNOWN;
+        unsigned int actual_len = j;
+        if (actual_len > 0 && temp[actual_len - 1] == '/')
+        {
+            typ = DT_DIR;
+            temp[actual_len - 1] = '\0';
+        }
+        else
+            typ = DT_REG;
+
+        unsigned int k = 0;
+        for (; k < DIRENT_NAME_MAX && temp[k] != '\0'; k++)
+            d->names[out][k] = temp[k];
+        d->names[out][k] = '\0';
+
+        d->types[out] = typ;
 
         if (d->names[out][0] != '\0')
             out++;
@@ -123,6 +144,8 @@ DIR *opendir(const char *name)
     d->pos = 0;
     d->dent.d_ino = 0;
     d->dent.d_name[0] = '\0';
+    for (unsigned int i = 0; i < DIRENT_MAX_ENTRIES; i++)
+        d->types[i] = DT_UNKNOWN;
 
     char original[USER_BUFFER_SIZE];
     const char *orig_p = fs_where();
@@ -155,7 +178,6 @@ DIR *opendir(const char *name)
     parse_list_into_dir(d, listing);
 
     if (changed)
-    {
         for (int iter = 0; iter < 128; iter++)
         {
             const char *now = fs_where();
@@ -166,7 +188,6 @@ DIR *opendir(const char *name)
 
             fs_change_dir("..");
         }
-    }
 
     return (DIR *)d;
 }
@@ -190,6 +211,8 @@ struct dirent *readdir(DIR *dirp)
         d->dent.d_name[i] = d->names[d->pos][i];
     d->dent.d_name[i] = '\0';
 
+    d->dent.d_type = d->types[d->pos];
+
     d->pos++;
     return &d->dent;
 }
@@ -208,6 +231,8 @@ int closedir(DIR *dirp)
     d->pos = 0;
     d->dent.d_name[0] = '\0';
     d->dent.d_ino = 0;
+    for (unsigned int i = 0; i < DIRENT_MAX_ENTRIES; i++)
+        d->types[i] = DT_UNKNOWN;
 
     return 0;
 }

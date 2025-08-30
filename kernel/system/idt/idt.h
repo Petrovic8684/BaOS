@@ -1,6 +1,8 @@
 #ifndef IDT_H
 #define IDT_H
 
+#define IDT_SIZE 256
+
 typedef struct
 {
     unsigned short offset_low;
@@ -17,6 +19,5 @@ typedef struct
 } __attribute__((packed)) idt_ptr_t;
 
 void idt_init(void);
-void set_idt_entry(int n, unsigned int handler, unsigned short selector, unsigned char type_attr);
 
 #endif

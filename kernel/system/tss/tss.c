@@ -1,4 +1,6 @@
 #include "tss.h"
+#include "../../drivers/display/display.h"
+#include "../gdt/gdt.h"
 
 static tss_t kernel_tss __attribute__((aligned(16)));
 
@@ -30,5 +32,5 @@ void tss_init(void)
 
     asm volatile("ltr %%ax" ::"a"(0x28));
 
-    write_colored("TSS loaded.\n", 0x02);
+    write("\033\[32mTSS loaded.\n\033\[0m");
 }

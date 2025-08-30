@@ -1,6 +1,13 @@
 #include "paging.h"
+#include "../drivers/display/display.h"
 
-unsigned int page_directory[PAGE_ENTRIES] __attribute__((aligned(4096)));
+#define PT_POOL_COUNT 16
+
+#ifndef PAGE_RW
+#define PAGE_RW 0x2
+#endif
+
+static unsigned int page_directory[PAGE_ENTRIES] __attribute__((aligned(4096)));
 static unsigned int first_page_table[PAGE_ENTRIES] __attribute__((aligned(4096)));
 static unsigned int page_table_pool[PT_POOL_COUNT][PAGE_ENTRIES] __attribute__((aligned(4096)));
 static unsigned char page_table_used[PT_POOL_COUNT] = {0};
@@ -22,7 +29,7 @@ static unsigned int alloc_page_table_phys()
         }
     }
 
-    write_colored("Out of page-tables pool. Halting...\n", 0x04);
+    write("\033\[31mOut of page-tables pool. Halting...\n\033\[0m");
     for (;;)
         __asm__ volatile("hlt");
 }
@@ -45,7 +52,7 @@ static void free_page_table_phys(unsigned int phys)
     }
 }
 
-void map_page(unsigned int virt, unsigned int phys, unsigned int flags)
+static void map_page(unsigned int virt, unsigned int phys, unsigned int flags)
 {
     unsigned int pd_index = (virt >> 22) & 0x3FF;
     unsigned int pt_index = (virt >> 12) & 0x3FF;
@@ -133,7 +140,7 @@ void ensure_phys_range_mapped(unsigned int phys_start, unsigned int size)
             map_page(addr, addr, PAGE_RW);
 }
 
-void unmap_page(unsigned int virt)
+static void unmap_page(unsigned int virt)
 {
     unsigned int pd_index = (virt >> 22) & 0x3FF;
     unsigned int pt_index = (virt >> 12) & 0x3FF;
@@ -194,7 +201,7 @@ unsigned int get_pte(unsigned int virt)
     return pt[pt_index];
 }
 
-unsigned int get_cr2(void)
+static unsigned int get_cr2(void)
 {
     unsigned int v;
     __asm__ volatile("mov %%cr2, %0" : "=r"(v));
@@ -228,5 +235,5 @@ void paging_install(void)
     cr0 |= 0x80000000;
     __asm__ volatile("mov %0, %%cr0" ::"r"(cr0));
 
-    write_colored("Paging enabled (kernel protected, first 4MB).\n", 0x02);
+    write("\033\[32mPaging enabled (kernel protected, first 4MB).\n\033\[0m");
 }

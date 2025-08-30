@@ -2,33 +2,30 @@
 #include "../drivers/keyboard/keyboard.h"
 #include "../drivers/rtc/rtc.h"
 #include "../fs/fs.h"
-#include "../loader/loader.h"
-#include "../system/system.h"
-#include "../system/acpi/acpi.h"
 #include "../helpers/string/string.h"
+#include "../loader/loader.h"
+#include "../info/info.h"
+#include "../system/acpi/acpi.h"
 
 #define SYS_EXIT 0
 #define SYS_WRITE 1
-#define SYS_CLEAR 2
-#define SYS_GET_CURSOR_ROW 4
-#define SYS_GET_CURSOR_COL 5
+#define SYS_READ 3
+#define SYS_POWER_OFF 4
+#define SYS_RTC_NOW 5
 #define SYS_OS_NAME 6
 #define SYS_KERNEL_VERSION 7
-#define SYS_DRAW_CHAR_AT 9
-#define SYS_READ 10
-#define SYS_FS_WHERE 11
-#define SYS_FS_MAKE_DIR 13
-#define SYS_FS_MAKE_FILE 14
-#define SYS_FS_LIST_DIR 15
-#define SYS_FS_CHANGE_DIR 16
-#define SYS_FS_DELETE_DIR 17
-#define SYS_FS_DELETE_FILE 18
-#define SYS_FS_WRITE_FILE 19
-#define SYS_FS_READ_FILE 20
-#define SYS_RTC_NOW 22
-#define SYS_POWER_OFF 23
-#define SYS_LOAD_USER_PROGRAM 24
-#define SYS_UPDATE_CURSOR 25
+#define SYS_FS_WHERE 8
+#define SYS_FS_LIST_DIR 9
+#define SYS_FS_CHANGE_DIR 10
+#define SYS_FS_MAKE_DIR 11
+#define SYS_FS_DELETE_DIR 12
+#define SYS_FS_MAKE_FILE 13
+#define SYS_FS_DELETE_FILE 14
+#define SYS_FS_WRITE_FILE 15
+#define SYS_FS_READ_FILE 16
+#define SYS_LOAD_USER_PROGRAM 17
+#define SYS_GET_CURSOR_ROW 18
+#define SYS_GET_CURSOR_COL 19
 
 #define USER_BUFFER_SIZE 1024
 #define MAX_ARGC 64
@@ -45,7 +42,7 @@ extern const char **next_prog_argv;
 static char saved_prog_argv_storage[MAX_ARGC][USER_BUFFER_SIZE];
 static const char *saved_prog_argv_ptrs[MAX_ARGC + 1];
 
-__attribute__((naked)) void return_to_loader(void)
+__attribute__((naked)) static void return_to_loader(void)
 {
     asm volatile(".intel_syntax noprefix\n\t"
                  "mov ax, 0x10\n\t"
@@ -80,7 +77,14 @@ static void copy_to_user(char *user_buf, const char *kernel_buf, unsigned int ma
     user_buf[i] = '\0';
 }
 
-unsigned int handle_syscall(unsigned int num, unsigned int arg)
+static void copy_bytes_to_user(char *user_buf, const char *kernel_buf, unsigned int len)
+{
+    unsigned int i;
+    for (i = 0; i < len; i++)
+        user_buf[i] = kernel_buf[i];
+}
+
+static unsigned int handle_syscall(unsigned int num, unsigned int arg)
 {
     char kernel_buf[USER_BUFFER_SIZE];
     char *user_buf;
@@ -98,15 +102,22 @@ unsigned int handle_syscall(unsigned int num, unsigned int arg)
         return 0;
     }
 
-    case SYS_CLEAR:
-        clear();
+    case SYS_READ:
+    {
+        char ch = read();
+        return (unsigned int)ch;
+    }
+
+    case SYS_POWER_OFF:
+        loader_post_return_callback = power_off;
+        return_to_loader();
         return 0;
 
-    case SYS_GET_CURSOR_ROW:
-        return (unsigned int)get_cursor_row();
-
-    case SYS_GET_CURSOR_COL:
-        return (unsigned int)get_cursor_col();
+    case SYS_RTC_NOW:
+    {
+        unsigned int now = rtc_now();
+        return now;
+    }
 
     case SYS_OS_NAME:
     {
@@ -124,34 +135,10 @@ unsigned int handle_syscall(unsigned int num, unsigned int arg)
         return 0;
     }
 
-    case SYS_DRAW_CHAR_AT:
-    {
-        struct
-        {
-            int r;
-            int c;
-            char ch;
-        } *args = (void *)arg;
-        draw_char_at(args->r, args->c, args->ch);
-        return 0;
-    }
-
-    case SYS_READ:
-    {
-        char ch = read();
-        return (unsigned int)ch;
-    }
-
     case SYS_FS_WHERE:
         user_buf = (char *)arg;
         copy_to_user(user_buf, fs_where(), USER_BUFFER_SIZE);
         return 0;
-
-    case SYS_FS_MAKE_DIR:
-        return fs_make_dir((const char *)arg);
-
-    case SYS_FS_MAKE_FILE:
-        return fs_make_file((const char *)arg);
 
     case SYS_FS_LIST_DIR:
         user_buf = (char *)arg;
@@ -161,8 +148,14 @@ unsigned int handle_syscall(unsigned int num, unsigned int arg)
     case SYS_FS_CHANGE_DIR:
         return fs_change_dir((const char *)arg);
 
+    case SYS_FS_MAKE_DIR:
+        return fs_make_dir((const char *)arg);
+
     case SYS_FS_DELETE_DIR:
         return fs_delete_dir((const char *)arg);
+
+    case SYS_FS_MAKE_FILE:
+        return fs_make_file((const char *)arg);
 
     case SYS_FS_DELETE_FILE:
         return fs_delete_file((const char *)arg);
@@ -178,18 +171,38 @@ unsigned int handle_syscall(unsigned int num, unsigned int arg)
     }
 
     case SYS_FS_READ_FILE:
-        return fs_read_file((const char *)arg);
-
-    case SYS_RTC_NOW:
     {
-        unsigned int now = rtc_now();
-        return now;
-    }
+        struct
+        {
+            const char *name;
+            unsigned char *out_buf;
+            unsigned int buf_size;
+            unsigned int *out_size;
+        } *uargs = (void *)arg;
 
-    case SYS_POWER_OFF:
-        loader_post_return_callback = power_off;
-        return_to_loader();
+        if (!uargs || !uargs->name)
+            return (unsigned int)FS_ERR_NO_NAME;
+
+        if (!((uargs->out_buf && uargs->buf_size > 0) || (uargs->out_buf == ((void *)0) && uargs->out_size)))
+            return (unsigned int)FS_ERR_NO_NAME;
+
+        static unsigned char kbuf[USER_BUFFER_SIZE];
+        unsigned int out_sz = 0;
+
+        unsigned int to_request = (uargs->buf_size > USER_BUFFER_SIZE) ? USER_BUFFER_SIZE : uargs->buf_size;
+
+        int r = fs_read_file(uargs->name, (uargs->out_buf ? kbuf : ((void *)0)), to_request, &out_sz);
+        if (r != FS_OK)
+            return (unsigned int)r;
+
+        if (uargs->out_buf && out_sz > 0)
+            copy_bytes_to_user((char *)uargs->out_buf, (const char *)kbuf, out_sz);
+
+        if (uargs->out_size)
+            copy_bytes_to_user((char *)uargs->out_size, (const char *)&out_sz, sizeof(unsigned int));
+
         return 0;
+    }
 
     case SYS_LOAD_USER_PROGRAM:
     {
@@ -197,7 +210,7 @@ unsigned int handle_syscall(unsigned int num, unsigned int arg)
 
         if (!user_argv || user_argv[0] == ((void *)0))
         {
-            write_colored("load: no program specified\n", 0x04);
+            write("\033\[31mError: No program specified.\n\033\[0m");
             return 0;
         }
 
@@ -223,20 +236,20 @@ unsigned int handle_syscall(unsigned int num, unsigned int arg)
         return 0;
     }
 
-    case SYS_UPDATE_CURSOR:
+    case SYS_GET_CURSOR_ROW:
     {
-        struct
-        {
-            int row;
-            int col;
-        } *args = (void *)arg;
+        unsigned int row = get_cursor_row();
+        return row;
+    }
 
-        update_cursor(args->row, args->col);
-        return 0;
+    case SYS_GET_CURSOR_COL:
+    {
+        unsigned int col = get_cursor_col();
+        return col;
     }
 
     default:
-        write_colored("Error: Unknown syscall.\n", 0x04);
+        write("\033\[31mError: Unknown syscall.\n\033\[0m");
         return 0;
     }
 }

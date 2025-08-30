@@ -1,4 +1,6 @@
 #include "rtc.h"
+#include "../../helpers/bcd/bcd.h"
+#include "../../helpers/ports/ports.h"
 
 #define CMOS_ADDRESS 0x70
 #define CMOS_DATA 0x71

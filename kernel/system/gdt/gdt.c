@@ -1,4 +1,5 @@
 #include "gdt.h"
+#include "../../drivers/display/display.h"
 
 static gdt_entry_t kernel_gdt[GDT_ENTRIES] __attribute__((aligned(16)));
 static gdtr_t kernel_gdtr __attribute__((aligned(8)));
@@ -40,5 +41,5 @@ void gdt_init(void)
         "mov %%ax, %%gs\n\t"
         "mov %%ax, %%ss\n\t" ::: "ax");
 
-    write_colored("GDT loaded.\n", 0x02);
+    write("\033\[32mGDT loaded.\n\033\[0m");
 }

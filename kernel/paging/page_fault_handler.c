@@ -4,7 +4,7 @@
 
 void page_fault_handler_c(unsigned int cr2, unsigned int error_code)
 {
-    write_colored("\nFATAL ERROR: Page fault.\n", 0x04);
+    write("\033\[31m\nFATAL ERROR: Page fault.\n\033\[0m");
     write("Faulting address: ");
     write_hex(cr2);
     write("\nError code: ");
@@ -28,7 +28,7 @@ void page_fault_handler_c(unsigned int cr2, unsigned int error_code)
     if (error_code & 0x10)
         write("  - Instruction fetch\n");
 
-    write_colored("\nAborting user program, returning to shell...\n\n", 0x0E);
+    write("\033[1;33m\nAborting user program, returning to shell...\n\n\033[0m");
 
     loader_return_eip = 0;
     loader_saved_esp = 0;

@@ -1,4 +1,13 @@
 #include "keyboard.h"
+#include "../display/display.h"
+#include "../../helpers/ports/ports.h"
+
+#define ARR_UP 1
+#define ARR_DOWN 2
+#define ARR_LEFT 3
+#define ARR_RIGHT 4
+#define ARR_NONE 0
+#define ESCAPE 27
 
 char read(void)
 {
@@ -49,10 +58,10 @@ char read(void)
             return '\n';
         case 0x0E:
             return '\b';
+        case 0x0F:
+            return '\t';
         case 0x01:
-            return 27;
-        case 0x3F:
-            return 26;
+            return ESCAPE;
 
         case 0x37:
             return '*';

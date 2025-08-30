@@ -1,9 +1,9 @@
 #include <unistd.h>
 #include <string.h>
 
-#define SYS_FS_WHERE 11
-#define SYS_FS_CHANGE_DIR 16
-#define SYS_FS_DELETE_DIR 17
+#define SYS_FS_WHERE 8
+#define SYS_FS_CHANGE_DIR 10
+#define SYS_FS_DELETE_DIR 12
 
 #define USER_BUFFER_SIZE 1024
 

@@ -1,9 +1,9 @@
 #include <sys_stat.h>
 #include <dirent.h>
-#include <stdio.h>
 #include <string.h>
 
-#define SYS_FS_MAKE_DIR 13
+#define SYS_FS_MAKE_DIR 11
+
 #define USER_BUFFER_SIZE 1024
 
 static inline int fs_make_dir(const char *name)

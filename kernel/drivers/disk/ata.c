@@ -1,8 +1,9 @@
 #include "ata.h"
+#include "../../helpers/ports/ports.h"
 
-ATA_Driver *fs_drv;
+static ATA_Driver *fs_drv = 0;
 
-int srst_ata_st(unsigned short dcr_port, unsigned short tf_port)
+static int srst_ata_st(unsigned short dcr_port, unsigned short tf_port)
 {
     outb(dcr_port, 0x04);
     inb(dcr_port);
@@ -34,7 +35,7 @@ int srst_ata_st(unsigned short dcr_port, unsigned short tf_port)
     return -1;
 }
 
-int ata_wait_ready(unsigned short port, unsigned int timeout_ms)
+static int ata_wait_ready(unsigned short port, unsigned int timeout_ms)
 {
     unsigned int t = 0;
 
@@ -53,7 +54,7 @@ int ata_wait_ready(unsigned short port, unsigned int timeout_ms)
     return -1;
 }
 
-int ata_check_present(unsigned short port)
+static int ata_check_present(unsigned short port)
 {
     unsigned char status = inb(port + 7);
 
@@ -63,7 +64,7 @@ int ata_check_present(unsigned short port)
     return 0;
 }
 
-int ata_wait_drq(unsigned short port, unsigned int timeout_ms)
+static int ata_wait_drq(unsigned short port, unsigned int timeout_ms)
 {
     unsigned int t = 0;
 
@@ -85,7 +86,7 @@ int ata_wait_drq(unsigned short port, unsigned int timeout_ms)
     return -2;
 }
 
-int ata_check_error(ATA_Driver *drv)
+static int ata_check_error(ATA_Driver *drv)
 {
     unsigned char status = inb(drv->tf + 7);
 
@@ -99,7 +100,7 @@ int ata_check_error(ATA_Driver *drv)
     return 0;
 }
 
-int ata_identify(ATA_Driver *drv)
+static int ata_identify(ATA_Driver *drv)
 {
     unsigned short port = drv->tf;
 
@@ -124,6 +125,9 @@ int ata_identify(ATA_Driver *drv)
 
 int ata_init(ATA_Driver *drv, unsigned short tf_port, unsigned short dcr_port, unsigned char sbits)
 {
+    if (!drv)
+        return -1;
+
     drv->tf = tf_port;
     drv->dcr = dcr_port;
     drv->sbits = sbits;
@@ -141,7 +145,7 @@ int ata_init(ATA_Driver *drv, unsigned short tf_port, unsigned short dcr_port, u
     return 0;
 }
 
-int pio28_read(unsigned int *lba, unsigned char *buf, unsigned char sectors)
+static int pio28_read(unsigned int *lba, unsigned char *buf, unsigned char sectors)
 {
     if (!fs_drv || !fs_drv->exists)
         return -1;
@@ -243,4 +247,14 @@ int fs_disk_write(unsigned int lba, unsigned int sectors, void *buffer)
         return -7;
 
     return 0;
+}
+
+void ata_set_fs_drv(ATA_Driver *drv)
+{
+    fs_drv = drv;
+}
+
+ATA_Driver *ata_get_fs_drv(void)
+{
+    return fs_drv;
 }

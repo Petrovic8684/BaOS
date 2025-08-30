@@ -1,19 +1,8 @@
 #ifndef WRAPPERS_H
 #define WRAPPERS_H
 
-#include <stdarg.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
-#include <dirent.h>
-#include <unistd.h>
-#include <sys_stat.h>
-#include <sys_utsname.h>
-
-#define SYS_CLEAR 2
-#define SYS_POWER_OFF 23
-#define SYS_LOAD_USER_PROGRAM 24
+#define SYS_POWER_OFF 4
+#define SYS_LOAD_USER_PROGRAM 17
 
 void wrapper_clear(void);
 void wrapper_list_dir(void);
