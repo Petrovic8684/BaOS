@@ -7,18 +7,14 @@ align 4
 
 page_fault_handler:
     cli
-    pusha
-    mov eax, cr2
-    push eax
+    pusha 
+    mov eax, [esp + 32]
+    mov ebx, cr2
 
-    mov eax, [esp + 36]
-    push eax
-
+    push eax 
+    push ebx
     call page_fault_handler_c
-    add esp, 8
-
+    add esp, 8 
     popa
-
-.hang:
-    hlt
-    jmp .hang
+    sti
+    iret

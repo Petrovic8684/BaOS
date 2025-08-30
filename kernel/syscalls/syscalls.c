@@ -4,6 +4,7 @@
 #include "../fs/fs.h"
 #include "../loader/loader.h"
 #include "../system/system.h"
+#include "../system/acpi/acpi.h"
 #include "../helpers/string/string.h"
 
 #define SYS_EXIT 0

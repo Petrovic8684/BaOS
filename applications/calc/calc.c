@@ -1,4 +1,10 @@
 #include "calc.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#include <math.h>
+#include <stdbool.h>
 
 #define INPUT_BUF 256
 
@@ -17,7 +23,7 @@ static void skip_spaces(void)
         p++;
 }
 
-int is_integer(double x)
+static int is_integer(double x)
 {
     double intpart;
     double frac = modf(fabs(x), &intpart);
@@ -152,7 +158,7 @@ static double parse_expr(void)
     return val;
 }
 
-CalcResult calc_evaluate(const char *expr)
+static CalcResult calc_evaluate(const char *expr)
 {
     CalcResult res;
     if (!expr)

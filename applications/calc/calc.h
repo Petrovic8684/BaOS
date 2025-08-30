@@ -1,13 +1,6 @@
 #ifndef CALC_H
 #define CALC_H
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
-#include <math.h>
-#include <stdbool.h>
-
 typedef enum
 {
     CALC_OK = 0,
@@ -20,8 +13,5 @@ typedef struct
     double value;
     CalcStatus status;
 } CalcResult;
-
-int is_integer(double x);
-CalcResult calc_evaluate(const char *expr);
 
 #endif

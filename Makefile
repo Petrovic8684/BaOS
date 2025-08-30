@@ -42,6 +42,9 @@ SHELL_BIN = $(SHELL_SRCS:.c=.bin)
 CALC_SRC = applications/calc/calc.c
 CALC_BIN = $(CALC_SRC:.c=.bin)
 
+FILLING_SRC = applications/filling/filling.c
+FILLING_BIN = $(FILLING_SRC:.c=.bin)
+
 KERNEL_OBJS = $(KERNEL_SRCS:.c=.o) $(KERNEL_ASM_SRCS:.asm=.o)
 KERNEL_BIN = kernel/kernel.bin
 KERNEL_LD  = kernel/link.ld
@@ -98,11 +101,11 @@ $(KERNEL_BIN): $(KERNEL_OBJS) $(KERNEL_LD)
 	$(CC) -ffreestanding -m32 -nostdlib -fno-pie $(RUNTIME_INCLUDE) -c $< -o $@
 
 # ---------------- Disk image -----------------
-$(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN)
+$(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN)
 	$(DD) if=/dev/zero of=$(IMG) bs=1M count=$(IMG_SIZE)
 	$(DD) if=$(BOOT_BIN) of=$(IMG) conv=notrunc
 	$(DD) if=$(KERNEL_BIN) of=$(IMG) seek=1 conv=notrunc
-	for prog in $(SHELL_BIN) $(CALC_BIN); do \
+	for prog in $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN); do \
 	    $(PY) tools/mkfs_inject.py $(IMG) $$prog; \
 	done
 

@@ -9,12 +9,13 @@ static unsigned int get_physical_addr(void *p) { return (unsigned int)p; }
 
 static unsigned int alloc_page_table_phys()
 {
-    for (int i = 0; i < PT_POOL_COUNT; ++i)
+    unsigned int i, j;
+    for (i = 0; i < PT_POOL_COUNT; ++i)
     {
         if (!page_table_used[i])
         {
             page_table_used[i] = 1;
-            for (int j = 0; j < PAGE_ENTRIES; ++j)
+            for (j = 0; j < PAGE_ENTRIES; ++j)
                 page_table_pool[i][j] = 0;
 
             return get_physical_addr(&page_table_pool[i][0]);
@@ -31,11 +32,12 @@ static void free_page_table_phys(unsigned int phys)
     if ((phys & 0xFFFFF000) == ((unsigned int)first_page_table & 0xFFFFF000))
         return;
 
-    for (int i = 0; i < PT_POOL_COUNT; ++i)
+    unsigned int i, j;
+    for (i = 0; i < PT_POOL_COUNT; ++i)
     {
         if (((unsigned int)&page_table_pool[i][0] & 0xFFFFF000) == (phys & 0xFFFFF000))
         {
-            for (int j = 0; j < PAGE_ENTRIES; ++j)
+            for (j = 0; j < PAGE_ENTRIES; ++j)
                 page_table_pool[i][j] = 0;
             page_table_used[i] = 0;
             return;
@@ -94,7 +96,8 @@ void set_user_pages(unsigned int virt_start, unsigned int size)
                 unsigned int *old_table = (unsigned int *)table_phys;
                 unsigned int *new_table = (unsigned int *)new_pt_phys;
 
-                for (int i = 0; i < PAGE_ENTRIES; ++i)
+                unsigned int i;
+                for (i = 0; i < PAGE_ENTRIES; ++i)
                 {
                     unsigned int ent = old_table[i];
                     if (ent & PAGE_PRESENT)
@@ -120,6 +123,16 @@ void set_user_pages(unsigned int virt_start, unsigned int size)
     }
 }
 
+void ensure_phys_range_mapped(unsigned int phys_start, unsigned int size)
+{
+    unsigned int start = phys_start & 0xFFFFF000u;
+    unsigned int end = (phys_start + size + 0xFFFu) & ~0xFFFu;
+    unsigned int addr;
+    for (addr = start; addr < end; addr += 0x1000u)
+        if (get_pte(addr) == 0)
+            map_page(addr, addr, PAGE_RW);
+}
+
 void unmap_page(unsigned int virt)
 {
     unsigned int pd_index = (virt >> 22) & 0x3FF;
@@ -138,8 +151,9 @@ void unmap_page(unsigned int virt)
     page_table[pt_index] = 0;
     __asm__ volatile("invlpg (%0)" ::"r"(virt) : "memory");
 
+    unsigned int i;
     int empty = 1;
-    for (int i = 0; i < PAGE_ENTRIES; ++i)
+    for (i = 0; i < PAGE_ENTRIES; ++i)
     {
         unsigned int ent = page_table[i];
         if (ent & PAGE_PRESENT)
@@ -164,7 +178,8 @@ void unmap_user_range(unsigned int virt_start, unsigned int size)
     unsigned int start = virt_start & 0xFFFFF000u;
     unsigned int end = (virt_start + size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
 
-    for (unsigned int addr = start; addr < end; addr += PAGE_SIZE)
+    unsigned int addr;
+    for (addr = start; addr < end; addr += PAGE_SIZE)
         unmap_page(addr);
 }
 
@@ -191,17 +206,18 @@ void paging_install(void)
     clear();
     write("About to enable paging...\n");
 
-    for (int i = 0; i < PAGE_ENTRIES; ++i)
+    unsigned int i;
+    for (i = 0; i < PAGE_ENTRIES; ++i)
         first_page_table[i] = 0;
-    for (int i = 0; i < PAGE_ENTRIES; ++i)
+    for (i = 0; i < PAGE_ENTRIES; ++i)
         page_directory[i] = 0;
 
-    for (unsigned int i = 0; i < PAGE_ENTRIES; ++i)
+    for (i = 0; i < PAGE_ENTRIES; ++i)
         first_page_table[i] = (i * PAGE_SIZE) | PAGE_PRESENT | PAGE_RW;
 
     page_directory[0] = ((unsigned int)first_page_table & 0xFFFFF000) | PAGE_PRESENT | PAGE_RW;
 
-    for (int i = 0; i < PT_POOL_COUNT; i++)
+    for (i = 0; i < PT_POOL_COUNT; i++)
         page_table_used[i] = 0;
 
     unsigned int pd_phys = (unsigned int)page_directory;
