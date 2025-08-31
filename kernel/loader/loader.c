@@ -66,7 +66,7 @@ static void cleanup_previous_user_space(void)
 static void load_shell_again(void)
 {
     write("\n");
-    load_user_program("shell", ((void *)0));
+    load_user_program("/programs/shell", ((void *)0));
 }
 
 void load_next_program(void)

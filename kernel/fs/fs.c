@@ -207,6 +207,179 @@ static void set_file_bitmap(int idx, unsigned char val)
         fs_super.file_bitmap[idx] = val ? 1 : 0;
 }
 
+static int contains_slash(const char *s)
+{
+    if (!s)
+        return 0;
+    unsigned int n = str_count(s);
+    for (unsigned int i = 0; i < n; i++)
+        if (s[i] == '/')
+            return 1;
+    return 0;
+}
+
+static int get_next_component(const char *path, unsigned int *pos, char *out, unsigned int out_sz)
+{
+    unsigned int n = str_count(path);
+    unsigned int i = *pos;
+
+    while (i < n && path[i] == '/')
+        i++;
+
+    if (i >= n)
+    {
+        out[0] = '\0';
+        *pos = i;
+        return 0;
+    }
+
+    unsigned int start = i;
+    unsigned int len = 0;
+    while (i < n && path[i] != '/')
+    {
+        if (len + 1 >= out_sz)
+            return -1;
+        out[len++] = path[i++];
+    }
+    out[len] = '\0';
+    *pos = i;
+
+    return 1;
+}
+
+static int has_more_components(const char *path, unsigned int pos)
+{
+    unsigned int n = str_count(path);
+    unsigned int i = pos;
+    while (i < n)
+    {
+        if (path[i] == '/')
+        {
+            i++;
+            continue;
+        }
+        return 1;
+    }
+    return 0;
+}
+
+static int find_child_dir_lba(const FS_Dir *parent_dir, const char *name, unsigned int *out_lba)
+{
+    for (unsigned int i = 0; i < parent_dir->dir_count; i++)
+    {
+        unsigned int child_lba = parent_dir->dirs_lba[i];
+        FS_Dir tmp;
+        if (read_dir_lba(child_lba, &tmp) != FS_OK)
+            return FS_ERR_IO;
+        if (str_equal(tmp.name, name))
+        {
+            *out_lba = child_lba;
+            return FS_OK;
+        }
+    }
+    return FS_ERR_NOT_EXISTS;
+}
+
+static int resolve_path(const char *path, unsigned int *out_dir_lba, char *out_name, int stop_before_last)
+{
+    if (!fs_initialized)
+        return FS_ERR_NOT_INIT;
+
+    unsigned int pos = 0;
+    unsigned int n = str_count(path);
+
+    if (n == 0)
+    {
+        if (stop_before_last)
+        {
+            out_name[0] = '\0';
+            *out_dir_lba = fs_current_dir_lba;
+        }
+        else
+        {
+            *out_dir_lba = fs_current_dir_lba;
+            if (out_name)
+                out_name[0] = '\0';
+        }
+        return FS_OK;
+    }
+
+    unsigned int cur_lba;
+    if (path[0] == '/')
+    {
+        cur_lba = fs_super.root_dir_lba;
+        pos = 1;
+    }
+    else
+    {
+        cur_lba = fs_current_dir_lba;
+        pos = 0;
+    }
+
+    char token[MAX_NAME];
+    int rc;
+    int produced;
+
+    while (1)
+    {
+        produced = get_next_component(path, &pos, token, sizeof(token));
+        if (produced == 0)
+        {
+            if (stop_before_last)
+            {
+                out_name[0] = '\0';
+                *out_dir_lba = cur_lba;
+                return FS_OK;
+            }
+            else
+            {
+                *out_dir_lba = cur_lba;
+                if (out_name)
+                    out_name[0] = '\0';
+                return FS_OK;
+            }
+        }
+        if (produced == -1)
+            return FS_ERR_NAME_LONG;
+
+        int more = has_more_components(path, pos);
+        int is_last = (more == 0);
+
+        if (stop_before_last && is_last)
+        {
+            str_copy_fixed(out_name, token, MAX_NAME);
+            *out_dir_lba = cur_lba;
+            return FS_OK;
+        }
+
+        if (str_equal(token, "."))
+            continue;
+
+        else if (str_equal(token, ".."))
+        {
+            FS_Dir curdir;
+            if (read_dir_lba(cur_lba, &curdir) != FS_OK)
+                return FS_ERR_IO;
+            cur_lba = curdir.parent_lba;
+            continue;
+        }
+        else
+        {
+            FS_Dir curdir;
+            if (read_dir_lba(cur_lba, &curdir) != FS_OK)
+                return FS_ERR_IO;
+            unsigned int child_lba = 0;
+            rc = find_child_dir_lba(&curdir, token, &child_lba);
+            if (rc != FS_OK)
+                return FS_ERR_NOT_EXISTS;
+            cur_lba = child_lba;
+            continue;
+        }
+    }
+
+    return FS_ERR_IO;
+}
+
 int fs_is_initialized(void)
 {
     return fs_initialized;
@@ -304,14 +477,20 @@ int fs_make_dir(const char *name)
     if (!fs_initialized)
         return FS_ERR_NOT_INIT;
 
-    if (str_count(name) >= MAX_NAME)
+    if (str_count(name) >= MAX_NAME && !(str_count(name) > MAX_NAME && contains_slash(name)))
         return FS_ERR_NAME_LONG;
 
-    if (str_count(name) == 0)
+    char final_name[MAX_NAME];
+    unsigned int parent_lba = 0;
+    int rc = resolve_path(name, &parent_lba, final_name, 1);
+    if (rc != FS_OK)
+        return rc;
+
+    if (str_count(final_name) == 0)
         return FS_ERR_NO_NAME;
 
     FS_Dir cur;
-    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+    if (read_dir_lba(parent_lba, &cur) != FS_OK)
         return FS_ERR_IO;
 
     if ((int)cur.dir_count >= MAX_DIRS_PER_DIR)
@@ -325,7 +504,7 @@ int fs_make_dir(const char *name)
         if (read_dir_lba(child_lba, &tmp) != FS_OK)
             return FS_ERR_IO;
 
-        if (str_equal(tmp.name, name))
+        if (str_equal(tmp.name, final_name))
             return FS_ERR_EXISTS;
     }
 
@@ -337,7 +516,7 @@ int fs_make_dir(const char *name)
         if (read_file_lba(child_lba, &tmp) != FS_OK)
             return FS_ERR_IO;
 
-        if (str_equal(tmp.name, name))
+        if (str_equal(tmp.name, final_name))
             return FS_ERR_EXISTS;
     }
 
@@ -349,8 +528,8 @@ int fs_make_dir(const char *name)
 
     FS_Dir nd;
     mem_set(&nd, 0, sizeof(FS_Dir));
-    str_copy_fixed(nd.name, name, MAX_NAME);
-    nd.parent_lba = fs_current_dir_lba;
+    str_copy_fixed(nd.name, final_name, MAX_NAME);
+    nd.parent_lba = parent_lba;
     nd.dir_count = 0;
     nd.file_count = 0;
 
@@ -364,7 +543,7 @@ int fs_make_dir(const char *name)
     cur.dirs_lba[cur.dir_count] = new_lba;
     cur.dir_count++;
 
-    if (write_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+    if (write_dir_lba(parent_lba, &cur) != FS_OK)
         return FS_ERR_IO;
 
     return FS_OK;
@@ -375,14 +554,20 @@ int fs_make_file(const char *name)
     if (!fs_initialized)
         return FS_ERR_NOT_INIT;
 
-    if (str_count(name) >= MAX_NAME)
+    if (str_count(name) >= MAX_NAME && !(str_count(name) > MAX_NAME && contains_slash(name)))
         return FS_ERR_NAME_LONG;
 
-    if (str_count(name) == 0)
+    char final_name[MAX_NAME];
+    unsigned int parent_lba = 0;
+    int rc = resolve_path(name, &parent_lba, final_name, 1);
+    if (rc != FS_OK)
+        return rc;
+
+    if (str_count(final_name) == 0)
         return FS_ERR_NO_NAME;
 
     FS_Dir cur;
-    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+    if (read_dir_lba(parent_lba, &cur) != FS_OK)
         return FS_ERR_IO;
 
     if ((int)cur.file_count >= MAX_FILES_PER_DIR)
@@ -396,7 +581,7 @@ int fs_make_file(const char *name)
         if (read_dir_lba(child_lba, &tmp) != FS_OK)
             return FS_ERR_IO;
 
-        if (str_equal(tmp.name, name))
+        if (str_equal(tmp.name, final_name))
             return FS_ERR_EXISTS;
     }
 
@@ -408,7 +593,7 @@ int fs_make_file(const char *name)
         if (read_file_lba(child_lba, &tmp) != FS_OK)
             return FS_ERR_IO;
 
-        if (str_equal(tmp.name, name))
+        if (str_equal(tmp.name, final_name))
             return FS_ERR_EXISTS;
     }
 
@@ -420,7 +605,7 @@ int fs_make_file(const char *name)
 
     FS_File nf;
     mem_set(&nf, 0, sizeof(FS_File));
-    str_copy_fixed(nf.name, name, MAX_NAME);
+    str_copy_fixed(nf.name, final_name, MAX_NAME);
     nf.size = 0;
     nf.data_lba = 0;
 
@@ -434,7 +619,7 @@ int fs_make_file(const char *name)
     cur.files_lba[cur.file_count] = new_lba;
     cur.file_count++;
 
-    if (write_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+    if (write_dir_lba(parent_lba, &cur) != FS_OK)
         return FS_ERR_IO;
 
     return FS_OK;
@@ -519,35 +704,14 @@ int fs_change_dir(const char *name)
     if (str_count(name) == 0)
         return FS_ERR_NO_NAME;
 
-    FS_Dir cur;
-    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
-        return FS_ERR_IO;
+    unsigned int dir_lba = 0;
+    char dummy[MAX_NAME];
+    int rc = resolve_path(name, &dir_lba, dummy, 0);
+    if (rc != FS_OK)
+        return rc;
 
-    if (str_equal(name, ".."))
-    {
-        if (fs_current_dir_lba == fs_super.root_dir_lba)
-            return FS_OK;
-
-        fs_current_dir_lba = cur.parent_lba;
-        return FS_OK;
-    }
-
-    for (unsigned int i = 0; i < cur.dir_count; i++)
-    {
-        unsigned int child_lba = cur.dirs_lba[i];
-        FS_Dir tmp;
-
-        if (read_dir_lba(child_lba, &tmp) != FS_OK)
-            return FS_ERR_IO;
-
-        if (str_equal(tmp.name, name))
-        {
-            fs_current_dir_lba = child_lba;
-            return FS_OK;
-        }
-    }
-
-    return FS_ERR_NOT_EXISTS;
+    fs_current_dir_lba = dir_lba;
+    return FS_OK;
 }
 
 const char *fs_where(void)
@@ -606,8 +770,17 @@ int fs_delete_dir(const char *name)
     if (str_count(name) == 0)
         return FS_ERR_NO_NAME;
 
+    char final_name[MAX_NAME];
+    unsigned int parent_lba = 0;
+    int rc = resolve_path(name, &parent_lba, final_name, 1);
+    if (rc != FS_OK)
+        return rc;
+
+    if (str_count(final_name) == 0)
+        return FS_ERR_NO_NAME;
+
     FS_Dir cur;
-    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+    if (read_dir_lba(parent_lba, &cur) != FS_OK)
         return FS_ERR_IO;
 
     for (unsigned int i = 0; i < cur.dir_count; i++)
@@ -618,7 +791,7 @@ int fs_delete_dir(const char *name)
         if (read_dir_lba(child_lba, &tmp) != FS_OK)
             return FS_ERR_IO;
 
-        if (str_equal(tmp.name, name))
+        if (str_equal(tmp.name, final_name))
         {
             if (tmp.dir_count > 0 || tmp.file_count > 0)
                 return FS_ERR_EXISTS;
@@ -635,7 +808,7 @@ int fs_delete_dir(const char *name)
 
             cur.dir_count--;
 
-            if (write_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+            if (write_dir_lba(parent_lba, &cur) != FS_OK)
                 return FS_ERR_IO;
 
             return FS_OK;
@@ -653,8 +826,17 @@ int fs_delete_file(const char *name)
     if (str_count(name) == 0)
         return FS_ERR_NO_NAME;
 
+    char final_name[MAX_NAME];
+    unsigned int parent_lba = 0;
+    int rc = resolve_path(name, &parent_lba, final_name, 1);
+    if (rc != FS_OK)
+        return rc;
+
+    if (str_count(final_name) == 0)
+        return FS_ERR_NO_NAME;
+
     FS_Dir cur;
-    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+    if (read_dir_lba(parent_lba, &cur) != FS_OK)
         return FS_ERR_IO;
 
     for (unsigned int i = 0; i < cur.file_count; i++)
@@ -664,7 +846,7 @@ int fs_delete_file(const char *name)
         if (read_file_lba(file_lba, &f) != FS_OK)
             return FS_ERR_IO;
 
-        if (str_equal(f.name, name))
+        if (str_equal(f.name, final_name))
         {
             if (f.data_lba != 0 && f.size > 0)
             {
@@ -689,7 +871,7 @@ int fs_delete_file(const char *name)
                 cur.files_lba[j] = cur.files_lba[j + 1];
             cur.file_count--;
 
-            if (write_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+            if (write_dir_lba(parent_lba, &cur) != FS_OK)
                 return FS_ERR_IO;
 
             return FS_OK;
@@ -710,8 +892,17 @@ int fs_write_file(const char *name, const char *text)
     if (str_count(text) == 0)
         return FS_ERR_NO_TEXT;
 
+    char final_name[MAX_NAME];
+    unsigned int parent_lba = 0;
+    int rc = resolve_path(name, &parent_lba, final_name, 1);
+    if (rc != FS_OK)
+        return rc;
+
+    if (str_count(final_name) == 0)
+        return FS_ERR_NO_NAME;
+
     FS_Dir cur;
-    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+    if (read_dir_lba(parent_lba, &cur) != FS_OK)
         return FS_ERR_IO;
 
     for (unsigned int i = 0; i < cur.file_count; i++)
@@ -722,7 +913,7 @@ int fs_write_file(const char *name, const char *text)
         if (read_file_lba(file_lba, &f) != FS_OK)
             return FS_ERR_IO;
 
-        if (str_equal(f.name, name))
+        if (str_equal(f.name, final_name))
         {
             unsigned int len = str_count(text);
             if (len > 512)
@@ -760,8 +951,17 @@ int fs_read_file(const char *name, unsigned char *out_buf, unsigned int buf_size
     if (str_count(name) == 0)
         return FS_ERR_NO_NAME;
 
+    char final_name[MAX_NAME];
+    unsigned int parent_lba = 0;
+    int rc = resolve_path(name, &parent_lba, final_name, 1);
+    if (rc != FS_OK)
+        return rc;
+
+    if (str_count(final_name) == 0)
+        return FS_ERR_NO_NAME;
+
     FS_Dir cur;
-    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+    if (read_dir_lba(parent_lba, &cur) != FS_OK)
         return FS_ERR_IO;
 
     for (unsigned int i = 0; i < cur.file_count; i++)
@@ -772,7 +972,7 @@ int fs_read_file(const char *name, unsigned char *out_buf, unsigned int buf_size
         if (read_file_lba(file_lba, &f) != FS_OK)
             return FS_ERR_IO;
 
-        if (str_equal(f.name, name))
+        if (str_equal(f.name, final_name))
         {
             if (f.data_lba == 0 || f.size == 0)
             {
