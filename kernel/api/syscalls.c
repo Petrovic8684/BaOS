@@ -26,6 +26,7 @@
 #define SYS_LOAD_USER_PROGRAM 17
 #define SYS_GET_CURSOR_ROW 18
 #define SYS_GET_CURSOR_COL 19
+#define SYS_FS_WRITE_FILE_BIN 20
 
 #define USER_BUFFER_SIZE 1024
 #define MAX_ARGC 64
@@ -82,6 +83,13 @@ static void copy_bytes_to_user(char *user_buf, const char *kernel_buf, unsigned 
     unsigned int i;
     for (i = 0; i < len; i++)
         user_buf[i] = kernel_buf[i];
+}
+
+static void copy_bytes_from_user(unsigned char *kernel_buf, const unsigned char *user_buf, unsigned int len)
+{
+    unsigned int i;
+    for (i = 0; i < len; i++)
+        kernel_buf[i] = user_buf[i];
 }
 
 static unsigned int handle_syscall(unsigned int num, unsigned int arg)
@@ -246,6 +254,46 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
     {
         unsigned int col = get_cursor_col();
         return col;
+    }
+
+    case SYS_FS_WRITE_FILE_BIN:
+    {
+        struct
+        {
+            const char *name;
+            const unsigned char *data;
+            unsigned int size;
+        } *uargs = (void *)arg;
+
+        if (!uargs || !uargs->name)
+            return (unsigned int)FS_ERR_NO_NAME;
+
+        const char *name = uargs->name;
+        unsigned int total = uargs->size;
+        const unsigned char *user_data = uargs->data;
+
+        fs_delete_file(name);
+        int r = fs_make_file(name);
+        if (r != FS_OK)
+            return (unsigned int)r;
+
+        unsigned int off = 0;
+        unsigned char kbuf[USER_BUFFER_SIZE];
+
+        while (off < total)
+        {
+            unsigned int chunk = (total - off > USER_BUFFER_SIZE) ? USER_BUFFER_SIZE : (total - off);
+
+            copy_bytes_from_user(kbuf, user_data + off, chunk);
+
+            int wr = fs_write_file_bin(name, kbuf, chunk);
+            if (wr != FS_OK)
+                return (unsigned int)wr;
+
+            off += chunk;
+        }
+
+        return 0;
     }
 
     default:

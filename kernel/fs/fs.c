@@ -852,8 +852,10 @@ int fs_delete_file(const char *name)
             {
                 unsigned char zero[512];
                 mem_set(zero, 0, sizeof(zero));
-                if (write_sector(f.data_lba, zero) != FS_OK)
-                    return FS_ERR_IO;
+                unsigned int sectors = (f.size + 511) / 512;
+                for (unsigned int s = 0; s < sectors; s++)
+                    if (write_sector(f.data_lba + s, zero) != FS_OK)
+                        return FS_ERR_IO;
             }
 
             mem_set(&f, 0, sizeof(FS_File));
@@ -881,16 +883,16 @@ int fs_delete_file(const char *name)
     return FS_ERR_NOT_EXISTS;
 }
 
-int fs_write_file(const char *name, const char *text)
+int fs_write_file_bin(const char *name, const unsigned char *data, unsigned int size)
 {
     if (!fs_initialized)
         return FS_ERR_NOT_INIT;
 
-    if (str_count(name) == 0)
+    if (!name || str_count(name) == 0)
         return FS_ERR_NO_NAME;
 
-    if (str_count(text) == 0)
-        return FS_ERR_NO_TEXT;
+    if (size == 0)
+        return FS_OK;
 
     char final_name[MAX_NAME];
     unsigned int parent_lba = 0;
@@ -909,31 +911,64 @@ int fs_write_file(const char *name, const char *text)
     {
         unsigned int file_lba = cur.files_lba[i];
         FS_File f;
-
         if (read_file_lba(file_lba, &f) != FS_OK)
             return FS_ERR_IO;
 
         if (str_equal(f.name, final_name))
         {
-            unsigned int len = str_count(text);
-            if (len > 512)
-                len = 512;
-
-            unsigned char buf[512];
-            for (unsigned int j = 0; j < len; j++)
-                buf[j] = text[j];
-
-            for (unsigned int j = len; j < 512; j++)
-                buf[j] = 0;
-
-            f.size = len;
-            if (f.data_lba == 0)
-                f.data_lba = DATA_START_LBA + file_lba;
-
-            if (write_sector(f.data_lba, buf) != FS_OK)
+            int file_idx = lba_to_file_index(file_lba);
+            if (file_idx < 0)
                 return FS_ERR_IO;
 
+            if (f.data_lba == 0)
+                f.data_lba = DATA_START_LBA + (unsigned int)file_idx;
+
+            unsigned int written = 0;
+            unsigned int sector_lba = f.data_lba + (f.size / 512u);
+            unsigned int sector_off = f.size % 512u;
+            unsigned char buf[512];
+
+            if (sector_off != 0)
+            {
+                if (read_sector(sector_lba, buf) != FS_OK)
+                    return FS_ERR_IO;
+                unsigned int can = 512 - sector_off;
+                unsigned int to_copy = (size - written < can) ? (size - written) : can;
+                for (unsigned int j = 0; j < to_copy; j++)
+                    buf[sector_off + j] = data[written + j];
+                if (write_sector(sector_lba, buf) != FS_OK)
+                    return FS_ERR_IO;
+                written += to_copy;
+                sector_lba++;
+            }
+
+            while (written + 512 <= size)
+            {
+                for (unsigned int j = 0; j < 512; j++)
+                    buf[j] = data[written + j];
+                if (write_sector(sector_lba, buf) != FS_OK)
+                    return FS_ERR_IO;
+                sector_lba++;
+                written += 512;
+            }
+
+            if (written < size)
+            {
+                unsigned int rem = size - written;
+                for (unsigned int j = 0; j < rem; j++)
+                    buf[j] = data[written + j];
+                for (unsigned int j = rem; j < 512; j++)
+                    buf[j] = 0;
+                if (write_sector(sector_lba, buf) != FS_OK)
+                    return FS_ERR_IO;
+                written += rem;
+            }
+
+            f.size = f.size + size;
             if (write_file_lba(file_lba, &f) != FS_OK)
+                return FS_ERR_IO;
+
+            if (store_super() != FS_OK)
                 return FS_ERR_IO;
 
             return FS_OK;
@@ -941,6 +976,12 @@ int fs_write_file(const char *name, const char *text)
     }
 
     return FS_ERR_NOT_EXISTS;
+}
+
+int fs_write_file(const char *name, const char *text)
+{
+    unsigned int len = str_count(text);
+    return fs_write_file_bin(name, (const unsigned char *)text, len);
 }
 
 int fs_read_file(const char *name, unsigned char *out_buf, unsigned int buf_size, unsigned int *out_size)

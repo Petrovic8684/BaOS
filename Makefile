@@ -33,7 +33,9 @@ KERNEL_SRCS = \
     kernel/helpers/bcd/bcd.c \
     kernel/helpers/memory/memory.c
 
-KERNEL_ASM_SRCS = kernel/system/idt/idt_flush.asm kernel/paging/page_fault.asm
+KERNEL_ASM_SRCS = \
+    kernel/system/idt/idt_flush.asm \
+    kernel/paging/page_fault.asm
 
 SHELL_SRCS = applications/shell/shell.c
 SHELL_DEPS = applications/shell/wrappers/wrappers.c
@@ -45,6 +47,12 @@ CALC_BIN = $(CALC_SRC:.c=.bin)
 FILLING_SRC = applications/filling/filling.c
 FILLING_BIN = $(FILLING_SRC:.c=.bin)
 
+COMPILER_SRC = tools/baoc/baoc.c
+COMPILER_BIN = $(COMPILER_SRC:.c=.bin)
+
+INSPECT_SRC = applications/inspect.c
+INSPECT_BIN = $(INSPECT_SRC:.c=.bin)
+
 KERNEL_OBJS = $(KERNEL_SRCS:.c=.o) $(KERNEL_ASM_SRCS:.asm=.o)
 KERNEL_BIN = kernel/kernel.bin
 KERNEL_LD  = kernel/link.ld
@@ -53,16 +61,31 @@ IMG = baos.img
 IMG_SIZE = 16
 
 # ---------------- Runtime ----------------
-RUNTIME_SRCS =  runtime/runtime.c \
-                runtime/src/stdio.c runtime/src/stdlib.c \
-                runtime/src/string.c runtime/src/ctype.c \
-                runtime/src/dirent.c runtime/src/sys_stat.c \
-                runtime/src/sys_utsname.c runtime/src/time.c \
-                runtime/src/unistd.c \
-                runtime/src/math.c \
-                
-RUNTIME_OBJS = $(RUNTIME_SRCS:.c=.o)
-RUNTIME_INCLUDE = -I./runtime/include
+RUNTIME_START_SRC = runtime/crt0.c
+RUNTIME_START_OBJ = runtime/crt0.o
+RUNTIME_START_BIN = runtime/crt0.bin
+LIBC_SYM = runtime/libc.sym
+
+RUNTIME_TEST_SRC = runtime/crt0.c
+RUNTIME_TEST_OBJ = runtime/crt0.o
+RUNTIME_TEST_BIN = runtime/crt0.bin
+
+RUNTIME_SRC_LIST = \
+    runtime/src/stdio.c \
+    runtime/src/stdlib.c \
+    runtime/src/string.c \
+    runtime/src/ctype.c \
+    runtime/src/dirent.c \
+    runtime/src/sys_stat.c \
+    runtime/src/sys_utsname.c \
+    runtime/src/time.c \
+    runtime/src/unistd.c \
+    runtime/src/math.c
+
+RUNTIME_SRC_OBJS = $(RUNTIME_SRC_LIST:.c=.o)
+
+RUNTIME_INCLUDE = -Iruntime/include
+RUNTIME_BIN = runtime/libc.bin
 
 # ---------------- Default target ----------------
 all: $(IMG)
@@ -73,7 +96,7 @@ $(BOOT_BIN): $(BOOT_SRC)
 
 # ---------------- Kernel build ----------------
 %.o: %.c
-	$(CC) -ffreestanding -m32 -c $< -o $@
+	$(CC) -ffreestanding -m32 -nostdlib -fno-pie $(RUNTIME_INCLUDE) -c $< -o $@
 
 %.o: %.asm
 	$(NASM) -f elf32 $< -o $@
@@ -82,31 +105,49 @@ $(KERNEL_BIN): $(KERNEL_OBJS) $(KERNEL_LD)
 	$(LD) -m elf_i386 -T $(KERNEL_LD) --oformat binary -o $@ $(KERNEL_OBJS)
 
 # ---------------- Runtime build ----------------
-%.o: runtime/src/%.c
+$(RUNTIME_START_OBJ): $(RUNTIME_START_SRC)
 	$(CC) -ffreestanding -m32 -c $(RUNTIME_INCLUDE) $< -o $@
 
-# ---------------- Shell build ----------------
+$(RUNTIME_START_BIN): $(RUNTIME_START_OBJ)
+	$(OBJCOPY) -O binary $< $@
+
+$(RUNTIME_BIN): $(RUNTIME_SRC_OBJS)
+	$(LD) -m elf_i386 --oformat binary -o $@ $^
+
+$(LIBC_SYM): $(RUNTIME_BIN)
+	$(PY) tools/generate_sym.py runtime/libc.bin > $@
+
+# ---------------- Shell & Apps build ----------------
 %.o: %.c
 	$(CC) -ffreestanding -m32 -nostdlib -fno-pie $(RUNTIME_INCLUDE) -c $< -o $@
 
-# Link shell: shell.o + shell deps + runtime objs
-%.bin: %.o $(SHELL_DEPS:.c=.o) $(RUNTIME_OBJS)
+%.bin: %.o $(SHELL_DEPS:.c=.o) $(RUNTIME_START_OBJ) $(RUNTIME_SRC_OBJS)
 	$(LD) -m elf_i386 -T kernel/loader/user.ld -o $@ $^
 
-# ------------- Calc program build ------------
-%.bin: %.o $(RUNTIME_OBJS)
+%.bin: %.o $(RUNTIME_START_OBJ) $(RUNTIME_SRC_OBJS)
 	$(LD) -m elf_i386 -T kernel/loader/user.ld -o $@ $^
-
-%.o: %.c
-	$(CC) -ffreestanding -m32 -nostdlib -fno-pie $(RUNTIME_INCLUDE) -c $< -o $@
 
 # ---------------- Disk image -----------------
-$(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN)
+$(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMPILER_BIN) $(INSPECT_BIN) \
+       $(RUNTIME_BIN) $(RUNTIME_START_BIN) $(LIBC_SYM)
 	$(DD) if=/dev/zero of=$(IMG) bs=1M count=$(IMG_SIZE)
 	$(DD) if=$(BOOT_BIN) of=$(IMG) conv=notrunc
 	$(DD) if=$(KERNEL_BIN) of=$(IMG) seek=1 conv=notrunc
-	for prog in $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN); do \
-	    $(PY) tools/mkfs_inject.py $(IMG) $$prog; \
+
+	for h in runtime/include/*.h; do \
+		$(PY) tools/mkfs_inject.py $(IMG) $$h /lib/include; \
+	done
+
+	$(PY) tools/mkfs_inject.py $(IMG) $(RUNTIME_START_BIN) /lib
+
+	$(PY) tools/mkfs_inject.py $(IMG) $(RUNTIME_BIN) /lib
+
+	$(PY) tools/mkfs_inject.py $(IMG) $(LIBC_SYM) /lib
+
+	$(PY) tools/mkfs_inject.py $(IMG) applications/bao.c /programs
+
+	for prog in $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMPILER_BIN) $(INSPECT_BIN); do \
+		$(PY) tools/mkfs_inject.py $(IMG) $$prog /programs; \
 	done
 
 # ---------------- Run & Clean ----------------
@@ -115,4 +156,5 @@ run: $(IMG)
 
 clean:
 	$(RM) $(BOOT_BIN) $(KERNEL_OBJS) $(KERNEL_BIN) $(IMG) \
-	      $(SHELL_BIN) $(SHELL_DEPS:.c=.o) $(CALC_BIN) $(RUNTIME_OBJS)
+	      $(SHELL_BIN) $(SHELL_DEPS:.c=.o) $(CALC_BIN) $(FILLING_BIN) $(COMPILER_BIN) $(LIBC_SYM) \
+	      $(RUNTIME_SRC_OBJS) $(RUNTIME_START_OBJ) $(RUNTIME_START_BIN) $(RUNTIME_BIN) $(INSPECT_BIN)

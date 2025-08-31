@@ -5,7 +5,7 @@
 #include <stddef.h>
 
 #define EOF -1
-#define BUFSIZ 256
+#define BUFSIZ 2048
 
 #define SEEK_SET 0
 #define SEEK_CUR 1

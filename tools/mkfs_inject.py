@@ -1,4 +1,4 @@
-import sys, os, struct, math
+import sys, os, struct, math, re
 
 MAX_NAME = 16
 MAX_DIRS_PER_DIR = 8
@@ -136,42 +136,106 @@ def ensure_fs(fh):
         write_sector(fh, SUPERBLOCK_LBA, build_super(sp))
     return sp
 
-def main():
-    if len(sys.argv) < 3:
-        print("usage: mkfs_inject.py <img> <bin1> [bin2 ...]")
-        return
-    img = sys.argv[1]
-    bins = sys.argv[2:]
-    with open(img, "r+b") as fh:
-        sp = ensure_fs(fh)
-
+def find_or_create_dir(fh, sp, path):
+    """
+    path: absolute like '/lib/include' or '/'.
+    returns: (dir_lba, dir_struct)
+    creates intermediate dirs if missing
+    """
+    if not path.startswith('/'):
+        raise Exception("fs path must be absolute")
+    if path == '/':
         root_lba = sp['root_dir_lba']
-        root = parse_dir(read_sector(fh, root_lba))
-
-        prog_dir_lba = 0
-        for i in range(root['dir_count']):
-            dlba = root['dirs_lba'][i]
+        return root_lba, parse_dir(read_sector(fh, root_lba))
+    components = [c for c in path.split('/') if c]
+    cur_lba = sp['root_dir_lba']
+    cur_dir = parse_dir(read_sector(fh, cur_lba))
+    for comp in components:
+        if len(comp) >= MAX_NAME:
+            raise Exception("directory name too long: " + comp)
+        found = False
+        for i in range(cur_dir['dir_count']):
+            dlba = cur_dir['dirs_lba'][i]
+            if dlba == 0: continue
             d = parse_dir(read_sector(fh, dlba))
-            if d['name'] == "programs":
-                prog_dir_lba = dlba
+            if d['name'] == comp:
+                cur_lba = dlba
+                cur_dir = d
+                found = True
                 break
-
-        if prog_dir_lba == 0:
+        if not found:
             new_idx = find_free(sp['dir_bitmap'])
             if new_idx < 0: raise Exception("no dir slots")
             new_lba = DIR_TABLE_START_LBA + new_idx
-            newdir = {'name': 'programs', 'parent_lba': root_lba, 'dir_count': 0, 'file_count': 0,
+            newdir = {'name': comp, 'parent_lba': cur_lba, 'dir_count': 0, 'file_count': 0,
                       'dirs_lba':[0]*MAX_DIRS_PER_DIR, 'files_lba':[0]*MAX_FILES_PER_DIR}
             write_sector(fh, new_lba, build_dir(newdir))
             sp['dir_bitmap'][new_idx] = 1
-            root['dirs_lba'][root['dir_count']] = new_lba
-            root['dir_count'] += 1
-            write_sector(fh, root_lba, build_dir(root))
+            if cur_dir['dir_count'] >= MAX_DIRS_PER_DIR:
+                raise Exception("parent directory is full, cannot create subdir: " + comp)
+            cur_dir['dirs_lba'][cur_dir['dir_count']] = new_lba
+            cur_dir['dir_count'] += 1
+            write_sector(fh, cur_lba, build_dir(cur_dir))
             write_sector(fh, SUPERBLOCK_LBA, build_super(sp))
-            prog_dir_lba = new_lba
-            print("Created /programs at LBA", new_lba)
+            cur_lba = new_lba
+            cur_dir = newdir
+    return cur_lba, cur_dir
 
-        prog_dir = parse_dir(read_sector(fh, prog_dir_lba))
+def get_dir_path(fh, sp, dir_lba):
+    parts = []
+    cur = dir_lba
+    while True:
+        if cur == sp['root_dir_lba']:
+            break
+        d = parse_dir(read_sector(fh, cur))
+        parts.append(d['name'])
+        cur = d['parent_lba']
+        if cur == 0 or cur < DIR_TABLE_START_LBA or cur >= DIR_TABLE_START_LBA + DIR_TABLE_SECTORS:
+            break
+    if not parts:
+        return '/'
+    parts.reverse()
+    return '/' + '/'.join(parts)
+
+def sanitize_target_folder(raw):
+    if raw is None:
+        return '/'
+    s = raw.replace('\\', '/')
+    s = re.sub(r'^(/*)[A-Za-z]:', '/', s)
+    s = re.sub(r'^//+', '/', s)
+
+    candidates = ['/lib/include', '/lib', '/programs']
+    for cand in candidates:
+        idx = s.lower().rfind(cand)
+        if idx != -1:
+            return s[idx:]
+    if not s.startswith('/'):
+        s = '/' + s
+    if len(s) > 1 and s.endswith('/'):
+        s = s.rstrip('/')
+    return s
+
+def main():
+    if len(sys.argv) < 3:
+        print("usage: mkfs_inject.py <img> <file> <target_folder> [file2 target_folder2 ...]")
+        return
+
+    img = sys.argv[1]
+    items = sys.argv[2:]
+
+    if len(items) % 2 != 0:
+        print("Error: each file must be followed by a target folder")
+        return
+
+    pairs = []
+    for i in range(0, len(items), 2):
+        hostpath = items[i]
+        raw_target = items[i+1]
+        target_folder = sanitize_target_folder(raw_target)
+        pairs.append((hostpath, target_folder))
+
+    with open(img, "r+b") as fh:
+        sp = ensure_fs(fh)
 
         used = set()
         for i in range(MAX_FILES):
@@ -183,29 +247,43 @@ def main():
                     for s in range(finfo['data_lba'], finfo['data_lba'] + sectors):
                         used.add(s)
 
-        for b in bins:
-            name = os.path.basename(b)
-            if name.lower().endswith('.bin'):
-                name = name[:-4]
-            if len(name) >= MAX_NAME:
-                raise Exception("name too long: " + name)
-            dup = False
-            for i in range(prog_dir['file_count']):
-                flba = prog_dir['files_lba'][i]
-                fentry = parse_file(read_sector(fh, flba))
-                if fentry['name'] == name:
-                    dup = True
-                    break
-            if dup:
-                print("Skipping (already exists):", name)
+        for hostpath, target_folder in pairs:
+            if not os.path.exists(hostpath):
+                print("Skipping (host file not found):", hostpath)
                 continue
 
-            if prog_dir['file_count'] >= MAX_FILES_PER_DIR:
-                raise Exception("/programs directory is full")
+            hostpath_for_name = hostpath.replace('\\', '/')
+            target_name = hostpath_for_name.split('/')[-1]
+            if target_name.lower().endswith('.bin'):
+                target_name = target_name[:-4]
 
-            with open(b, "rb") as bf:
+            if len(target_name) >= MAX_NAME:
+                raise Exception("name too long: " + target_name)
+
+            target_lba, target_dir = find_or_create_dir(fh, sp, target_folder)
+
+            dup = False
+            for i in range(target_dir['file_count']):
+                flba = target_dir['files_lba'][i]
+                if flba == 0: continue
+                fentry = parse_file(read_sector(fh, flba))
+                if fentry['name'] == target_name:
+                    dup = True
+                    break
+
+            fs_dir_path = get_dir_path(fh, sp, target_lba)
+            if dup:
+                display_path = fs_dir_path.rstrip('/') + '/' + target_name if fs_dir_path != '/' else '/' + target_name
+                print("Skipping (already exists):", display_path)
+                continue
+
+            if target_dir['file_count'] >= MAX_FILES_PER_DIR:
+                raise Exception("target directory is full: " + target_folder)
+
+            with open(hostpath, "rb") as bf:
                 data = bf.read()
             sectors_needed = (len(data) + SECTOR_SIZE - 1) // SECTOR_SIZE
+
             cand = DATA_START_LBA
             while True:
                 conflict = False
@@ -225,20 +303,22 @@ def main():
             new_file_idx = find_free(sp['file_bitmap'])
             if new_file_idx < 0: raise Exception("no file slots")
             new_file_lba = FILE_TABLE_START_LBA + new_file_idx
-            fl = {'name': name, 'size': len(data), 'data_lba': data_lba}
+            fl = {'name': target_name, 'size': len(data), 'data_lba': data_lba}
             write_sector(fh, new_file_lba, build_file(fl))
 
             sp['file_bitmap'][new_file_idx] = 1
             write_sector(fh, SUPERBLOCK_LBA, build_super(sp))
 
-            prog_dir['files_lba'][prog_dir['file_count']] = new_file_lba
-            prog_dir['file_count'] += 1
-            write_sector(fh, prog_dir_lba, build_dir(prog_dir))
+            target_dir['files_lba'][target_dir['file_count']] = new_file_lba
+            target_dir['file_count'] += 1
+            write_sector(fh, target_lba, build_dir(target_dir))
 
             for s in range(data_lba, data_lba + sectors_needed):
                 used.add(s)
 
-            print("Injected", name, "-> file_table_lba", new_file_lba, "data_lba", data_lba, "size", len(data))
+            display_path = fs_dir_path.rstrip('/') + '/' + target_name if fs_dir_path != '/' else '/' + target_name
+            print("Injected", target_name, "->", display_path,
+                  "file_table_lba", new_file_lba, "data_lba", data_lba, "size", len(data))
 
 if __name__ == "__main__":
     main()

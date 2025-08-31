@@ -12,6 +12,7 @@
 #define SYS_FS_READ_FILE 16
 #define SYS_GET_CURSOR_ROW 18
 #define SYS_GET_CURSOR_COL 19
+#define SYS_FS_WRITE_FILE_BIN 20
 
 #define MAX_OPEN_FILES 16
 #define USER_BUFFER_SIZE 1024
@@ -83,6 +84,26 @@ static inline int fs_write_file(const char *name, const char *text)
         "movl %%ebx, %[res]\n\t"
         : [res] "=r"(ret)
         : [num] "i"(SYS_FS_WRITE_FILE), [a] "r"(&args)
+        : "eax", "ebx", "memory");
+    return (int)ret;
+}
+
+static inline int fs_write_file_bin(const char *name, const unsigned char *data, unsigned int size)
+{
+    struct
+    {
+        const char *name;
+        const unsigned char *data;
+        unsigned int size;
+    } args = {name, data, size};
+    unsigned int ret;
+    asm volatile(
+        "movl %[num], %%eax\n\t"
+        "movl %[a], %%ebx\n\t"
+        "int $0x80\n\t"
+        "movl %%ebx, %[res]\n\t"
+        : [res] "=r"(ret)
+        : [num] "i"(SYS_FS_WRITE_FILE_BIN), [a] "r"(&args)
         : "eax", "ebx", "memory");
     return (int)ret;
 }
@@ -558,16 +579,14 @@ int fputc(int c, FILE *stream)
         if (rc != 0)
             got = 0;
 
-        unsigned int can_add = USER_BUFFER_SIZE - got - 1;
+        unsigned int can_add = USER_BUFFER_SIZE - got;
         if (can_add > (unsigned int)stream->buf_pos)
             can_add = (unsigned int)stream->buf_pos;
 
         if (can_add > 0)
             memcpy(tmp_all + got, stream->buf, can_add);
 
-        tmp_all[got + can_add] = '\0';
-
-        int wres = fs_write_file(stream->name, (const char *)tmp_all);
+        int wres = fs_write_file_bin(stream->name, tmp_all, got + can_add);
         stream->buf_pos = 0;
 
         if (wres < 0)
@@ -606,6 +625,13 @@ int vfprintf(FILE *stream, const char *fmt, va_list args)
         if (*p == '%' && *(p + 1))
         {
             p++;
+            int long_flag = 0;
+            if (*p == 'l')
+            {
+                long_flag = 1;
+                p++;
+            }
+
             if (*p == 's')
             {
                 const char *s = va_arg(args, const char *);
@@ -625,13 +651,12 @@ int vfprintf(FILE *stream, const char *fmt, va_list args)
             }
             else if (*p == 'd')
             {
-                int val = va_arg(args, int);
+                long val = long_flag ? va_arg(args, long) : va_arg(args, int);
                 int neg = 0;
                 int i = 0;
                 if (val == 0)
                 {
-                    if (fputc('0', stream) == EOF)
-                        return -1;
+                    fputc('0', stream);
                     total++;
                     continue;
                 }
@@ -647,14 +672,80 @@ int vfprintf(FILE *stream, const char *fmt, va_list args)
                 }
                 if (neg)
                 {
-                    if (fputc('-', stream) == EOF)
-                        return -1;
+                    fputc('-', stream);
                     total++;
                 }
                 while (i-- > 0)
                 {
-                    if (fputc(tmp[i], stream) == EOF)
-                        return -1;
+                    fputc(tmp[i], stream);
+                    total++;
+                }
+            }
+            else if (*p == 'u')
+            {
+                unsigned long val = long_flag ? va_arg(args, unsigned long) : va_arg(args, unsigned int);
+                int i = 0;
+                if (val == 0)
+                {
+                    fputc('0', stream);
+                    total++;
+                    continue;
+                }
+                while (val > 0 && i < (int)sizeof(tmp) - 1)
+                {
+                    tmp[i++] = '0' + (val % 10);
+                    val /= 10;
+                }
+                while (i-- > 0)
+                {
+                    fputc(tmp[i], stream);
+                    total++;
+                }
+            }
+            else if (*p == 'x' || *p == 'X')
+            {
+                unsigned long val = long_flag ? va_arg(args, unsigned long) : va_arg(args, unsigned int);
+                int i = 0;
+                const char *digits = (*p == 'X') ? "0123456789ABCDEF" : "0123456789abcdef";
+                if (val == 0)
+                {
+                    fputc('0', stream);
+                    total++;
+                    continue;
+                }
+                while (val > 0 && i < (int)sizeof(tmp) - 1)
+                {
+                    tmp[i++] = digits[val % 16];
+                    val /= 16;
+                }
+                while (i-- > 0)
+                {
+                    fputc(tmp[i], stream);
+                    total++;
+                }
+            }
+            else if (*p == 'p')
+            {
+                void *ptr = va_arg(args, void *);
+                unsigned long val = (unsigned long)ptr;
+                fputs("0x", stream);
+                total += 2;
+                int i = 0;
+                const char *digits = "0123456789abcdef";
+                if (val == 0)
+                {
+                    fputc('0', stream);
+                    total++;
+                    continue;
+                }
+                while (val > 0 && i < (int)sizeof(tmp) - 1)
+                {
+                    tmp[i++] = digits[val % 16];
+                    val /= 16;
+                }
+                while (i-- > 0)
+                {
+                    fputc(tmp[i], stream);
                     total++;
                 }
             }
@@ -670,7 +761,6 @@ int vfprintf(FILE *stream, const char *fmt, va_list args)
 
                 long int_part = (long)val;
                 double frac_part = val - int_part;
-
                 int i = 0;
                 if (int_part == 0)
                     tmp[i++] = '0';
@@ -693,7 +783,6 @@ int vfprintf(FILE *stream, const char *fmt, va_list args)
 
                 fputc('.', stream);
                 total++;
-
                 for (int d = 0; d < 10; d++)
                 {
                     frac_part *= 10;
@@ -702,33 +791,22 @@ int vfprintf(FILE *stream, const char *fmt, va_list args)
                     total++;
                     frac_part -= digit;
                 }
-
-                if (*p == 'g')
-                {
-                    int end = total - 1;
-                    while (tmp[end] == '0')
-                        end--;
-                }
             }
             else if (*p == '%')
             {
-                if (fputc('%', stream) == EOF)
-                    return -1;
+                fputc('%', stream);
                 total++;
             }
             else
             {
-                if (fputc('%', stream) == EOF)
-                    return -1;
-                if (fputc(*p, stream) == EOF)
-                    return -1;
+                fputc('%', stream);
+                fputc(*p, stream);
                 total += 2;
             }
         }
         else
         {
-            if (fputc(*p, stream) == EOF)
-                return -1;
+            fputc(*p, stream);
             total++;
         }
     }
@@ -1114,16 +1192,14 @@ int fflush(FILE *stream)
         if (rc != 0)
             got = 0;
 
-        unsigned int can_add = USER_BUFFER_SIZE - got - 1;
+        unsigned int can_add = USER_BUFFER_SIZE - got;
         if (can_add > (unsigned int)stream->buf_pos)
             can_add = (unsigned int)stream->buf_pos;
 
         if (can_add > 0)
             memcpy(combined + got, stream->buf, can_add);
 
-        combined[got + can_add] = '\0';
-
-        int wres = fs_write_file(stream->name, (const char *)combined);
+        int wres = fs_write_file_bin(stream->name, combined, got + can_add);
         stream->buf_pos = 0;
         if (wres < 0)
         {
