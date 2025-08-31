@@ -5,7 +5,7 @@
 #define SYS_LOAD_USER_PROGRAM 17
 
 void wrapper_clear(void);
-void wrapper_list_dir(void);
+void wrapper_list_dir(const char *path);
 void wrapper_make_dir(const char *name);
 void wrapper_make_file(const char *name);
 void wrapper_echo(const char *arg1, const char *arg2);
@@ -22,5 +22,7 @@ void wrapper_write_file(const char *name, const char *text);
 void wrapper_read_file(const char *name);
 void wrapper_shutdown(void);
 void wrapper_run(const char *name, const char *args);
+void wrapper_copy(const char *src, const char *dst);
+void wrapper_move(const char *src, const char *dst);
 
 #endif

@@ -160,7 +160,9 @@ DIR *opendir(const char *name)
         original[k] = '\0';
     }
     else
+    {
         original[0] = '\0';
+    }
 
     int changed = 0;
     if (name && name[0] != '\0' && !(name[0] == '.' && name[1] == '\0'))
@@ -178,16 +180,35 @@ DIR *opendir(const char *name)
     parse_list_into_dir(d, listing);
 
     if (changed)
-        for (int iter = 0; iter < 128; iter++)
+    {
+        if (original[0] != '\0')
         {
-            const char *now = fs_where();
-            if (!now)
-                break;
-            if (strncmp(now, original, USER_BUFFER_SIZE) == 0)
-                break;
-
-            fs_change_dir("..");
+            if (fs_change_dir(original) != 0)
+            {
+                for (int iter = 0; iter < 128; iter++)
+                {
+                    const char *now = fs_where();
+                    if (!now)
+                        break;
+                    if (strncmp(now, original, USER_BUFFER_SIZE) == 0)
+                        break;
+                    fs_change_dir("..");
+                }
+            }
         }
+        else
+        {
+            for (int iter = 0; iter < 128; iter++)
+            {
+                const char *now = fs_where();
+                if (!now)
+                    break;
+                if (strncmp(now, original, USER_BUFFER_SIZE) == 0)
+                    break;
+                fs_change_dir("..");
+            }
+        }
+    }
 
     return (DIR *)d;
 }

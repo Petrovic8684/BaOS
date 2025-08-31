@@ -390,10 +390,10 @@ void fs_init(void)
     static ATA_Driver drv_inst;
     ATA_Driver *drv = &drv_inst;
 
-    write("fs_init: start.\n");
+    write("Initializing file system...\n");
     if (ata_init(drv, 0x1F0, 0x3F6, 0) != 0)
     {
-        write("\033[31mfs_init: ATA init failed.\033[0m\n");
+        write("\033[31mError: ATA init failed.\033[0m\n");
 
         fs_initialized = 0;
         ata_set_fs_drv(((void *)0));
@@ -401,27 +401,27 @@ void fs_init(void)
     }
 
     ata_set_fs_drv(drv);
-    write("\033[32mfs_init: ATA init ok.\033[0m\n");
+    write("\033[32mATA initialized.\033[0m\n");
 
     if (!drv->exists)
     {
-        write("\033[31mfs_init: no ata device.\033[0m\n");
+        write("\033[31mError: No ata device found.\033[0m\n");
 
         fs_initialized = 0;
         return;
     }
 
-    write("fs_init: loading super.\n");
+    write("Loading super...\n");
     if (load_super() == FS_OK)
     {
         fs_current_dir_lba = fs_super.root_dir_lba;
         fs_initialized = 1;
 
-        write("\033[32mfs_init: using existing FS on disk.\033[0m\n\n");
+        write("\033[32mUsing existing file system on disk.\033[0m\n\n");
         return;
     }
 
-    write("\033[32mfs_init: no valid super - formatting new FS.\033[0m\n");
+    write("\033[32mNo valid super found. Formatting a new file system.\033[0m\n");
 
     mem_set(&fs_super, 0, sizeof(FS_SuperOnDisk));
 
@@ -445,10 +445,10 @@ void fs_init(void)
     root.dir_count = 0;
     root.file_count = 0;
 
-    write("fs_init: writing root dir.\n");
+    write("Writing root directory...\n");
     if (write_dir_lba(root_lba, &root) != FS_OK)
     {
-        write("\033[31mfs_init: failed to write root dir.\033[0m\n");
+        write("\033[31mError: Failed to write root directory.\033[0m\n");
 
         fs_initialized = 0;
         return;
@@ -457,10 +457,10 @@ void fs_init(void)
     set_dir_bitmap(root_idx, 1);
     fs_super.root_dir_lba = root_lba;
 
-    write("fs_init: storing super.\n");
+    write("Storing super...\n");
     if (store_super() != FS_OK)
     {
-        write("\033[31mfs_init: failed to write/verify super\033[0m\n");
+        write("\033[31mError: Failed to write or verify super.\033[0m\n");
 
         fs_initialized = 0;
         return;
@@ -469,7 +469,7 @@ void fs_init(void)
     fs_current_dir_lba = root_lba;
     fs_initialized = 1;
 
-    write("\033[32mfs_init: created new FS.\033[0m\n\n");
+    write("\033[32mCreated a new file system.\033[0m\n\n");
 }
 
 int fs_make_dir(const char *name)

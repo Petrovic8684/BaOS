@@ -14,6 +14,7 @@
 #define SYS_GET_CURSOR_COL 19
 
 #define MAX_OPEN_FILES 16
+#define USER_BUFFER_SIZE 1024
 
 static inline void sys_write(const char *str)
 {
@@ -550,12 +551,30 @@ int fputc(int c, FILE *stream)
 
     if (stream->buf_pos >= BUFSIZ)
     {
-        char tmp[BUFSIZ + 1];
-        memcpy(tmp, stream->buf, BUFSIZ);
-        tmp[BUFSIZ] = '\0';
+        unsigned char tmp_all[USER_BUFFER_SIZE];
+        unsigned int got = 0;
 
-        fs_write_file(stream->name, tmp);
+        int rc = fs_read_file(stream->name, tmp_all, USER_BUFFER_SIZE, &got);
+        if (rc != 0)
+            got = 0;
+
+        unsigned int can_add = USER_BUFFER_SIZE - got - 1;
+        if (can_add > (unsigned int)stream->buf_pos)
+            can_add = (unsigned int)stream->buf_pos;
+
+        if (can_add > 0)
+            memcpy(tmp_all + got, stream->buf, can_add);
+
+        tmp_all[got + can_add] = '\0';
+
+        int wres = fs_write_file(stream->name, (const char *)tmp_all);
         stream->buf_pos = 0;
+
+        if (wres < 0)
+        {
+            stream->err = 1;
+            return EOF;
+        }
     }
 
     return c;
@@ -1088,21 +1107,32 @@ int fflush(FILE *stream)
         return 0;
 
     {
-        size_t n = stream->buf_pos;
-        char tmp[BUFSIZ + 1];
-        if (n > BUFSIZ)
-            n = BUFSIZ;
-        memcpy(tmp, stream->buf, n);
-        tmp[n] = '\0';
-        int res = fs_write_file(stream->name, tmp);
+        unsigned char combined[USER_BUFFER_SIZE];
+        unsigned int got = 0;
+
+        int rc = fs_read_file(stream->name, combined, USER_BUFFER_SIZE, &got);
+        if (rc != 0)
+            got = 0;
+
+        unsigned int can_add = USER_BUFFER_SIZE - got - 1;
+        if (can_add > (unsigned int)stream->buf_pos)
+            can_add = (unsigned int)stream->buf_pos;
+
+        if (can_add > 0)
+            memcpy(combined + got, stream->buf, can_add);
+
+        combined[got + can_add] = '\0';
+
+        int wres = fs_write_file(stream->name, (const char *)combined);
         stream->buf_pos = 0;
-        if (res < 0)
+        if (wres < 0)
         {
             stream->err = 1;
             return EOF;
         }
-        return 0;
     }
+
+    return 0;
 }
 
 FILE *fopen(const char *pathname, const char *mode)
@@ -1126,7 +1156,7 @@ FILE *fopen(const char *pathname, const char *mode)
         f->mode = 0;
         unsigned int got = 0;
         int rc = fs_read_file(f->name, f->buf, BUFSIZ, &got);
-        if (rc == 0 && got > 0)
+        if (rc == 0)
         {
             f->buf_end = got;
             f->buf_pos = 0;

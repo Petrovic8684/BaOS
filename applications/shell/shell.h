@@ -20,7 +20,9 @@ typedef enum
     CMD_OSNAME,
     CMD_KERNELVERSION,
     CMD_SHUTDOWN,
-    CMD_RUN
+    CMD_RUN,
+    CMD_COPY,
+    CMD_MOVE,
 } Command;
 
 Command parse_command(const char *cmd);

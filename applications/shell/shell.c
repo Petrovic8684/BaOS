@@ -53,6 +53,10 @@ Command parse_command(const char *cmd)
         return CMD_SHUTDOWN;
     if (strcmp(cmd, "run") == 0)
         return CMD_RUN;
+    if (strcmp(cmd, "copy") == 0)
+        return CMD_COPY;
+    if (strcmp(cmd, "move") == 0)
+        return CMD_MOVE;
     return CMD_UNKNOWN;
 }
 
@@ -82,7 +86,7 @@ void process_command(char *cmd)
         wrapper_clear();
         break;
     case CMD_LIST:
-        wrapper_list_dir();
+        wrapper_list_dir(arg1);
         break;
     case CMD_MAKEDIR:
         wrapper_make_dir(arg1);
@@ -128,6 +132,12 @@ void process_command(char *cmd)
         break;
     case CMD_RUN:
         wrapper_run(arg1, arg2);
+        break;
+    case CMD_COPY:
+        wrapper_copy(arg1, arg2);
+        break;
+    case CMD_MOVE:
+        wrapper_move(arg1, arg2);
         break;
     default:
         printf("\033[31mError: Unknown command. Type 'help' for a list of valid commands.\033[0m\n");
