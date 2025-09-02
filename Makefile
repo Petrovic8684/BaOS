@@ -39,19 +39,16 @@ KERNEL_ASM_SRCS = \
 
 SHELL_SRCS = applications/shell/shell.c
 SHELL_DEPS = applications/shell/wrappers/wrappers.c
-SHELL_BIN = $(SHELL_SRCS:.c=.bin)
+SHELL_BIN = applications/shell/shell.bin
 
 CALC_SRC = applications/calc/calc.c
-CALC_BIN = $(CALC_SRC:.c=.bin)
+CALC_BIN = applications/calc/calc.bin
 
 FILLING_SRC = applications/filling/filling.c
-FILLING_BIN = $(FILLING_SRC:.c=.bin)
+FILLING_BIN = applications/filling/filling.bin
 
-COMPILER_SRC = tools/baoc/baoc.c
-COMPILER_BIN = $(COMPILER_SRC:.c=.bin)
-
-INSPECT_SRC = applications/inspect.c
-INSPECT_BIN = $(INSPECT_SRC:.c=.bin)
+COMPILER_SRC = applications/baoc/baoc.c
+COMPILER_BIN = applications/baoc/baoc.bin
 
 KERNEL_OBJS = $(KERNEL_SRCS:.c=.o) $(KERNEL_ASM_SRCS:.asm=.o)
 KERNEL_BIN = kernel/kernel.bin
@@ -61,9 +58,10 @@ IMG = baos.img
 IMG_SIZE = 16
 
 # ---------------- Runtime ----------------
-RUNTIME_START_SRC = runtime/crt0.c
-RUNTIME_START_OBJ = runtime/crt0.o
-RUNTIME_START_BIN = runtime/crt0.bin
+CRT0_SRC = runtime/crt0.c
+CRT0_OBJ = runtime/crt0.o
+CRT0_BIN = runtime/crt0.bin
+
 LIBC_SYM = runtime/libc.sym
 
 RUNTIME_TEST_SRC = runtime/crt0.c
@@ -105,31 +103,31 @@ $(KERNEL_BIN): $(KERNEL_OBJS) $(KERNEL_LD)
 	$(LD) -m elf_i386 -T $(KERNEL_LD) --oformat binary -o $@ $(KERNEL_OBJS)
 
 # ---------------- Runtime build ----------------
-$(RUNTIME_START_OBJ): $(RUNTIME_START_SRC)
+$(CRT0_OBJ): $(CRT0_SRC)
 	$(CC) -ffreestanding -m32 -c $(RUNTIME_INCLUDE) $< -o $@
 
-$(RUNTIME_START_BIN): $(RUNTIME_START_OBJ)
+$(CRT0_BIN): $(CRT0_OBJ)
 	$(OBJCOPY) -O binary $< $@
 
 $(RUNTIME_BIN): $(RUNTIME_SRC_OBJS)
 	$(LD) -m elf_i386 --oformat binary -o $@ $^
 
 $(LIBC_SYM): $(RUNTIME_BIN)
-	$(PY) tools/generate_sym.py runtime/libc.bin > $@
+	$(PY) tools/generate_sym.py $(RUNTIME_BIN) > $@
 
 # ---------------- Shell & Apps build ----------------
 %.o: %.c
 	$(CC) -ffreestanding -m32 -nostdlib -fno-pie $(RUNTIME_INCLUDE) -c $< -o $@
 
-%.bin: %.o $(SHELL_DEPS:.c=.o) $(RUNTIME_START_OBJ) $(RUNTIME_SRC_OBJS)
+%.bin: %.o $(SHELL_DEPS:.c=.o) $(CRT0_OBJ) $(RUNTIME_SRC_OBJS)
 	$(LD) -m elf_i386 -T kernel/loader/user.ld -o $@ $^
 
-%.bin: %.o $(RUNTIME_START_OBJ) $(RUNTIME_SRC_OBJS)
+%.bin: %.o $(CRT0_OBJ) $(RUNTIME_SRC_OBJS)
 	$(LD) -m elf_i386 -T kernel/loader/user.ld -o $@ $^
 
 # ---------------- Disk image -----------------
-$(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMPILER_BIN) $(INSPECT_BIN) \
-       $(RUNTIME_BIN) $(RUNTIME_START_BIN) $(LIBC_SYM)
+$(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMPILER_BIN) \
+       $(RUNTIME_BIN) $(CRT0_BIN) $(LIBC_SYM)
 	$(DD) if=/dev/zero of=$(IMG) bs=1M count=$(IMG_SIZE)
 	$(DD) if=$(BOOT_BIN) of=$(IMG) conv=notrunc
 	$(DD) if=$(KERNEL_BIN) of=$(IMG) seek=1 conv=notrunc
@@ -138,7 +136,7 @@ $(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMP
 		$(PY) tools/mkfs_inject.py $(IMG) $$h /lib/include; \
 	done
 
-	$(PY) tools/mkfs_inject.py $(IMG) $(RUNTIME_START_BIN) /lib
+	$(PY) tools/mkfs_inject.py $(IMG) $(CRT0_BIN) /lib
 
 	$(PY) tools/mkfs_inject.py $(IMG) $(RUNTIME_BIN) /lib
 
@@ -146,7 +144,7 @@ $(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMP
 
 	$(PY) tools/mkfs_inject.py $(IMG) applications/bao.c /programs
 
-	for prog in $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMPILER_BIN) $(INSPECT_BIN); do \
+	for prog in $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMPILER_BIN); do \
 		$(PY) tools/mkfs_inject.py $(IMG) $$prog /programs; \
 	done
 
@@ -157,4 +155,4 @@ run: $(IMG)
 clean:
 	$(RM) $(BOOT_BIN) $(KERNEL_OBJS) $(KERNEL_BIN) $(IMG) \
 	      $(SHELL_BIN) $(SHELL_DEPS:.c=.o) $(CALC_BIN) $(FILLING_BIN) $(COMPILER_BIN) $(LIBC_SYM) \
-	      $(RUNTIME_SRC_OBJS) $(RUNTIME_START_OBJ) $(RUNTIME_START_BIN) $(RUNTIME_BIN) $(INSPECT_BIN)
+	      $(RUNTIME_SRC_OBJS) $(CRT0_OBJ) $(CRT0_BIN) $(RUNTIME_BIN)

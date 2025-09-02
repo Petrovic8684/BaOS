@@ -15,6 +15,7 @@ __attribute__((section(".text"), used, noreturn)) void kernel_main(void)
 
     fs_init();
 
+    fs_change_dir("/programs");
     load_user_program("/programs/shell", ((void *)0));
 
     while (1)

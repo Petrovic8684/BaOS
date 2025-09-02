@@ -62,4 +62,9 @@ void clearerr(FILE *stream);
 int setvbuf(FILE *stream, char *buf, int mode, size_t size);
 void setbuf(FILE *stream, char *buf);
 
+int vsnprintf(char *buf, size_t size, const char *fmt, va_list args);
+int vsprintf(char *str, const char *format, va_list ap);
+int snprintf(char *str, size_t size, const char *format, ...);
+int sprintf(char *str, const char *format, ...);
+
 #endif

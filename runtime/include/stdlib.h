@@ -4,5 +4,6 @@
 void exit(int code);
 double strtod(const char *nptr, char **endptr);
 unsigned long strtoul(const char *nptr, char **endptr, int base);
+long strtol(const char *nptr, char **endptr, int base);
 
 #endif
