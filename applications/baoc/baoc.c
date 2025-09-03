@@ -35,6 +35,7 @@ typedef enum
     TOK_EOF,
     TOK_IDENT,
     TOK_NUMBER,
+    TOK_STRING,
     TOK_SYM,
     TOK_OP
 } TokType;
@@ -63,6 +64,7 @@ typedef struct
     int32_t val;
     char sym;
     int op;
+    char str[256];
 } Token;
 
 typedef struct
@@ -103,6 +105,29 @@ typedef struct
 TypedefSym typedefs[MAX_TYPEDEFS];
 int typedefs_cnt = 0;
 
+#define MAX_ENUM_CONSTS 512
+typedef struct
+{
+    char name[64];
+    int32_t val;
+} EnumConst;
+EnumConst enum_consts[MAX_ENUM_CONSTS];
+int enum_consts_cnt = 0;
+
+#define MAX_STR_LITS 512
+typedef struct
+{
+    char *s;
+    uint32_t code_place;
+} StrLit;
+StrLit strlits[MAX_STR_LITS];
+int strlits_cnt = 0;
+
+#define STR_STORAGE_SIZE 65536
+
+static char str_storage[STR_STORAGE_SIZE];
+static uint32_t str_storage_used = 0;
+
 Token curtok;
 char *src;
 
@@ -114,6 +139,8 @@ void die(const char *m)
         fprintf(stderr, "IDENT '%s'\n", curtok.ident);
     else if (curtok.type == TOK_NUMBER)
         fprintf(stderr, "NUMBER %d\n", curtok.val);
+    else if (curtok.type == TOK_STRING)
+        fprintf(stderr, "STRING \"%s\"\n", curtok.str);
     else if (curtok.type == TOK_SYM)
         fprintf(stderr, "SYM '%c'\n", curtok.sym);
     else if (curtok.type == TOK_OP)
@@ -154,6 +181,49 @@ static void add_typedef_name(const char *name)
     typedefs_cnt++;
 }
 
+static int enum_find(const char *name)
+{
+    for (int i = 0; i < enum_consts_cnt; ++i)
+        if (strcmp(enum_consts[i].name, name) == 0)
+            return i;
+    return -1;
+}
+
+static void add_enum_const(const char *name, int32_t val)
+{
+    if (enum_consts_cnt >= MAX_ENUM_CONSTS)
+        die("too many enum constants");
+
+    strncpy(enum_consts[enum_consts_cnt].name, name, sizeof(enum_consts[enum_consts_cnt].name) - 1);
+    enum_consts[enum_consts_cnt].name[sizeof(enum_consts[enum_consts_cnt].name) - 1] = '\0';
+    enum_consts[enum_consts_cnt].val = val;
+    enum_consts_cnt++;
+}
+
+static void add_string_literal_entry(const char *s)
+{
+    if (strlits_cnt >= MAX_STR_LITS)
+        die("too many string literals");
+
+    size_t len = strlen(s) + 1;
+    if (str_storage_used + len > STR_STORAGE_SIZE)
+        die("string storage overflow");
+
+    char *dst = &str_storage[str_storage_used];
+    for (size_t i = 0; i < len; i++)
+        dst[i] = s[i];
+
+    strlits[strlits_cnt].s = dst;
+
+    if (code_len < 4)
+        die("internal: code too small for string immediate");
+
+    strlits[strlits_cnt].code_place = (uint32_t)(code_len - 4);
+    strlits_cnt++;
+
+    str_storage_used += len;
+}
+
 static int is_type_name(const char *name)
 {
     if (!name)
@@ -161,6 +231,16 @@ static int is_type_name(const char *name)
     if (strcmp(name, "int") == 0)
         return 1;
     if (strcmp(name, "void") == 0)
+        return 1;
+    if (strcmp(name, "unsigned") == 0)
+        return 1;
+    if (strcmp(name, "signed") == 0)
+        return 1;
+    if (strcmp(name, "char") == 0)
+        return 1;
+    if (strcmp(name, "short") == 0)
+        return 1;
+    if (strcmp(name, "long") == 0)
         return 1;
     return is_typedef_name(name);
 }
@@ -309,6 +389,103 @@ void next_token()
         curtok.type = TOK_OP;
         curtok.op = OP_GT;
         src++;
+        return;
+    }
+
+    if (*src == '"')
+    {
+        src++;
+        char *p = curtok.str;
+        while (*src && *src != '"')
+        {
+            if (*src == '\\')
+            {
+                src++;
+                if (!*src)
+                    break;
+                switch (*src)
+                {
+                case 'n':
+                    *p++ = '\n';
+                    break;
+                case 't':
+                    *p++ = '\t';
+                    break;
+                case '\\':
+                    *p++ = '\\';
+                    break;
+                case '"':
+                    *p++ = '"';
+                    break;
+                case '\'':
+                    *p++ = '\'';
+                    break;
+                case '0':
+                    die("\\0 within string literal not supported");
+                    break;
+                default:
+                    *p++ = *src;
+                    break;
+                }
+                src++;
+            }
+            else
+            {
+                *p++ = *src++;
+            }
+        }
+        *p = '\0';
+        if (*src != '"')
+            die("unterminated string literal");
+        src++;
+        curtok.type = TOK_STRING;
+        return;
+    }
+
+    if (*src == '\'')
+    {
+        src++;
+        int v = 0;
+        if (*src == '\\')
+        {
+            src++;
+            if (!*src)
+                die("unterminated char literal");
+            switch (*src)
+            {
+            case 'n':
+                v = '\n';
+                break;
+            case 't':
+                v = '\t';
+                break;
+            case '\\':
+                v = '\\';
+                break;
+            case '\'':
+                v = '\'';
+                break;
+            case '0':
+                v = '\0';
+                break;
+            default:
+                v = (unsigned char)*src;
+                break;
+            }
+            src++;
+        }
+        else
+        {
+            if (!*src)
+                die("unterminated char literal");
+            v = (unsigned char)*src;
+            src++;
+        }
+        if (*src != '\'')
+            die("unterminated char literal");
+        src++;
+        curtok.type = TOK_NUMBER;
+        curtok.val = v;
         return;
     }
 
@@ -641,6 +818,13 @@ void gen_primary()
         next_token();
         return;
     }
+    if (curtok.type == TOK_STRING)
+    {
+        emit_push_imm32(0);
+        add_string_literal_entry(curtok.str);
+        next_token();
+        return;
+    }
     if (curtok.type == TOK_IDENT)
     {
         char name[64];
@@ -693,7 +877,15 @@ void gen_primary()
         {
             int li = local_find(name);
             if (li < 0)
+            {
+                int ei = enum_find(name);
+                if (ei >= 0)
+                {
+                    emit_push_imm32((uint32_t)enum_consts[ei].val);
+                    return;
+                }
                 die("unknown variable");
+            }
 
             int offset = locals[li].offset;
             emit_mov_eax_from_ebp_disp_any(neg_off(offset));
@@ -1134,7 +1326,15 @@ void gen_stmt()
         if (!is_type_name(curtok.ident))
             die("unsupported typedef base type");
 
-        next_token();
+        if (strcmp(curtok.ident, "unsigned") == 0 || strcmp(curtok.ident, "signed") == 0)
+        {
+            next_token();
+            if (curtok.type == TOK_IDENT && strcmp(curtok.ident, "int") == 0)
+                next_token();
+        }
+        else
+            next_token();
+
         expect_ident();
         char tname[64];
         strncpy(tname, curtok.ident, 63);
@@ -1452,9 +1652,12 @@ void gen_stmt()
 
         return;
     }
-    if (curtok.type == TOK_IDENT && (strcmp(curtok.ident, "const") == 0 || is_type_name(curtok.ident)))
+    if (curtok.type == TOK_IDENT && (strcmp(curtok.ident, "const") == 0 || is_type_name(curtok.ident) || strcmp(curtok.ident, "static") == 0 || strcmp(curtok.ident, "auto") == 0))
     {
         int is_const = 0;
+        if (strcmp(curtok.ident, "static") == 0 || strcmp(curtok.ident, "auto") == 0)
+            next_token();
+
         if (strcmp(curtok.ident, "const") == 0)
         {
             is_const = 1;
@@ -1463,7 +1666,17 @@ void gen_stmt()
                 die("expected type after 'const'");
         }
 
-        next_token();
+        if (!(curtok.type == TOK_IDENT && is_type_name(curtok.ident)))
+            die("expected type in declaration");
+
+        if (strcmp(curtok.ident, "unsigned") == 0 || strcmp(curtok.ident, "signed") == 0)
+        {
+            next_token();
+            if (curtok.type == TOK_IDENT && strcmp(curtok.ident, "int") == 0)
+                next_token();
+        }
+        else
+            next_token();
 
         expect_ident();
         char vname[64];
@@ -1548,7 +1761,17 @@ void gen_function()
             if (curtok.type != TOK_IDENT || !is_type_name(curtok.ident))
                 die("expected type in parameter");
 
-            next_token();
+            if (strcmp(curtok.ident, "unsigned") == 0 || strcmp(curtok.ident, "signed") == 0)
+            {
+                next_token();
+                if (curtok.type == TOK_IDENT && strcmp(curtok.ident, "int") == 0)
+                    next_token();
+            }
+            else
+            {
+                next_token();
+            }
+
             while (accept_sym('*'))
                 ;
 
@@ -1627,7 +1850,15 @@ void compile(const char *input)
             if (!is_type_name(curtok.ident))
                 die("unsupported typedef base type");
 
-            next_token();
+            if (strcmp(curtok.ident, "unsigned") == 0 || strcmp(curtok.ident, "signed") == 0)
+            {
+                next_token();
+                if (curtok.type == TOK_IDENT && strcmp(curtok.ident, "int") == 0)
+                    next_token();
+            }
+            else
+                next_token();
+
             expect_ident();
             char tname[64];
             strncpy(tname, curtok.ident, sizeof(tname) - 1);
@@ -1638,6 +1869,46 @@ void compile(const char *input)
 
             add_typedef_name(tname);
             continue;
+        }
+
+        if (curtok.type == TOK_IDENT && strcmp(curtok.ident, "enum") == 0)
+        {
+            next_token();
+            if (curtok.type == TOK_IDENT)
+                next_token();
+
+            if (accept_sym('{'))
+            {
+                int32_t val = 0;
+                while (!accept_sym('}'))
+                {
+                    expect_ident();
+                    char ename[64];
+                    strncpy(ename, curtok.ident, 63);
+                    ename[63] = '\0';
+                    next_token();
+                    if (accept_sym('='))
+                    {
+                        if (curtok.type == TOK_NUMBER)
+                        {
+                            val = curtok.val;
+                            next_token();
+                        }
+                        else
+                            die("expected number in enum");
+                    }
+                    add_enum_const(ename, val);
+                    val++;
+                    accept_sym(',');
+                }
+                expect_sym(';');
+                continue;
+            }
+            else
+            {
+                expect_sym(';');
+                continue;
+            }
         }
 
         gen_function();
@@ -1694,7 +1965,12 @@ int main(int argc, char **argv)
     fclose(fcrt);
 
     uint32_t user_code_size = (uint32_t)code_len;
-    uint32_t total_user_size = user_code_size;
+
+    uint32_t total_str_size = 0;
+    for (int i = 0; i < strlits_cnt; ++i)
+        total_str_size += (uint32_t)(strlen(strlits[i].s) + 1);
+
+    uint32_t total_user_size = user_code_size + total_str_size;
 
     uint32_t ph_offset = sizeof(Elf32_Ehdr);
     uint32_t elf_size = ph_offset + sizeof(Elf32_Phdr) + crt_sz + total_user_size;
@@ -1736,6 +2012,33 @@ int main(int argc, char **argv)
 
     memcpy(image_buf + ph_offset + sizeof(Elf32_Phdr), crt_buf, crt_sz);
     memcpy(image_buf + ph_offset + sizeof(Elf32_Phdr) + crt_sz, code_buf, user_code_size);
+
+    uint32_t str_data_file_off = ph_offset + sizeof(Elf32_Phdr) + (uint32_t)crt_sz + user_code_size;
+    uint32_t str_data_vaddr = ph.p_vaddr + (uint32_t)crt_sz + user_code_size;
+    uint32_t cur_file_off = str_data_file_off;
+    uint32_t cur_vaddr = str_data_vaddr;
+    for (int i = 0; i < strlits_cnt; ++i)
+    {
+        size_t len = strlen(strlits[i].s) + 1;
+        if ((size_t)(cur_file_off + len) > (size_t)elf_size)
+            die("string pool out of bounds");
+
+        memcpy(image_buf + cur_file_off, strlits[i].s, len);
+
+        uint32_t imm_file_loc = ph_offset + sizeof(Elf32_Phdr) + (uint32_t)crt_sz + strlits[i].code_place;
+        if (imm_file_loc + 4u > (uint32_t)elf_size)
+            die("string literal imm out of bounds");
+
+        uint32_t code_opcode_file = ph_offset + sizeof(Elf32_Phdr) + (uint32_t)crt_sz + (strlits[i].code_place - 1);
+        if (strlits[i].code_place == 0 || image_buf[code_opcode_file] != 0x68)
+            die("expected push imm at recorded place");
+
+        uint32_t target_vaddr = cur_vaddr;
+        memcpy(image_buf + imm_file_loc, &target_vaddr, 4);
+
+        cur_file_off += (uint32_t)len;
+        cur_vaddr += (uint32_t)len;
+    }
 
     uint32_t seg_file_base = ph_offset + sizeof(Elf32_Phdr);
     uint32_t seg_vaddr = ph.p_vaddr;

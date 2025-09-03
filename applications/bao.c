@@ -1,13 +1,6 @@
 void main()
 {
-    int i;
-    int a;
-    int b = 0;
-
-    for (i = 0; i < 10;)
-    {
-        a = 3;
-        b += a;
-        continue;
-    }
+    short a = 3;
+    long b = 4;
+    char c = 'a';
 }
