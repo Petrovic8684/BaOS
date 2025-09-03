@@ -445,6 +445,33 @@ void write_char(char ch)
     vga_put_char(ch);
 }
 
+void write_dec_colored(unsigned int v, const char *color)
+{
+    if (color)
+        write(color);
+    write_dec(v);
+    if (color)
+        write("\033[0m");
+}
+
+void write_hex_colored(unsigned int val, const char *color)
+{
+    if (color)
+        write(color);
+    write_hex(val);
+    if (color)
+        write("\033[0m");
+}
+
+void write_char_colored(char ch, const char *color)
+{
+    if (color)
+        write(color);
+    vga_put_char(ch);
+    if (color)
+        write("\033[0m");
+}
+
 unsigned int get_cursor_row()
 {
     return row;

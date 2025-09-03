@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <ctype.h>
+#include <stddef.h>
 
 #define LOAD_BASE 0x100000
 #define MAX_FILE_SIZE (1024 * 64)
@@ -633,7 +634,12 @@ size_t emit_jmp_rel32_placeholder()
     emit_u32(0);
     return off;
 }
-void patch_rel32_at(size_t place, uint32_t rel32) { memcpy(code_buf + place, &rel32, 4); }
+void patch_rel32_at(size_t place, uint32_t rel32)
+{
+    if (place + 4 > code_len)
+        die("internal: patch out of bounds");
+    memcpy(code_buf + place, &rel32, 4);
+}
 size_t emit_call_rel32_placeholder()
 {
     emit_u8(0xE8);
@@ -1372,8 +1378,14 @@ void gen_stmt()
         expect_sym(')');
         emit_pop_eax();
         emit_test_eax_eax();
-        size_t jz_off = emit_jz_rel32_placeholder();
+
+        size_t jz_to_next = emit_jz_rel32_placeholder();
+
         gen_stmt();
+
+        size_t end_jumps[32];
+        int end_jumps_cnt = 0;
+        end_jumps[end_jumps_cnt++] = emit_jmp_rel32_placeholder();
 
         while (curtok.type == TOK_IDENT && strcmp(curtok.ident, "else") == 0)
         {
@@ -1382,24 +1394,44 @@ void gen_stmt()
             {
                 next_token();
                 expect_sym('(');
+
+                size_t cond_start = resolve_jump_target(code_len);
+
                 gen_expr();
                 expect_sym(')');
                 emit_pop_eax();
                 emit_test_eax_eax();
-                size_t jz_off2 = emit_jz_rel32_placeholder();
+
+                size_t new_jz = emit_jz_rel32_placeholder();
+
+                patch_rel32_at(jz_to_next, (uint32_t)(cond_start - (jz_to_next + 4)));
+                jz_to_next = new_jz;
+
                 gen_stmt();
-                uint32_t rel2 = (uint32_t)(code_len - (jz_off2 + 4));
-                patch_rel32_at(jz_off2, rel2);
+
+                if (end_jumps_cnt < (int)(sizeof(end_jumps) / sizeof(end_jumps[0])))
+                    end_jumps[end_jumps_cnt++] = emit_jmp_rel32_placeholder();
+                else
+                    die("too many else-if branches");
             }
+
             else
             {
+                patch_rel32_at(jz_to_next, (uint32_t)(resolve_jump_target(code_len) - (jz_to_next + 4)));
                 gen_stmt();
+                jz_to_next = (size_t)-1;
                 break;
             }
         }
 
-        uint32_t rel = (uint32_t)(code_len - (jz_off + 4));
-        patch_rel32_at(jz_off, rel);
+        if (jz_to_next != (size_t)-1)
+            patch_rel32_at(jz_to_next, (uint32_t)(resolve_jump_target(code_len) - (jz_to_next + 4)));
+
+        for (int i = 0; i < end_jumps_cnt; ++i)
+        {
+            size_t place = end_jumps[i];
+            patch_rel32_at(place, (uint32_t)(code_len - (place + 4)));
+        }
 
         return;
     }
@@ -1483,9 +1515,15 @@ void gen_stmt()
         if (!(curtok.type == TOK_SYM && curtok.sym == ')'))
         {
             size_t first_tok_len = curtok_text_len(&curtok);
-            char *start = src - (ptrdiff_t)first_tok_len;
-            if (start < (char *)src_buf)
+
+            ptrdiff_t cur_offset = (ptrdiff_t)(src - (char *)src_buf);
+            ptrdiff_t start_offset = cur_offset - (ptrdiff_t)first_tok_len;
+
+            char *start;
+            if (start_offset < 0)
                 start = (char *)src_buf;
+            else
+                start = (char *)(src_buf + start_offset);
 
             start = skip_ws(start);
 
@@ -1495,7 +1533,6 @@ void gen_stmt()
             {
                 if (*p == '(')
                     depth++;
-
                 else if (*p == ')')
                 {
                     if (depth == 0)
@@ -1518,11 +1555,8 @@ void gen_stmt()
             next_token();
             has_incr = (incr_len > 0);
         }
-        else
-        {
-            if (curtok.type == TOK_SYM && curtok.sym == ')')
-                next_token();
-        }
+        else if (curtok.type == TOK_SYM && curtok.sym == ')')
+            next_token();
 
         if (loop_depth >= MAX_LOOP_DEPTH)
             die("loop depth too big");
@@ -1685,6 +1719,8 @@ void gen_stmt()
         next_token();
 
         int li = alloc_local(vname, is_const);
+
+        emit_sub_esp_imm(4);
 
         if (accept_sym('='))
         {

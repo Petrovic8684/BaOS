@@ -40,6 +40,9 @@ extern void (*loader_post_return_callback)(void);
 extern const char *next_prog_name;
 extern const char **next_prog_argv;
 
+static unsigned int last_return = 0;
+static unsigned int should_report_return = 0;
+
 static char saved_prog_argv_storage[MAX_ARGC][USER_BUFFER_SIZE];
 static const char *saved_prog_argv_ptrs[MAX_ARGC + 1];
 
@@ -100,6 +103,18 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
     switch (num)
     {
     case SYS_EXIT:
+        last_return = arg;
+
+        if (should_report_return)
+        {
+            write("\033[1;33mUser program returned: \033[0m");
+            write_dec_colored(last_return, "\033[1;33m");
+            write("\n");
+
+            should_report_return = 0;
+            last_return = 0;
+        }
+
         return_to_loader();
         return 0;
 
@@ -238,6 +253,8 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
         next_prog_name = saved_prog_argv_ptrs[0];
 
         loader_post_return_callback = load_next_program;
+
+        should_report_return = 1;
 
         return_to_loader();
 
