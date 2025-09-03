@@ -5,7 +5,7 @@
 #define MAX_DIRS 64
 #define MAX_FILES 128
 #define MAX_DIRS_PER_DIR 8
-#define MAX_FILES_PER_DIR 16
+#define MAX_FILES_PER_DIR 32
 
 #define FS_OK 0
 #define FS_ERR_NO_DRV -1

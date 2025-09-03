@@ -949,7 +949,7 @@ void read_line(char *buf, int max_len)
             continue;
         }
 
-        if (c == 8 || c == 127)
+        if (c == 8)
         {
             if (cursor > 0)
             {

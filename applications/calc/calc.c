@@ -1,15 +1,30 @@
-#include "calc.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
 #include <math.h>
 #include <stdbool.h>
+#include <float.h>
 
 #define INPUT_BUF 256
 
+typedef enum
+{
+    CALC_OK = 0,
+    CALC_ERR_DIV0,
+    CALC_ERR_SYNTAX
+} CalcStatus;
+
+typedef struct
+{
+    double value;
+    CalcStatus status;
+} CalcResult;
+
 static const char *p;
 static CalcStatus g_status;
+
+static double var_value[256];
 
 static double parse_expr(void);
 static double parse_term(void);
@@ -57,6 +72,12 @@ static double parse_primary(void)
         else
             g_status = CALC_ERR_SYNTAX;
         return v;
+    }
+    if (isalpha((unsigned char)*p))
+    {
+        char var = *p;
+        p++;
+        return var_value[(unsigned char)var];
     }
     return parse_number();
 }
@@ -173,7 +194,6 @@ static CalcResult calc_evaluate(const char *expr)
 
     double v = parse_expr();
     skip_spaces();
-
     if (*p != '\0' && g_status == CALC_OK)
         g_status = CALC_ERR_SYNTAX;
 
@@ -182,12 +202,169 @@ static CalcResult calc_evaluate(const char *expr)
     return res;
 }
 
+static double newton_raphson(const char *expr, char var, double x0, int max_iter, double tol)
+{
+    for (int i = 0; i < max_iter; i++)
+    {
+        var_value[(unsigned char)var] = x0;
+        CalcResult res_fx = calc_evaluate(expr);
+        double fx = res_fx.value;
+        if (res_fx.status != CALC_OK)
+        {
+            g_status = res_fx.status;
+            return 0.0;
+        }
+
+        double h = 1e-6;
+        var_value[(unsigned char)var] = x0 + h;
+        CalcResult res_fxh = calc_evaluate(expr);
+        double fxh = res_fxh.value;
+        if (res_fxh.status != CALC_OK)
+        {
+            g_status = res_fxh.status;
+            return 0.0;
+        }
+
+        double dfx = (fxh - fx) / h;
+        if (fabs(dfx) < 1e-12)
+        {
+            g_status = CALC_ERR_DIV0;
+            return 0.0;
+        }
+
+        double x1 = x0 - fx / dfx;
+        if (fabs(x1 - x0) < tol)
+        {
+            g_status = CALC_OK;
+            return x1;
+        }
+        x0 = x1;
+    }
+    g_status = CALC_ERR_SYNTAX;
+    return 0.0;
+}
+
+static int approx_equal(double a, double b, double tol)
+{
+    return fabs(a - b) <= tol;
+}
+
+static int find_roots(const char *func, char var, double *roots, int max_roots)
+{
+    double seeds[] = {-1000.0, -100.0, -50.0, -10.0, -5.0, -2.0, -1.0, -0.5, -0.1, 0.0, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 50.0, 100.0, 1000.0};
+    int nseeds = (int)(sizeof(seeds) / sizeof(seeds[0]));
+
+    for (int i = 0; i < max_roots; i++)
+        roots[i] = 0.0;
+
+    int found = 0;
+    for (int s = 0; s < nseeds && found < max_roots; s++)
+    {
+        double seed = seeds[s];
+
+        g_status = CALC_OK;
+        double r = newton_raphson(func, var, seed, 200, 1e-9);
+
+        if (g_status != CALC_OK)
+            continue;
+
+        if (!isfinite(r) || isnan(r))
+            continue;
+
+        bool unique = true;
+        for (int i = 0; i < found; i++)
+            if (approx_equal(r, roots[i], 1e-7))
+            {
+                unique = false;
+                break;
+            }
+
+        if (unique)
+        {
+            roots[found++] = r;
+        }
+    }
+
+    return found;
+}
+
+static bool solve_equation(const char *expr, char *output)
+{
+    const char *eq = strchr(expr, '=');
+    if (!eq)
+        return false;
+
+    char left[INPUT_BUF], right[INPUT_BUF];
+    size_t left_len = (size_t)(eq - expr);
+    if (left_len >= sizeof(left))
+        left_len = sizeof(left) - 1;
+    strncpy(left, expr, left_len);
+    left[left_len] = '\0';
+    strncpy(right, eq + 1, sizeof(right) - 1);
+    right[sizeof(right) - 1] = '\0';
+
+    bool seen_var[256] = {0};
+    int var_count = 0;
+    char var = 0;
+    for (const char *q = expr; *q; q++)
+        if (isalpha((unsigned char)*q))
+        {
+            unsigned char ch = (unsigned char)*q;
+            if (!seen_var[ch])
+            {
+                seen_var[ch] = true;
+                var_count++;
+                var = (char)ch;
+            }
+        }
+
+    if (var_count == 0)
+        return false;
+
+    if (var_count > 1)
+        return false;
+
+    char func[2 * INPUT_BUF];
+    if (snprintf(func, sizeof(func), "(%s)-(%s)", left, right) >= (int)sizeof(func))
+        return false;
+
+    double roots[64];
+    int nroots = find_roots(func, var, roots, 64);
+    if (nroots == 0)
+        return false;
+
+    size_t off = 0;
+    int ret = snprintf(output + off, INPUT_BUF - off, "%c=", var);
+    if (ret < 0)
+        return false;
+    off += (size_t)ret;
+
+    for (int i = 0; i < nroots; i++)
+    {
+        char tmp[64];
+        int n = snprintf(tmp, sizeof(tmp), "%g", roots[i]);
+        if (n < 0)
+            n = 0;
+        if (off + (size_t)n + 2 >= INPUT_BUF)
+            break;
+        if (i > 0)
+        {
+            output[off++] = ',';
+            output[off++] = ' ';
+        }
+        memcpy(output + off, tmp, (size_t)n);
+        off += (size_t)n;
+        output[off] = '\0';
+    }
+
+    return true;
+}
+
 static bool buf_has_esc(const char *buf, int len)
 {
     for (int i = 0; i < len; i++)
         if (buf[i] == 27)
             return true;
-
     return false;
 }
 
@@ -209,24 +386,39 @@ int main(int argc, char **argv)
     {
         for (int i = 1; i < argc; i++)
         {
-            CalcResult res = calc_evaluate(argv[i]);
-            if (res.status == CALC_OK)
-                printf("%s = %g\n", argv[i], res.value);
-            else if (res.status == CALC_ERR_DIV0)
-                printf("\033[31m%s : Division by zero.\033[0m\n", argv[i]);
+            char out[INPUT_BUF] = "";
+            bool has_letter = strpbrk(argv[i], "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") != NULL;
+            bool has_eq = strchr(argv[i], '=') != NULL;
+
+            if (has_letter && has_eq)
+            {
+                if (!solve_equation(argv[i], out))
+                    strcpy(out, "Syntax error");
+            }
+            else if (!has_letter)
+            {
+                CalcResult res = calc_evaluate(argv[i]);
+                if (res.status == CALC_OK)
+                    snprintf(out, sizeof(out), "%s = %g", argv[i], res.value);
+                else if (res.status == CALC_ERR_DIV0)
+                    snprintf(out, sizeof(out), "%s : Division by zero", argv[i]);
+                else
+                    snprintf(out, sizeof(out), "%s : Syntax error", argv[i]);
+            }
             else
-                printf("\033[31m%s : Syntax error.\033[0m\n", argv[i]);
+                strcpy(out, "Syntax error");
+
+            printf("%s\n\n", out);
         }
         return 0;
     }
 
     printf("\033[2J\033[1;1H");
     printf("\033[30;47m BaOS CALC utility : Press ESC to exit. \033[0K\033[0m\n\n");
-
     set_scroll_region_big();
 
     char buf[INPUT_BUF];
-    char last_result[128] = "";
+    char last_result[INPUT_BUF] = "";
 
     while (1)
     {
@@ -255,79 +447,36 @@ int main(int argc, char **argv)
         if (buf[0] == '\0')
             continue;
 
-        CalcResult res = calc_evaluate(buf);
+        for (int i = 0; i < 256; i++)
+            var_value[i] = 0.0;
+
         last_result[0] = '\0';
+        bool has_letter = strpbrk(buf, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") != NULL;
+        bool has_eq = strchr(buf, '=') != NULL;
 
-        int i = 0;
-
-        for (size_t j = 0; j < strlen(buf); j++)
-            last_result[i++] = buf[j];
-
-        last_result[i++] = ' ';
-
-        if (res.status == CALC_OK)
+        if (has_letter && has_eq)
         {
-            last_result[i++] = '=';
-            last_result[i++] = ' ';
-
-            double val = res.value;
-            if (val < 0)
-            {
-                last_result[i++] = '-';
-                val = -val;
-            }
-
-            int whole = (int)val;
-            double frac = val - whole;
-
-            if (whole == 0)
-                last_result[i++] = '0';
-            else
-            {
-                char tmp[32];
-                int j = 0;
-                int temp = whole;
-                while (temp > 0)
-                {
-                    tmp[j++] = '0' + (temp % 10);
-                    temp /= 10;
-                }
-                for (int k = j - 1; k >= 0; k--)
-                    last_result[i++] = tmp[k];
-            }
-
-            last_result[i++] = '.';
-
-            for (int d = 0; d < 10; d++)
-            {
-                frac *= 10;
-                int digit = (int)frac;
-                last_result[i++] = '0' + digit;
-                frac -= digit;
-            }
+            if (!solve_equation(buf, last_result))
+                strcpy(last_result, "Syntax error");
         }
-        else if (res.status == CALC_ERR_DIV0)
+        else if (!has_letter)
         {
-            last_result[i++] = ':';
-            last_result[i++] = ' ';
-            const char *msg = "\033[31mDivision by zero.\033[0m";
-            for (size_t j = 0; j < strlen(msg); j++)
-                last_result[i++] = msg[j];
+            CalcResult res = calc_evaluate(buf);
+            if (res.status == CALC_OK)
+                snprintf(last_result, sizeof(last_result), "%s = %g", buf, res.value);
+            else if (res.status == CALC_ERR_DIV0)
+                snprintf(last_result, sizeof(last_result), "%s : Division by zero", buf);
+            else
+                snprintf(last_result, sizeof(last_result), "%s : Syntax error", buf);
         }
         else
-        {
-            last_result[i++] = ':';
-            last_result[i++] = ' ';
-            const char *msg = "\033[31mSyntax error.\033[0m";
-            for (size_t j = 0; j < strlen(msg); j++)
-                last_result[i++] = msg[j];
-        }
+            strcpy(last_result, "Syntax error");
 
-        last_result[i] = '\0';
+        printf("%s\n", last_result);
+        fflush(stdout);
     }
 
     reset_scroll_region();
     fflush(stdout);
-
     return 0;
 }

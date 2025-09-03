@@ -2,7 +2,7 @@ import sys, os, struct, math, re
 
 MAX_NAME = 16
 MAX_DIRS_PER_DIR = 8
-MAX_FILES_PER_DIR = 16
+MAX_FILES_PER_DIR = 32
 
 FS_MAGIC = 0x46535953  # 'FSYS'
 
@@ -204,7 +204,7 @@ def sanitize_target_folder(raw):
     s = re.sub(r'^(/*)[A-Za-z]:', '/', s)
     s = re.sub(r'^//+', '/', s)
 
-    candidates = ['/lib/include', '/lib', '/programs']
+    candidates = ['/lib/include', '/lib', '/programs', '/programs/utils']
     for cand in candidates:
         idx = s.lower().rfind(cand)
         if idx != -1:

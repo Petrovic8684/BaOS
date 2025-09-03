@@ -254,7 +254,7 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
 
         loader_post_return_callback = load_next_program;
 
-        should_report_return = 1;
+        should_report_return = 0; // CHANGE TO 1 TO ENABLE.
 
         return_to_loader();
 

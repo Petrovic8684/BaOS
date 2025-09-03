@@ -1,69 +1,91 @@
-#include "shell.h"
-#include "./wrappers/wrappers.h"
+#include "../utils/common/fs_common.h"
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <dirent.h>
 
-void main(void)
+#define SYS_LOAD_USER_PROGRAM 17
+
+static const char *get_current_dir_name(void)
 {
-    char buffer[80];
+    const char *path = where();
+    if (!path || path[0] == '\0')
+        return "/";
 
-    while (true)
-    {
-        printf("BaOS %s> ", wrapper_get_current_dir_name());
-        read_line(buffer, 80);
-        printf("\n");
-        process_command(buffer);
-    }
+    return path_basename(path);
 }
 
-Command parse_command(const char *cmd)
+static char *copy_into_argbuf(char *argbuf, size_t bufsize, size_t *used, const char *s)
 {
-    if (strcmp(cmd, "clear") == 0)
-        return CMD_CLEAR;
-    if (strcmp(cmd, "list") == 0)
-        return CMD_LIST;
-    if (strcmp(cmd, "makedir") == 0)
-        return CMD_MAKEDIR;
-    if (strcmp(cmd, "makefile") == 0)
-        return CMD_MAKEFILE;
-    if (strcmp(cmd, "changedir") == 0)
-        return CMD_CHANGEDIR;
-    if (strcmp(cmd, "where") == 0)
-        return CMD_WHERE;
-    if (strcmp(cmd, "echo") == 0)
-        return CMD_ECHO;
-    if (strcmp(cmd, "date") == 0)
-        return CMD_DATE;
-    if (strcmp(cmd, "deletedir") == 0)
-        return CMD_DELETEDIR;
-    if (strcmp(cmd, "deletefile") == 0)
-        return CMD_DELETEFILE;
-    if (strcmp(cmd, "writefile") == 0)
-        return CMD_WRITEFILE;
-    if (strcmp(cmd, "readfile") == 0)
-        return CMD_READFILE;
-    if (strcmp(cmd, "help") == 0)
-        return CMD_HELP;
-    if (strcmp(cmd, "osname") == 0)
-        return CMD_OSNAME;
-    if (strcmp(cmd, "version") == 0)
-        return CMD_KERNELVERSION;
-    if (strcmp(cmd, "shutdown") == 0)
-        return CMD_SHUTDOWN;
-    if (strcmp(cmd, "run") == 0)
-        return CMD_RUN;
-    if (strcmp(cmd, "copy") == 0)
-        return CMD_COPY;
-    if (strcmp(cmd, "move") == 0)
-        return CMD_MOVE;
-    return CMD_UNKNOWN;
+    if (!s)
+        return NULL;
+
+    size_t slen = strlen(s);
+
+    if (*used + slen + 1 > bufsize)
+        return NULL;
+
+    char *dst = argbuf + *used;
+
+    memcpy(dst, s, slen);
+    dst[slen] = '\0';
+
+    *used += slen + 1;
+    return dst;
+}
+
+void run(const char *name, const char *args)
+{
+    static const char *argv[64];
+    static char argbuf[2048];
+    int argc = 0;
+    size_t used = 0;
+
+    argbuf[0] = '\0';
+
+    char *pname = copy_into_argbuf(argbuf, sizeof(argbuf), &used, name ? name : "");
+    if (!pname)
+    {
+        printf("\033[31mError: program name too long.\033[0m\n");
+        return;
+    }
+    argv[argc++] = pname;
+
+    if (args && args[0] != '\0')
+    {
+        char *pargs = copy_into_argbuf(argbuf, sizeof(argbuf), &used, args);
+        if (!pargs)
+        {
+            printf("\033[31mError: args too long.\033[0m\n");
+            return;
+        }
+
+        char *tok = strtok(pargs, " ");
+        while (tok != NULL && argc < (int)(sizeof(argv) / sizeof(argv[0])) - 1)
+        {
+            argv[argc++] = tok;
+            tok = strtok(NULL, " ");
+        }
+    }
+
+    argv[argc] = NULL;
+
+    asm volatile(
+        "movl %[num], %%eax\n\t"
+        "movl %[args], %%ebx\n\t"
+        "movl %[prog], %%ecx\n\t"
+        "int $0x80\n\t"
+        :
+        : [num] "i"(SYS_LOAD_USER_PROGRAM),
+          [prog] "r"(argv[0]),
+          [args] "r"(argv)
+        : "eax", "ebx", "ecx", "memory");
 }
 
 void process_command(char *cmd)
 {
     char command[32] = {0};
-    char arg1[32] = {0};
+    char arg1[256] = {0};
     char arg2[256] = {0};
 
     char *token = strtok(cmd, " ");
@@ -78,71 +100,65 @@ void process_command(char *cmd)
     if (token)
         strncpy(arg2, token, sizeof(arg2) - 1);
 
-    Command c = parse_command(command);
+    if (command[0] == '\0')
+        return;
 
-    switch (c)
+    const char *paths[] = {"/programs", "/programs/utils"};
+    bool launched = false;
+
+    for (int p = 0; p < 2 && !launched; ++p)
     {
-    case CMD_CLEAR:
-        wrapper_clear();
-        break;
-    case CMD_LIST:
-        wrapper_list_dir(arg1);
-        break;
-    case CMD_MAKEDIR:
-        wrapper_make_dir(arg1);
-        break;
-    case CMD_MAKEFILE:
-        wrapper_make_file(arg1);
-        break;
-    case CMD_CHANGEDIR:
-        wrapper_change_dir(arg1);
-        break;
-    case CMD_WHERE:
-        wrapper_where();
-        break;
-    case CMD_ECHO:
-        wrapper_echo(arg1, arg2);
-        break;
-    case CMD_DATE:
-        wrapper_print_date();
-        break;
-    case CMD_DELETEDIR:
-        wrapper_delete_dir(arg1);
-        break;
-    case CMD_DELETEFILE:
-        wrapper_delete_file(arg1);
-        break;
-    case CMD_WRITEFILE:
-        wrapper_write_file(arg1, arg2);
-        break;
-    case CMD_READFILE:
-        wrapper_read_file(arg1);
-        break;
-    case CMD_HELP:
-        wrapper_help();
-        break;
-    case CMD_OSNAME:
-        wrapper_os_name();
-        break;
-    case CMD_KERNELVERSION:
-        wrapper_kernel_version();
-        break;
-    case CMD_SHUTDOWN:
-        wrapper_shutdown();
-        break;
-    case CMD_RUN:
-        wrapper_run(arg1, arg2);
-        break;
-    case CMD_COPY:
-        wrapper_copy(arg1, arg2);
-        break;
-    case CMD_MOVE:
-        wrapper_move(arg1, arg2);
-        break;
-    default:
-        printf("\033[31mError: Unknown command. Type 'help' for a list of valid commands.\033[0m\n");
-        break;
+        DIR *d = opendir(paths[p]);
+        if (!d)
+            continue;
+
+        struct dirent *ent;
+        char prog_path[512];
+
+        while ((ent = readdir(d)) != NULL)
+        {
+            if (strcmp(ent->d_name, command) != 0)
+                continue;
+
+            if (snprintf(prog_path, sizeof(prog_path), "%s/%s", paths[p], ent->d_name) >= (int)sizeof(prog_path))
+                continue;
+
+            closedir(d);
+            launched = true;
+            char args_combined[512] = {0};
+
+            if (arg1[0] != '\0')
+            {
+                strcpy(args_combined, arg1);
+                if (arg2[0] != '\0')
+                {
+                    strcat(args_combined, " ");
+                    strcat(args_combined, arg2);
+                }
+            }
+            else if (arg2[0] != '\0')
+                strcpy(args_combined, arg2);
+
+            run(prog_path, args_combined[0] != '\0' ? args_combined : NULL);
+        }
+
+        if (!launched)
+            closedir(d);
     }
 
-    printf("\n");
+    if (!launched)
+        printf("\033[31mError: Unknown command. Type 'help' for a list of valid commands.\033[0m\n");
+}
+
+void main(void)
+{
+    char buffer[80];
+
+    while (true)
+    {
+        printf("BaOS %s> ", get_current_dir_name());
+        read_line(buffer, 80);
+        printf("\n");
+        process_command(buffer);
+    }
 }
