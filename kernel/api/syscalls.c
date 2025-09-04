@@ -233,31 +233,40 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
 
         if (!user_argv || user_argv[0] == ((void *)0))
         {
-            write("\033\[31mError: No program specified.\n\033\[0m");
+            write("\033[31mError: No program specified.\033[0m\n");
             return 0;
         }
 
         int kargc = 0;
-        for (int i = 0; i < MAX_ARGC; ++i)
-        {
-            if (user_argv[i] == ((void *)0))
-                break;
+        should_report_return = 0;
 
-            copy_from_user(saved_prog_argv_storage[i], user_argv[i], USER_BUFFER_SIZE);
-            saved_prog_argv_ptrs[i] = saved_prog_argv_storage[i];
+        for (int i = 0; i < MAX_ARGC && user_argv[i] != ((void *)0); ++i)
+        {
+            if (i > 0 && str_equal(user_argv[i], "-code") == 1)
+            {
+                should_report_return = 1;
+                continue;
+            }
+
+            copy_from_user(saved_prog_argv_storage[kargc], user_argv[i], USER_BUFFER_SIZE);
+            saved_prog_argv_ptrs[kargc] = saved_prog_argv_storage[kargc];
             kargc++;
         }
+
         saved_prog_argv_ptrs[kargc] = ((void *)0);
+
+        if (kargc == 0)
+        {
+            write("\033[31mError: No program specified after removing flags.\033[0m\n");
+            return 0;
+        }
 
         next_prog_argv = saved_prog_argv_ptrs;
         next_prog_name = saved_prog_argv_ptrs[0];
 
         loader_post_return_callback = load_next_program;
 
-        should_report_return = 0; // CHANGE TO 1 TO ENABLE.
-
         return_to_loader();
-
         return 0;
     }
 

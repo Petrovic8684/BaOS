@@ -126,7 +126,7 @@ void process_command(char *cmd)
     }
 
     if (!launched)
-        printf("\033[31mError: Unknown command. Type 'help' for a list of valid commands.\033[0m\n");
+        printf("\033[31mError: Unknown command. Type 'help' for a list of valid commands.\033[0m\n\n");
 }
 
 void main(void)
