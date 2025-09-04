@@ -41,5 +41,5 @@ void gdt_init(void)
         "mov %%ax, %%gs\n\t"
         "mov %%ax, %%ss\n\t" ::: "ax");
 
-    write("\033\[32mGDT loaded.\n\033\[0m");
+    write("\033[32mGDT loaded.\n\033[0m");
 }

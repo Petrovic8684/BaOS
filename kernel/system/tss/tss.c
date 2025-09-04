@@ -32,5 +32,5 @@ void tss_init(void)
 
     asm volatile("ltr %%ax" ::"a"(0x28));
 
-    write("\033\[32mTSS loaded.\n\033\[0m");
+    write("\033[32mTSS loaded.\n\033[0m");
 }

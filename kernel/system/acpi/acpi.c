@@ -56,13 +56,13 @@ void power_off(void)
     acpi_rsdp_t *rsdp = find_rsdp();
     if (!rsdp)
     {
-        write("\033\[31mError: ACPI RSDP not found.\n\033\[0m");
+        write("\033[31mError: ACPI RSDP not found.\n\033[0m");
         return;
     }
 
     if (rsdp->rsdt_address == 0)
     {
-        write("\033\[31mError: RSDT address == 0 (maybe XSDT/ACPIv2). Cannot power off.\n\033\[0m");
+        write("\033[31mError: RSDT address == 0 (maybe XSDT/ACPIv2). Cannot power off.\n\033[0m");
         return;
     }
 
@@ -70,14 +70,14 @@ void power_off(void)
     acpi_rsdt_t *rsdt = (acpi_rsdt_t *)KERNEL_PHYS_TO_VIRT(rsdp->rsdt_address);
     if (rsdt == 0)
     {
-        write("\033\[31mError: RSDT pointer null after conversion.\n\033\[0m");
+        write("\033[31mError: RSDT pointer null after conversion.\n\033[0m");
         return;
     }
 
     if (rsdt->header.signature[0] != 'R' || rsdt->header.signature[1] != 'S' ||
         rsdt->header.signature[2] != 'D' || rsdt->header.signature[3] != 'T')
     {
-        write("\033\[31mError: RSDT signature mismatch.\n\033\[0m");
+        write("\033[31mError: RSDT signature mismatch.\n\033[0m");
         return;
     }
 
@@ -87,14 +87,14 @@ void power_off(void)
     acpi_fadt_t *fadt = find_fadt(rsdt);
     if (!fadt)
     {
-        write("\033\[31mError: FADT not found in RSDT.\n\033\[0m");
+        write("\033[31mError: FADT not found in RSDT.\n\033[0m");
         return;
     }
 
     unsigned int pm1 = fadt->pm1a_control_block;
     if (pm1 == 0)
     {
-        write("\033\[31mError: pm1a_control_block == 0.\n\033\[0m");
+        write("\033[31mError: pm1a_control_block == 0.\n\033[0m");
         return;
     }
 

@@ -323,7 +323,7 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
     }
 
     default:
-        write("\033\[31mError: Unknown syscall.\n\033\[0m");
+        write("\033[31mError: Unknown syscall.\n\033[0m");
         return 0;
     }
 }

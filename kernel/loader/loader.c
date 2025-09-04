@@ -92,7 +92,7 @@ void load_user_program(const char *name, const char **user_argv)
 {
     if (!fs_is_initialized())
     {
-        write("\033\[31mError: FS not initialized.\n\033\[0m");
+        write("\033[31mError: FS not initialized.\n\033[0m");
         load_shell_again();
         return;
     }
@@ -119,7 +119,7 @@ void load_user_program(const char *name, const char **user_argv)
     Elf32_Ehdr *ehdr = (Elf32_Ehdr *)buf;
     if (ehdr->e_ident[0] != 0x7F || ehdr->e_ident[1] != 'E' || ehdr->e_ident[2] != 'L' || ehdr->e_ident[3] != 'F')
     {
-        write("\033\[31mError: Not a valid ELF file.\n\033\[0m");
+        write("\033[31mError: Not a valid ELF file.\n\033[0m");
         load_shell_again();
         return;
     }
@@ -136,7 +136,7 @@ void load_user_program(const char *name, const char **user_argv)
 
         if (phdr[i].p_vaddr == 0)
         {
-            write("\033\[Error: PHDR has p_vaddr == 0, skipping.\n\033\[0m");
+            write("\033[Error: PHDR has p_vaddr == 0, skipping.\n\033[0m");
             continue;
         }
 
@@ -193,7 +193,7 @@ void load_user_program(const char *name, const char **user_argv)
 
         if (cur < USER_STACK_BOTTOM + needed)
         {
-            write("\033\[31mError: Not enough user stack space for args.\n\033\[0m");
+            write("\033[31mError: Not enough user stack space for args.\n\033[0m");
             load_shell_again();
             return;
         }
@@ -212,7 +212,7 @@ void load_user_program(const char *name, const char **user_argv)
     unsigned int argv_array_addr = cur - ((argc + 1) * sizeof(char *));
     if (argv_array_addr < USER_STACK_BOTTOM)
     {
-        write("\033\[31mError: Not enough user stack space for argv array.\n\033\[0m");
+        write("\033[31mError: Not enough user stack space for argv array.\n\033[0m");
         load_shell_again();
         return;
     }
@@ -225,7 +225,7 @@ void load_user_program(const char *name, const char **user_argv)
     unsigned int final_stack = argv_array_addr - 2 * sizeof(unsigned int);
     if (final_stack < USER_STACK_BOTTOM)
     {
-        write("\033\[31mError: Not enough user stack space for argc/argv ptr.\n\033\[0m");
+        write("\033[31mError: Not enough user stack space for argc/argv ptr.\n\033[0m");
         load_shell_again();
         return;
     }
@@ -242,7 +242,7 @@ void load_user_program(const char *name, const char **user_argv)
         jump_to_user(ehdr->e_entry, final_stack);
     else
     {
-        write("\033\[31mError: Entry not mapped as user (abort jump).\n\033\[0m");
+        write("\033[31mError: Entry not mapped as user (abort jump).\n\033[0m");
         load_shell_again();
         return;
     }

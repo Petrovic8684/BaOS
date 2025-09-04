@@ -29,7 +29,7 @@ static unsigned int alloc_page_table_phys()
         }
     }
 
-    write("\033\[31mOut of page-tables pool. Halting...\n\033\[0m");
+    write("\033[31mOut of page-tables pool. Halting...\n\033[0m");
     for (;;)
         __asm__ volatile("hlt");
 }
@@ -235,5 +235,5 @@ void paging_init(void)
     cr0 |= 0x80000000;
     __asm__ volatile("mov %0, %%cr0" ::"r"(cr0));
 
-    write("\033\[32mPaging enabled (kernel protected, first 4MB).\n\033\[0m");
+    write("\033[32mPaging enabled (kernel protected, first 4MB).\n\033[0m");
 }

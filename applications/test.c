@@ -1,9 +1,13 @@
+union data
+{
+    int i;
+    char c;
+};
+
 int main()
 {
-    int a = 42;
-    int b = 15;
-
-    int result = ((a & b) | (a ^ b)) << 1;
-
-    return result;
+    union data ic;
+    ic.i = 65;
+    ic.c = 'm';
+    return ic.i;
 }
