@@ -38,8 +38,30 @@ KERNEL_ASM_SRCS = \
 	kernel/paging/page_fault.asm
 
 SHELL_SRCS   = applications/shell/shell.c
-SHELL_DEPS = applications/utils/common/fs_common.c
+SHELL_DEPS 	 = applications/shell/utils/common/fs_common.c
 SHELL_BIN    = applications/shell/shell.bin
+
+UTILS_SRCS   =  applications/shell/utils/changedir.c \
+			 	applications/shell/utils/clear.c \
+				applications/shell/utils/copy.c \
+				applications/shell/utils/date.c \
+				applications/shell/utils/deletedir.c \
+				applications/shell/utils/deletefile.c \
+				applications/shell/utils/echo.c \
+				applications/shell/utils/help.c \
+				applications/shell/utils/list.c \
+				applications/shell/utils/makedir.c \
+				applications/shell/utils/makefile.c \
+				applications/shell/utils/move.c \
+				applications/shell/utils/osname.c \
+				applications/shell/utils/readfile.c \
+				applications/shell/utils/shutdown.c \
+				applications/shell/utils/version.c \
+				applications/shell/utils/where.c \
+				applications/shell/utils/writefile.c \
+
+UTILS_BIN    = $(UTILS_SRCS:.c=.bin)
+UTILS_OBJS	 = $(UTILS_SRCS:.c=.o)
 
 CALC_SRC     = applications/calc/calc.c
 CALC_BIN     = applications/calc/calc.bin
@@ -49,28 +71,6 @@ FILLING_BIN  = applications/filling/filling.bin
 
 COMPILER_SRC = applications/baoc/baoc.c
 COMPILER_BIN = applications/baoc/baoc.bin
-
-UTILS_SRCS   =  applications/utils/changedir.c \
-			 	applications/utils/clear.c \
-				applications/utils/copy.c \
-				applications/utils/date.c \
-				applications/utils/deletedir.c \
-				applications/utils/deletefile.c \
-				applications/utils/echo.c \
-				applications/utils/help.c \
-				applications/utils/list.c \
-				applications/utils/makedir.c \
-				applications/utils/makefile.c \
-				applications/utils/move.c \
-				applications/utils/osname.c \
-				applications/utils/readfile.c \
-				applications/utils/shutdown.c \
-				applications/utils/version.c \
-				applications/utils/where.c \
-				applications/utils/writefile.c \
-
-UTILS_BIN    = $(UTILS_SRCS:.c=.bin)
-UTILS_OBJS	 = $(UTILS_SRCS:.c=.o)
 
 USER_OBJS    = applications/*/*.o
 

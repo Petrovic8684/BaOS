@@ -1,19 +1,10 @@
-#include "../utils/common/fs_common.h"
+#include "./utils/common/fs_common.h"
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include <dirent.h>
 
 #define SYS_LOAD_USER_PROGRAM 17
-
-static const char *get_current_dir_name(void)
-{
-    const char *path = where();
-    if (!path || path[0] == '\0')
-        return "/";
-
-    return path_basename(path);
-}
 
 static char *copy_into_argbuf(char *argbuf, size_t bufsize, size_t *used, const char *s)
 {
@@ -34,7 +25,7 @@ static char *copy_into_argbuf(char *argbuf, size_t bufsize, size_t *used, const 
     return dst;
 }
 
-void run(const char *name, const char *args)
+static void run(const char *name, const char *args)
 {
     static const char *argv[64];
     static char argbuf[2048];
@@ -85,30 +76,30 @@ void run(const char *name, const char *args)
 void process_command(char *cmd)
 {
     char command[32] = {0};
-    char arg1[256] = {0};
-    char arg2[256] = {0};
 
-    char *token = strtok(cmd, " ");
-    if (token)
-        strncpy(command, token, sizeof(command) - 1);
+    while (*cmd == ' ')
+        ++cmd;
 
-    token = strtok(NULL, " ");
-    if (token)
-        strncpy(arg1, token, sizeof(arg1) - 1);
-
-    token = strtok(NULL, "");
-    if (token)
-        strncpy(arg2, token, sizeof(arg2) - 1);
-
-    if (command[0] == '\0')
+    if (*cmd == '\0')
         return;
+
+    char *p = cmd;
+    size_t i = 0;
+    while (*p != '\0' && *p != ' ' && i < sizeof(command) - 1)
+        command[i++] = *p++;
+
+    command[i] = '\0';
+
+    while (*p == ' ')
+        ++p;
+    char *args = (*p != '\0') ? p : NULL;
 
     const char *paths[] = {"/programs", "/programs/utils"};
     bool launched = false;
 
-    for (int p = 0; p < 2 && !launched; ++p)
+    for (int pidx = 0; pidx < 2 && !launched; ++pidx)
     {
-        DIR *d = opendir(paths[p]);
+        DIR *d = opendir(paths[pidx]);
         if (!d)
             continue;
 
@@ -120,26 +111,14 @@ void process_command(char *cmd)
             if (strcmp(ent->d_name, command) != 0)
                 continue;
 
-            if (snprintf(prog_path, sizeof(prog_path), "%s/%s", paths[p], ent->d_name) >= (int)sizeof(prog_path))
+            if (snprintf(prog_path, sizeof(prog_path), "%s/%s", paths[pidx], ent->d_name) >= (int)sizeof(prog_path))
                 continue;
 
             closedir(d);
             launched = true;
-            char args_combined[512] = {0};
 
-            if (arg1[0] != '\0')
-            {
-                strcpy(args_combined, arg1);
-                if (arg2[0] != '\0')
-                {
-                    strcat(args_combined, " ");
-                    strcat(args_combined, arg2);
-                }
-            }
-            else if (arg2[0] != '\0')
-                strcpy(args_combined, arg2);
-
-            run(prog_path, args_combined[0] != '\0' ? args_combined : NULL);
+            run(prog_path, args && args[0] != '\0' ? args : NULL);
+            break;
         }
 
         if (!launched)

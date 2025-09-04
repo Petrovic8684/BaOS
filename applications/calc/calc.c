@@ -408,7 +408,7 @@ int main(int argc, char **argv)
             else
                 strcpy(out, "Syntax error");
 
-            printf("%s\n\n", out);
+            printf("%s\n", out);
         }
         return 0;
     }

@@ -464,3 +464,12 @@ const char *where(void)
 
     return buf;
 }
+
+const char *get_current_dir_name(void)
+{
+    const char *path = where();
+    if (!path || path[0] == '\0')
+        return "/";
+
+    return path_basename(path);
+}
