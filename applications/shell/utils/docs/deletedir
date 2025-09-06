@@ -1,0 +1,12 @@
+deletedir - deletes an empty directory
+
+Description:
+The 'deletedir' command removes the directory specified by the argument. The directory must be empty. If no directory is provided, or if the directory cannot be removed, an error message is shown.
+
+Usage:
+deletedir <directory_name>
+
+Examples:
+deletedir OldFolder
+deletedir # Error: No directory name provided.
+deletedir NonEmptyFolder # Error: Could not delete directory 'NonEmptyFolder'.

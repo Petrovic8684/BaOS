@@ -3347,13 +3347,13 @@ int main(int argc, char **argv)
 {
     if (argc < 3)
     {
-        fprintf(stderr, "\033[1;33mUsage: baoc <input.c> <output.elf>\033[0m\n");
+        fprintf(stderr, "\033[31mError: No input or output file specified.\033[0m\n");
         return 1;
     }
 
     if (strcmp(argv[1], argv[2]) == 0)
     {
-        fprintf(stderr, "\033[31mError: output file cannot be the same as input file.\033[0m\n");
+        fprintf(stderr, "\033[31mError: Output file cannot be the same as input file.\033[0m\n");
         return 1;
     }
 

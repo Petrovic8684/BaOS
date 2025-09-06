@@ -1,0 +1,10 @@
+date - displays the current date and time
+
+Description:
+The 'date' command prints the current local date and time in a human-readable format. It does not take any arguments.
+
+Usage:
+date
+
+Examples:
+date # Output: Current date: Sat Sep 6 14:30:15 2025

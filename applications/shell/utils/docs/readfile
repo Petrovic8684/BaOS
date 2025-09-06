@@ -1,0 +1,12 @@
+readfile - reads and displays the content of a text file
+
+Description:
+The 'readfile' command opens a specified file and prints its content to the terminal. It only works with text files; binary files are rejected. If the file is longer than 120 characters, the output is truncated. If no file is specified, or if the file cannot be read, an error message is shown.
+
+Usage:
+readfile <file_name>
+
+Examples:
+readfile notes.txt
+readfile # Error: Invalid name provided.
+readfile binary.dat # Error: Not a text file.

@@ -1,0 +1,14 @@
+calc - evaluates arithmetic expressions and solves general equations
+
+Description:
+The 'calc' command evaluates mathematical expressions provided as arguments or interactively. It supports addition, subtraction, multiplication, division, modulo, powers, parentheses, and single-letter variables. If an expression contains a variable and an equation (e.g., x=3*x-5), calc attempts to solve for that variable using numerical methods. Division by zero and syntax errors are reported.
+
+Usage:
+calc [<expression>,<equation_with_variable>]
+
+Examples:
+calc
+calc 2+3*4
+calc x=2*x-5
+calc 10/0 # Division by zero
+calc nonsense+3 # Syntax error

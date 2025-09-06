@@ -1,0 +1,12 @@
+whatis - displays the documentation for a specified command
+
+Description:
+The 'whatis' command searches the /docs directory for a documentation file with the same name as the provided program and prints its content to the terminal. It requires exactly one argument. If the documentation file does not exist, or if an error occurs while reading it, an error message is shown.
+
+Usage:
+whatis <command_name>
+
+Examples:
+whatis echo
+whatis unknown # Error: No available docs for program 'unknown'
+whatis # Error: No program name provided.

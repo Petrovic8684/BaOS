@@ -1,0 +1,12 @@
+echo - prints provided text to the terminal
+
+Description:
+The 'echo' command prints the text you provide as arguments. Each argument is separated by a space, and a newline is added at the end. If no arguments are given, an error message is shown.
+
+Usage:
+echo <text>
+
+Examples:
+echo Hello
+echo Hello World from BaOS!
+echo # Error: Invalid text provided.

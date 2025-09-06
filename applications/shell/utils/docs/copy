@@ -1,0 +1,13 @@
+copy - copies files or directories from source to destination
+
+Description:
+The 'copy' command copies a file or directory from the specified source path to the destination path. It prevents copying the root directory, the current working directory, or copying a directory into its own subdirectory. If the destination is an existing directory, the source will be copied inside it.
+
+Usage:
+copy <source> <destination>
+
+Examples:
+copy file.txt /home/user/Documents
+copy /home/user/Folder /backup/Folder
+copy # Error: Copy requires source and destination.
+copy / /backup # Error: Refuse to copy root or current working directory.

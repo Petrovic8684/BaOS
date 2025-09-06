@@ -1,0 +1,12 @@
+writefile - writes text into a file
+
+Description:
+The 'writefile' command writes the provided text into the specified file. If the file already exists, it must be a text file. A newline is added at the end of the written text. If no file name or text is provided, or if an error occurs during writing, an error message is shown.
+
+Usage:
+writefile <file_name> <text>
+
+Examples:
+writefile notes.txt "Hello World"
+writefile # Error: Invalid name or text provided.
+writefile binary.dat "Test" # Error: Existing file 'binary.dat' is not a text file.

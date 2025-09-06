@@ -1,0 +1,10 @@
+osname - displays the operating system name
+
+Description:
+The 'osname' command prints the name of the operating system. If the system information cannot be retrieved, an error message is shown. It does not take any arguments.
+
+Usage:
+osname
+
+Examples:
+osname

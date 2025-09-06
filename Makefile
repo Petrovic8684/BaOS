@@ -59,6 +59,7 @@ UTILS_SRCS   =  applications/shell/utils/changedir.c \
 				applications/shell/utils/version.c \
 				applications/shell/utils/where.c \
 				applications/shell/utils/writefile.c \
+				applications/shell/utils/whatis.c \
 
 UTILS_BIN    = $(UTILS_SRCS:.c=.bin)
 UTILS_OBJS	 = $(UTILS_SRCS:.c=.o)
@@ -73,6 +74,8 @@ COMPILER_SRC = applications/baoc/baoc.c
 COMPILER_BIN = applications/baoc/baoc.bin
 
 USER_OBJS    = applications/*/*.o
+
+DOCS = applications/shell/utils/docs/*
 
 KERNEL_OBJS  = $(KERNEL_SRCS:.c=.o) $(KERNEL_ASM_SRCS:.asm=.o)
 KERNEL_BIN   = kernel/kernel.bin
@@ -166,6 +169,10 @@ $(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMP
 
 	for prog in $(UTILS_BIN); do \
 		$(PY) tools/mkfs_inject.py $(IMG) $$prog /programs/utils; \
+	done
+
+	for doc in $(DOCS); do \
+		$(PY) tools/mkfs_inject.py $(IMG) $$doc /docs; \
 	done
 
 # ---------------- Run & Clean ----------------

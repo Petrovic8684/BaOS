@@ -1,0 +1,10 @@
+clear - clears the terminal screen
+
+Description:
+The 'clear' command clears the terminal screen. It does not take any arguments.
+
+Usage:
+clear
+
+Examples:
+clear

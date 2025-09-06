@@ -1,0 +1,10 @@
+help - displays a list of available commands
+
+Description:
+The 'help' command clears the terminal screen and displays a list of all available commands with a short description. It does not take any arguments.
+
+Usage:
+help
+
+Examples:
+help
