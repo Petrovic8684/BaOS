@@ -44,6 +44,6 @@ extern void (*loader_post_return_callback)(void);
 
 typedef void (*user_entry_t)(void);
 void load_next_program(void);
-void load_user_program(const char *name, const char **user_argv);
+void load_shell(void);
 
 #endif

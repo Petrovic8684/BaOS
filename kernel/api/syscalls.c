@@ -108,8 +108,8 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
         if (should_report_return)
         {
             write("\033[1;33mUser program returned: \033[0m");
-            write_dec_colored(last_return, "\033[1;33m");
-            write("\n");
+            write_dec(last_return);
+            write("\033[0m\n");
 
             should_report_return = 0;
             last_return = 0;

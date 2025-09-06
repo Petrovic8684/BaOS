@@ -63,38 +63,13 @@ static void cleanup_previous_user_space(void)
     unmap_user_range(USER_STACK_BOTTOM, USER_STACK_PAGES * PAGE_SIZE);
 }
 
-static void load_shell_again(void)
-{
-    write("\n");
-    load_user_program("/programs/shell", ((void *)0));
-}
-
-void load_next_program(void)
-{
-    if (!next_prog_argv || !next_prog_argv[0])
-    {
-        write("\033[31mError: No next program set.\033[0m\n");
-        return;
-    }
-
-    loader_post_return_callback = load_shell_again;
-
-    const char *prog = next_prog_argv[0];
-    const char **argv = next_prog_argv;
-
-    next_prog_name = 0;
-    next_prog_argv = 0;
-
-    load_user_program(prog, argv);
-}
-
-void load_user_program(const char *name, const char **user_argv)
+int load_user_program(const char *name, const char **user_argv, int surpress_errors)
 {
     if (!fs_is_initialized())
     {
-        write("\033[31mError: FS not initialized.\n\033[0m");
-        load_shell_again();
-        return;
+        if (surpress_errors == 0)
+            write("\033[31mError: FS not initialized.\n\033[0m");
+        return -1;
     }
 
     cleanup_previous_user_space();
@@ -104,24 +79,24 @@ void load_user_program(const char *name, const char **user_argv)
 
     if (fs_read_file(name, buf, sizeof(buf), &size) != FS_OK)
     {
-        write("\033[31mError: Failed to read user program.\n\033[0m");
-        load_shell_again();
-        return;
+        if (surpress_errors == 0)
+            write("\033[31mError: Failed to read user program.\n\033[0m");
+        return -1;
     }
 
     if (size == 0)
     {
-        write("User program empty.\n");
-        load_shell_again();
-        return;
+        if (surpress_errors == 0)
+            write("User program empty.\n");
+        return -1;
     }
 
     Elf32_Ehdr *ehdr = (Elf32_Ehdr *)buf;
     if (ehdr->e_ident[0] != 0x7F || ehdr->e_ident[1] != 'E' || ehdr->e_ident[2] != 'L' || ehdr->e_ident[3] != 'F')
     {
-        write("\033[31mError: Not a valid ELF file.\n\033[0m");
-        load_shell_again();
-        return;
+        if (surpress_errors == 0)
+            write("\033[31mError: Not a valid ELF file.\n\033[0m");
+        return -1;
     }
 
     Elf32_Phdr *phdr = (Elf32_Phdr *)(buf + ehdr->e_phoff);
@@ -136,7 +111,8 @@ void load_user_program(const char *name, const char **user_argv)
 
         if (phdr[i].p_vaddr == 0)
         {
-            write("\033[Error: PHDR has p_vaddr == 0, skipping.\n\033[0m");
+            if (surpress_errors == 0)
+                write("\033[Error: PHDR has p_vaddr == 0, skipping.\n\033[0m");
             continue;
         }
 
@@ -193,9 +169,9 @@ void load_user_program(const char *name, const char **user_argv)
 
         if (cur < USER_STACK_BOTTOM + needed)
         {
-            write("\033[31mError: Not enough user stack space for args.\n\033[0m");
-            load_shell_again();
-            return;
+            if (surpress_errors == 0)
+                write("\033[31mError: Not enough user stack space for args.\n\033[0m");
+            return -1;
         }
 
         cur -= needed;
@@ -212,9 +188,9 @@ void load_user_program(const char *name, const char **user_argv)
     unsigned int argv_array_addr = cur - ((argc + 1) * sizeof(char *));
     if (argv_array_addr < USER_STACK_BOTTOM)
     {
-        write("\033[31mError: Not enough user stack space for argv array.\n\033[0m");
-        load_shell_again();
-        return;
+        if (surpress_errors == 0)
+            write("\033[31mError: Not enough user stack space for argv array.\n\033[0m");
+        return -1;
     }
 
     for (int i = 0; i < argc; ++i)
@@ -225,9 +201,9 @@ void load_user_program(const char *name, const char **user_argv)
     unsigned int final_stack = argv_array_addr - 2 * sizeof(unsigned int);
     if (final_stack < USER_STACK_BOTTOM)
     {
-        write("\033[31mError: Not enough user stack space for argc/argv ptr.\n\033[0m");
-        load_shell_again();
-        return;
+        if (surpress_errors == 0)
+            write("\033[31mError: Not enough user stack space for argc/argv ptr.\n\033[0m");
+        return -1;
     }
 
     ((unsigned int *)final_stack)[0] = argc;
@@ -242,9 +218,9 @@ void load_user_program(const char *name, const char **user_argv)
         jump_to_user(ehdr->e_entry, final_stack);
     else
     {
-        write("\033[31mError: Entry not mapped as user (abort jump).\n\033[0m");
-        load_shell_again();
-        return;
+        if (surpress_errors == 0)
+            write("\033[31mError: Entry not mapped as user (abort jump).\n\033[0m");
+        return -1;
     }
 
 user_return:
@@ -254,9 +230,60 @@ user_return:
 
     cleanup_previous_user_space();
 
-    if (loader_post_return_callback)
-        loader_post_return_callback();
-
+    void (*cb)(void) = loader_post_return_callback;
     loader_post_return_callback = 0;
-    return;
+
+    if (cb)
+        cb();
+    else
+        load_shell();
+
+    return 0;
+}
+
+void load_next_program(void)
+{
+    if (!next_prog_argv || !next_prog_argv[0])
+    {
+        write("\033[31mError: No next program set.\033[0m\n");
+        return;
+    }
+
+    loader_post_return_callback = load_shell;
+
+    const char *prog = next_prog_argv[0];
+    const char **argv = next_prog_argv;
+
+    next_prog_name = 0;
+    next_prog_argv = 0;
+
+    load_user_program(prog, argv, 0);
+}
+
+void load_shell(void)
+{
+    int tries = 0;
+
+    for (;;)
+    {
+        write("\n");
+
+        if (load_user_program("/programs/shell", ((void *)0), 1) == 0)
+        {
+            tries = 0;
+            continue;
+        }
+
+        tries++;
+        write("\033[31mError: Failed to load the shell (attempt ");
+        write_dec(tries);
+        write(").\033[0m");
+
+        if (tries >= 3)
+        {
+            write("\n\n\033[31mFailed to load the shell after 3 attempts. Halting...\033[0m\n");
+            for (;;)
+                __asm__ volatile("hlt");
+        }
+    }
 }

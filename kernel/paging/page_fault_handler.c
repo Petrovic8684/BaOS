@@ -34,7 +34,7 @@ void page_fault_handler_c(unsigned int cr2, unsigned int error_code)
     loader_saved_esp = 0;
     loader_saved_ebp = 0;
 
-    load_user_program("shell", ((void *)0));
+    load_shell();
 
     for (;;)
         __asm__ volatile("hlt");

@@ -14,8 +14,7 @@ __attribute__((section(".text"), used, noreturn)) void kernel_main(void)
     tss_init();
 
     fs_init();
-
-    load_user_program("/programs/shell", ((void *)0));
+    load_shell();
 
     while (1)
         ;
