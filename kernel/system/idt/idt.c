@@ -7,6 +7,8 @@ extern void idt_flush(unsigned int);
 extern void page_fault_handler();
 
 extern void keyboard_interrupt_service_routine();
+extern void irq14_stub();
+extern void irq15_stub();
 
 static void set_idt_entry(int n, unsigned int handler, unsigned short selector, unsigned char type_attr)
 {
@@ -31,6 +33,8 @@ void idt_init(void)
     set_idt_entry(14, (unsigned int)page_fault_handler, 0x08, 0x8E);
 
     set_idt_entry(0x21, (unsigned int)keyboard_interrupt_service_routine, 0x08, 0x8E);
+    set_idt_entry(0x2E, (unsigned int)irq14_stub, 0x08, 0x8E);
+    set_idt_entry(0x2F, (unsigned int)irq15_stub, 0x08, 0x8E);
 
     idt_flush((unsigned int)&idt_ptr);
 }

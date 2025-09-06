@@ -15,15 +15,23 @@ mov si, msg_loading
 call print_string
 
 ; -------------------------
+; Disk Address Packet for LBA
+; -------------------------
+align 4
+dap:
+    db 0x10        ; size = 16 bytes
+    db 0x00        ; reserved
+    dw 60          ; number of sectors to read
+    dw 0x0000      ; buffer offset 
+    dw 0x1000      ; buffer segment 
+    dq 1           ; starting LBA
+
+; -------------------------
 ; Load kernel from disk into memory (16-bit real mode)
 ; -------------------------
-mov bx, 0x1000        ; memory address to load kernel (0x1000)
-mov dh, 0             ; head = 0
+mov ah, 0x42       
 mov dl, 0x80          ; first hard disk
-mov ch, 0             ; cylinder = 0
-mov cl, 2             ; start at sector 2 (after boot sector)
-mov al, 54            ; number of sectors to read
-mov ah, 0x02          ; BIOS read sectors function
+mov si, dap
 int 0x13
 jc disk_error         ; jump if error
 
@@ -56,8 +64,8 @@ protected_mode_entry:
     mov esp, 0x90000          ; stack for protected mode
     xor ebp, ebp              ; clear base pointer
 
-    ; Jump to C kernel at 0x1000
-    jmp 0x08:0x1000           ; far jump to kernel
+    ; Jump to C kernel at 0x10000
+    jmp 0x08:0x10000          ; far jump to kernel
 
 ; -------------------------
 ; GDT (kernel, flat memory model)

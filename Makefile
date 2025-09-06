@@ -37,7 +37,8 @@ KERNEL_SRCS = \
 KERNEL_ASM_SRCS = \
 	kernel/system/idt/idt_flush.asm \
 	kernel/paging/page_fault.asm \
-	kernel/drivers/keyboard/keyboard_routine.asm 
+	kernel/drivers/keyboard/keyboard_routine.asm \
+	kernel/drivers/disk/irq_stubs.asm \
 
 SHELL_SRCS   = applications/shell/shell.c
 SHELL_DEPS 	 = applications/shell/utils/common/fs_common.c
@@ -118,7 +119,7 @@ $(BOOT_BIN): $(BOOT_SRC)
 
 # ---------------- Kernel build ----------------
 %.o: %.c
-	$(CC) -ffreestanding -m32 -nostdlib -fno-pie $(RUNTIME_INCLUDE) -c $< -o $@
+	$(CC) -ffreestanding -m32 -nostdlib -fno-pie -c $< -o $@
 
 %.o: %.asm
 	$(NASM) -f elf32 $< -o $@
