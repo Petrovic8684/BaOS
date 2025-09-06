@@ -920,20 +920,6 @@ void read_line(char *buf, int max_len)
             break;
         }
 
-        if (c == 27)
-        {
-            buf[len] = 27;
-            update_cursor(row, col + len);
-            write("\n");
-            break;
-        }
-
-        if (c == 1 || c == 2)
-        {
-            buf[0] = c;
-            buf[1] = 0;
-        }
-
         if (c == 3)
         {
             if (cursor > 0)

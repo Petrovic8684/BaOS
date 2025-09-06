@@ -6,6 +6,8 @@ static idt_ptr_t idt_ptr;
 extern void idt_flush(unsigned int);
 extern void page_fault_handler();
 
+extern void keyboard_interrupt_service_routine();
+
 static void set_idt_entry(int n, unsigned int handler, unsigned short selector, unsigned char type_attr)
 {
     idt[n].offset_low = handler & 0xFFFF;
@@ -27,6 +29,8 @@ void idt_init(void)
 
     set_idt_entry(0x80, (unsigned int)syscall_interrupt_handler, 0x08, 0xEE);
     set_idt_entry(14, (unsigned int)page_fault_handler, 0x08, 0x8E);
+
+    set_idt_entry(0x21, (unsigned int)keyboard_interrupt_service_routine, 0x08, 0x8E);
 
     idt_flush((unsigned int)&idt_ptr);
 }

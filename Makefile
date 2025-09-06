@@ -20,6 +20,7 @@ KERNEL_SRCS = \
 	kernel/loader/loader.c \
 	kernel/api/syscalls.c \
 	kernel/info/info.c \
+	kernel/system/pic/pic.c \
 	kernel/system/idt/idt.c \
 	kernel/system/gdt/gdt.c \
 	kernel/system/tss/tss.c \
@@ -35,7 +36,8 @@ KERNEL_SRCS = \
 
 KERNEL_ASM_SRCS = \
 	kernel/system/idt/idt_flush.asm \
-	kernel/paging/page_fault.asm
+	kernel/paging/page_fault.asm \
+	kernel/drivers/keyboard/keyboard_routine.asm 
 
 SHELL_SRCS   = applications/shell/shell.c
 SHELL_DEPS 	 = applications/shell/utils/common/fs_common.c
