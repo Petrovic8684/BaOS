@@ -156,6 +156,30 @@ typedef struct
 StructSym structsyms[MAX_STRUCTS];
 int structsyms_cnt = 0;
 
+#define PP_MAX_DEPTH 32
+#define PP_MAX_MACROS 256
+#define PP_MAX_MACRO_NAME 64
+#define PP_MAX_MACRO_BODY 1536
+#define PP_MAX_MACRO_PARAMS 8
+#define PP_MAX_MACRO_PARAM_LEN 64
+#define PP_FILE_BUF_SIZE 65536
+#define PP_OUT_MAX (PP_FILE_BUF_SIZE * 2)
+#define PP_LINEBUF 4096
+#define PP_ARG_MAX 16
+#define PP_ARG_LEN 1024
+
+typedef struct
+{
+    unsigned char used;
+    unsigned char is_function;
+    unsigned char param_count;
+    char name[PP_MAX_MACRO_NAME];
+    char body[PP_MAX_MACRO_BODY];
+    char params[PP_MAX_MACRO_PARAMS][PP_MAX_MACRO_PARAM_LEN];
+} PP_Macro;
+
+static PP_Macro pp_macros[PP_MAX_MACROS];
+
 void die(const char *m)
 {
     fprintf(stderr, "ERR: %s\n", m);
@@ -186,6 +210,825 @@ void die(const char *m)
     if (src)
         fprintf(stderr, "Remaining source (around current pos): \"%s\"\n", src);
     exit(1);
+}
+
+static void pp_macros_clear_all(void)
+{
+    for (int i = 0; i < PP_MAX_MACROS; ++i)
+    {
+        pp_macros[i].used = 0;
+        pp_macros[i].is_function = 0;
+        pp_macros[i].param_count = 0;
+        pp_macros[i].name[0] = '\0';
+        pp_macros[i].body[0] = '\0';
+    }
+}
+
+static PP_Macro *pp_macro_find(const char *name)
+{
+    for (int i = 0; i < PP_MAX_MACROS; ++i)
+    {
+        if (pp_macros[i].used && strcmp(pp_macros[i].name, name) == 0)
+            return &pp_macros[i];
+    }
+    return NULL;
+}
+
+static PP_Macro *pp_macro_alloc(void)
+{
+    for (int i = 0; i < PP_MAX_MACROS; ++i)
+    {
+        if (!pp_macros[i].used)
+        {
+            pp_macros[i].used = 1;
+            pp_macros[i].is_function = 0;
+            pp_macros[i].param_count = 0;
+            pp_macros[i].name[0] = '\0';
+            pp_macros[i].body[0] = '\0';
+            return &pp_macros[i];
+        }
+    }
+    return NULL;
+}
+
+static void pp_macro_undef(const char *name)
+{
+    PP_Macro *m = pp_macro_find(name);
+    if (m)
+    {
+        m->used = 0;
+        m->name[0] = '\0';
+        m->body[0] = '\0';
+        m->param_count = 0;
+    }
+}
+
+static void pp_macro_add_object(const char *name, const char *body)
+{
+    PP_Macro *m = pp_macro_find(name);
+    if (m)
+    {
+        strncpy(m->body, body ? body : "", PP_MAX_MACRO_BODY - 1);
+        m->body[PP_MAX_MACRO_BODY - 1] = '\0';
+        m->is_function = 0;
+        m->param_count = 0;
+        return;
+    }
+    m = pp_macro_alloc();
+    if (!m)
+        die("macro pool exhausted");
+    strncpy(m->name, name, PP_MAX_MACRO_NAME - 1);
+    m->name[PP_MAX_MACRO_NAME - 1] = '\0';
+    strncpy(m->body, body ? body : "", PP_MAX_MACRO_BODY - 1);
+    m->body[PP_MAX_MACRO_BODY - 1] = '\0';
+    m->is_function = 0;
+    m->param_count = 0;
+}
+
+static void pp_macro_add_function(const char *name, char params[][PP_MAX_MACRO_PARAM_LEN], int pcount, const char *body)
+{
+    PP_Macro *m = pp_macro_find(name);
+    if (m)
+    {
+        m->is_function = 1;
+        m->param_count = (unsigned char)pcount;
+        for (int i = 0; i < pcount && i < PP_MAX_MACRO_PARAMS; ++i)
+        {
+            strncpy(m->params[i], params[i], PP_MAX_MACRO_PARAM_LEN - 1);
+            m->params[i][PP_MAX_MACRO_PARAM_LEN - 1] = '\0';
+        }
+        strncpy(m->body, body ? body : "", PP_MAX_MACRO_BODY - 1);
+        m->body[PP_MAX_MACRO_BODY - 1] = '\0';
+        return;
+    }
+    m = pp_macro_alloc();
+    if (!m)
+        die("macro pool exhausted");
+    strncpy(m->name, name, PP_MAX_MACRO_NAME - 1);
+    m->name[PP_MAX_MACRO_NAME - 1] = '\0';
+    m->is_function = 1;
+    m->param_count = (unsigned char)pcount;
+    for (int i = 0; i < pcount && i < PP_MAX_MACRO_PARAMS; ++i)
+    {
+        strncpy(m->params[i], params[i], PP_MAX_MACRO_PARAM_LEN - 1);
+        m->params[i][PP_MAX_MACRO_PARAM_LEN - 1] = '\0';
+    }
+    strncpy(m->body, body ? body : "", PP_MAX_MACRO_BODY - 1);
+    m->body[PP_MAX_MACRO_BODY - 1] = '\0';
+}
+
+static int preclean_input_into(const unsigned char *in, unsigned char *out, size_t out_sz)
+{
+    size_t len = strlen((const char *)in);
+    size_t wi = 0;
+    for (size_t i = 0; i < len;)
+    {
+        if (in[i] == '/' && i + 1 < len && in[i + 1] == '/')
+        {
+            i += 2;
+            while (i < len && in[i] != '\n')
+                i++;
+            continue;
+        }
+        if (in[i] == '/' && i + 1 < len && in[i + 1] == '*')
+        {
+            i += 2;
+            while (i + 1 < len && !(in[i] == '*' && in[i + 1] == '/'))
+                i++;
+            if (i + 1 < len)
+                i += 2;
+            continue;
+        }
+        if (in[i] == '\\' && i + 1 < len && in[i + 1] == '\n')
+        {
+            i += 2;
+            continue;
+        }
+        if (wi + 1 >= out_sz)
+            return -1;
+        out[wi++] = in[i++];
+    }
+    if (wi >= out_sz)
+        return -1;
+    out[wi] = '\0';
+    return (int)wi;
+}
+
+static long read_file_into(const char *path, unsigned char *dest, size_t dest_max)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f)
+        return -1;
+    if (fseek(f, 0, SEEK_END) != 0)
+    {
+        fclose(f);
+        return -1;
+    }
+    long sz = ftell(f);
+    if (sz < 0)
+    {
+        fclose(f);
+        return -1;
+    }
+    if ((size_t)sz >= dest_max)
+    {
+        sz = (long)(dest_max - 1);
+        fseek(f, 0, SEEK_SET);
+        size_t r = fread(dest, 1, (size_t)sz, f);
+        dest[r] = '\0';
+        fclose(f);
+        return (long)r;
+    }
+    fseek(f, 0, SEEK_SET);
+    size_t r = fread(dest, 1, (size_t)sz, f);
+    dest[r] = '\0';
+    fclose(f);
+    return (long)r;
+}
+
+static int pp_is_ident_char(char c, int first)
+{
+    if (first)
+        return (isalpha((unsigned char)c) || c == '_');
+    return (isalnum((unsigned char)c) || c == '_');
+}
+
+static int parse_macro_args_into(const char *p, char args[PP_ARG_MAX][PP_ARG_LEN], int *out_argc, const char **p_after)
+{
+    const char *s = p;
+    if (*s != '(')
+        return -1;
+    s++;
+    int argc = 0;
+    int level = 0;
+    size_t cur = 0;
+    while (*s)
+    {
+        if (*s == '(')
+        {
+            level++;
+            if (cur < PP_ARG_LEN - 1)
+                args[argc][cur++] = *s;
+            s++;
+            continue;
+        }
+        if (*s == ')' && level == 0)
+        {
+            if (argc < PP_ARG_MAX)
+            {
+                args[argc][cur] = '\0';
+                argc++;
+            }
+            s++;
+            break;
+        }
+        if (*s == ')')
+        {
+            level--;
+            if (cur < PP_ARG_LEN - 1)
+                args[argc][cur++] = *s;
+            s++;
+            continue;
+        }
+        if (*s == ',' && level == 0)
+        {
+            if (argc < PP_ARG_MAX)
+            {
+                args[argc][cur] = '\0';
+                argc++;
+                cur = 0;
+            }
+            s++;
+            while (isspace((unsigned char)*s))
+                s++;
+            continue;
+        }
+        if (argc >= PP_ARG_MAX)
+            return -1;
+        if (cur + 1 < PP_ARG_LEN)
+            args[argc][cur++] = *s;
+        s++;
+    }
+    if (argc < PP_ARG_MAX)
+    {
+        args[argc][cur] = '\0';
+    }
+    if (p_after)
+        *p_after = s;
+    *out_argc = argc;
+    return 0;
+}
+
+static int pp_macro_instantiate_to(PP_Macro *m, char args[PP_ARG_MAX][PP_ARG_LEN], int argc, char *outbuf, size_t outbuf_sz)
+{
+    if (!m)
+        return -1;
+    const char *body = m->body;
+    size_t outi = 0;
+    for (const char *s = body; *s;)
+    {
+        if (pp_is_ident_char(*s, 1))
+        {
+            const char *t = s + 1;
+            while (*t && pp_is_ident_char(*t, 0))
+                t++;
+            size_t idlen = (size_t)(t - s);
+            char ident[PP_MAX_MACRO_NAME];
+            if (idlen >= sizeof(ident))
+                idlen = sizeof(ident) - 1;
+            memcpy(ident, s, idlen);
+            ident[idlen] = '\0';
+            int replaced = 0;
+            for (int i = 0; i < m->param_count; ++i)
+            {
+                if (strcmp(ident, m->params[i]) == 0)
+                {
+                    const char *arg = (i < argc) ? args[i] : "";
+                    size_t al = strlen(arg);
+                    if (outi + al + 1 >= outbuf_sz)
+                        return -1;
+                    memcpy(outbuf + outi, arg, al);
+                    outi += al;
+                    replaced = 1;
+                    break;
+                }
+            }
+            if (!replaced)
+            {
+                if (outi + idlen + 1 >= outbuf_sz)
+                    return -1;
+                memcpy(outbuf + outi, s, idlen);
+                outi += idlen;
+            }
+            s = t;
+        }
+        else
+        {
+            if (outi + 2 >= outbuf_sz)
+                return -1;
+            outbuf[outi++] = *s++;
+        }
+    }
+    if (outi >= outbuf_sz)
+        return -1;
+    outbuf[outi] = '\0';
+    return 0;
+}
+
+static int expand_macros_line_to(const char *line, char *outbuf, size_t outbuf_sz, int depth)
+{
+    if (depth > 64)
+        return -1;
+    size_t outi = 0;
+    const char *p = line;
+    while (*p)
+    {
+        if (pp_is_ident_char(*p, 1))
+        {
+            const char *t = p + 1;
+            while (*t && pp_is_ident_char(*t, 0))
+                t++;
+            size_t idlen = (size_t)(t - p);
+            char ident[PP_MAX_MACRO_NAME];
+            if (idlen >= sizeof(ident))
+                idlen = sizeof(ident) - 1;
+            memcpy(ident, p, idlen);
+            ident[idlen] = '\0';
+            PP_Macro *m = pp_macro_find(ident);
+            if (m)
+            {
+                if (m->is_function)
+                {
+                    const char *q = t;
+                    while (*q && isspace((unsigned char)*q))
+                        q++;
+                    if (*q == '(')
+                    {
+                        char args[PP_ARG_MAX][PP_ARG_LEN];
+                        int argc = 0;
+                        const char *after;
+                        if (parse_macro_args_into(q, args, &argc, &after) == 0)
+                        {
+                            static char temp_inst[PP_MAX_MACRO_BODY * 2];
+                            if (pp_macro_instantiate_to(m, args, argc, temp_inst, sizeof(temp_inst)) != 0)
+                                return -1;
+                            static char temp_rec[PP_MAX_MACRO_BODY * 3];
+                            if (expand_macros_line_to(temp_inst, temp_rec, sizeof(temp_rec), depth + 1) != 0)
+                                return -1;
+                            size_t rl = strlen(temp_rec);
+                            if (outi + rl + 1 >= outbuf_sz)
+                                return -1;
+                            memcpy(outbuf + outi, temp_rec, rl);
+                            outi += rl;
+                            p = after;
+                            continue;
+                        }
+                    }
+                }
+                else
+                {
+                    static char temp_body[PP_MAX_MACRO_BODY * 2];
+                    if (expand_macros_line_to(m->body, temp_body, sizeof(temp_body), depth + 1) != 0)
+                        return -1;
+                    size_t rl = strlen(temp_body);
+                    if (outi + rl + 1 >= outbuf_sz)
+                        return -1;
+                    memcpy(outbuf + outi, temp_body, rl);
+                    outi += rl;
+                    p = t;
+                    continue;
+                }
+            }
+            if (outi + idlen + 1 >= outbuf_sz)
+                return -1;
+            memcpy(outbuf + outi, p, idlen);
+            outi += idlen;
+            p = t;
+        }
+        else
+        {
+            if (outi + 2 >= outbuf_sz)
+                return -1;
+            outbuf[outi++] = *p++;
+        }
+    }
+    if (outi >= outbuf_sz)
+        return -1;
+    outbuf[outi] = '\0';
+    return 0;
+}
+
+static void trim_inplace(char *s)
+{
+    if (!s)
+        return;
+    char *p = s;
+    while (isspace((unsigned char)*p))
+        p++;
+    if (p != s)
+        memmove(s, p, strlen(p) + 1);
+    char *end = s + strlen(s);
+    while (end > s && isspace((unsigned char)*(end - 1)))
+        *(--end) = '\0';
+}
+
+static int eval_simple_if_expr_pp(const char *expr)
+{
+    while (isspace((unsigned char)*expr))
+        expr++;
+    if (strncmp(expr, "defined", 7) == 0)
+    {
+        const char *p = expr + 7;
+        while (*p && isspace((unsigned char)*p))
+            p++;
+        char name[PP_MAX_MACRO_NAME];
+        if (*p == '(')
+        {
+            p++;
+            const char *e = strchr(p, ')');
+            if (!e)
+                return 0;
+            size_t n = (size_t)(e - p);
+            if (n >= sizeof(name))
+                n = sizeof(name) - 1;
+            memcpy(name, p, n);
+            name[n] = '\0';
+            trim_inplace(name);
+            return pp_macro_find(name) ? 1 : 0;
+        }
+        else
+        {
+            const char *q = p;
+            int i = 0;
+            while (*q && (isalnum((unsigned char)*q) || *q == '_') && i + 1 < (int)sizeof(name))
+                name[i++] = *q++;
+            name[i] = '\0';
+            trim_inplace(name);
+            if (strlen(name) == 0)
+                return 0;
+            return pp_macro_find(name) ? 1 : 0;
+        }
+    }
+    else if (*expr == '!')
+    {
+        return !eval_simple_if_expr_pp(expr + 1);
+    }
+    else
+    {
+        while (isspace((unsigned char)*expr))
+            expr++;
+        if (*expr == '0')
+            return 0;
+        if (*expr == '1')
+            return 1;
+        return 0;
+    }
+}
+
+static const char *pp_find_include_file(const char *name, char *out_path, size_t out_sz)
+{
+    const char *search_paths[] = {"/lib/include/", "/lib/", "/include/", "./", NULL};
+    if (name[0] == '/' || (name[0] == '.' && name[1] == '/') || (name[0] == '.' && name[1] == '.'))
+    {
+        FILE *f = fopen(name, "rb");
+        if (f)
+        {
+            fclose(f);
+            strncpy(out_path, name, out_sz - 1);
+            out_path[out_sz - 1] = '\0';
+            return out_path;
+        }
+    }
+    for (int i = 0; search_paths[i]; ++i)
+    {
+        size_t need = strlen(search_paths[i]) + strlen(name) + 2;
+        if (need > out_sz)
+            continue;
+        snprintf(out_path, out_sz, "%s%s", search_paths[i], name);
+        FILE *f = fopen(out_path, "rb");
+        if (f)
+        {
+            fclose(f);
+            return out_path;
+        }
+    }
+    return NULL;
+}
+
+static void preprocess_src(const unsigned char *in, unsigned char *out, size_t out_max)
+{
+    if (!in || !out)
+        die("preprocess_src: bad args (no heap allowed)");
+    pp_macros_clear_all();
+
+    static unsigned char clean_buf[PP_FILE_BUF_SIZE];
+    if (preclean_input_into(in, clean_buf, sizeof(clean_buf)) < 0)
+        die("preclean_input failed");
+
+    static unsigned char inc_buf[PP_MAX_DEPTH][PP_FILE_BUF_SIZE];
+    static unsigned char inc_out[PP_MAX_DEPTH][PP_OUT_MAX];
+    static char include_stack[PP_MAX_DEPTH][512];
+    /* per-depth current scan pointer (char pointer into inc_buf[depth]) */
+    const char *cur_pos[PP_MAX_DEPTH];
+
+    /* copy cleaned input into depth 0 */
+    strncpy((char *)inc_buf[0], (const char *)clean_buf, PP_FILE_BUF_SIZE - 1);
+    inc_buf[0][PP_FILE_BUF_SIZE - 1] = '\0';
+    include_stack[0][0] = '\0';
+    cur_pos[0] = (const char *)inc_buf[0];
+
+    int current_depth = 0;
+    size_t out_len = 0;
+
+    int cond_stack[PP_MAX_DEPTH];
+    int cond_top = 0;
+    cond_stack[0] = 1;
+    cond_top = 1;
+
+    while (current_depth >= 0)
+    {
+        /* current buffer and position */
+        unsigned char *curbuf = inc_buf[current_depth];
+        const char *p = cur_pos[current_depth]; /* start from saved pos */
+
+        char linebuf[PP_LINEBUF];
+        while (*p)
+        {
+            const char *line_start = p;
+            const char *nl = strchr(p, '\n');
+            size_t line_len = nl ? (size_t)(nl - p) : strlen(p);
+            if (line_len >= sizeof(linebuf))
+                die("line too long in preprocess_src");
+            memcpy(linebuf, line_start, line_len);
+            linebuf[line_len] = '\0';
+            /* advance p to next line and store back to cur_pos */
+            p = nl ? (nl + 1) : (p + line_len);
+            cur_pos[current_depth] = p;
+
+            const char *s = linebuf;
+            while (*s && isspace((unsigned char)*s))
+                s++;
+
+            if (*s == '#')
+            {
+                s++;
+                while (*s && isspace((unsigned char)*s))
+                    s++;
+
+                if (strncmp(s, "include", 7) == 0 && isspace((unsigned char)s[7]))
+                {
+                    s += 7;
+                    while (*s && isspace((unsigned char)*s))
+                        s++;
+                    if (*s == '"' || *s == '<')
+                    {
+                        char endc = (*s == '"') ? '"' : '>';
+                        s++;
+                        const char *e = strchr(s, endc);
+                        if (!e)
+                        {
+                            fprintf(stderr, "preprocessor error: unterminated include directive\n");
+                            die("include parse failed");
+                        }
+                        size_t n = (size_t)(e - s);
+                        if (n >= 511)
+                            n = 511;
+                        char incname[512];
+                        memcpy(incname, s, n);
+                        incname[n] = '\0';
+                        char pathbuf[512];
+                        const char *found = pp_find_include_file(incname, pathbuf, sizeof(pathbuf));
+                        if (!found)
+                        {
+                            const char *caller = include_stack[current_depth][0] ? include_stack[current_depth] : "<input>";
+                            fprintf(stderr, "preprocessor error: include file not found: \"%s\" (included from %s)\n", incname, caller);
+                            die("include not found");
+                        }
+                        if (current_depth + 1 >= PP_MAX_DEPTH)
+                            die("include recursion too deep");
+                        int cyc = 0;
+                        for (int i = 0; i <= current_depth; ++i)
+                        {
+                            if (strcmp(include_stack[i], pathbuf) == 0)
+                            {
+                                cyc = 1;
+                                break;
+                            }
+                        }
+                        if (cyc)
+                        {
+                            /* skip cyclic include silently (avoid infinite recursion) */
+                            continue;
+                        }
+                        long r = read_file_into(pathbuf, inc_buf[current_depth + 1], PP_FILE_BUF_SIZE);
+                        if (r < 0)
+                        {
+                            fprintf(stderr, "preprocessor error: failed to read include file: \"%s\" (from %s)\n",
+                                    pathbuf,
+                                    include_stack[current_depth][0] ? include_stack[current_depth] : "<input>");
+                            die("include read failed");
+                        }
+                        unsigned char tmp_clean[PP_FILE_BUF_SIZE];
+                        if (preclean_input_into(inc_buf[current_depth + 1], tmp_clean, sizeof(tmp_clean)) < 0)
+                            die("preclean_input failed");
+                        strncpy((char *)inc_buf[current_depth + 1], (const char *)tmp_clean, PP_FILE_BUF_SIZE - 1);
+                        inc_buf[current_depth + 1][PP_FILE_BUF_SIZE - 1] = '\0';
+                        strncpy(include_stack[current_depth + 1], pathbuf, sizeof(include_stack[0]) - 1);
+                        include_stack[current_depth + 1][sizeof(include_stack[0]) - 1] = '\0';
+                        /* push: initialize new depth's cursor to its buffer start and switch to it */
+                        current_depth++;
+                        cur_pos[current_depth] = (const char *)inc_buf[current_depth];
+                        /* update local p for next inner iteration to use new depth */
+                        p = cur_pos[current_depth];
+                        /* continue processing inside new buffer immediately */
+                        continue;
+                    }
+                }
+                else if (strncmp(s, "define", 6) == 0 && isspace((unsigned char)s[6]))
+                {
+                    s += 6;
+                    while (*s && isspace((unsigned char)*s))
+                        s++;
+                    char name[PP_MAX_MACRO_NAME];
+                    int ni = 0;
+                    if (!pp_is_ident_char(*s, 1))
+                        continue;
+                    name[ni++] = *s++;
+                    while (*s && pp_is_ident_char(*s, 0) && ni + 1 < (int)sizeof(name))
+                        name[ni++] = *s++;
+                    name[ni] = '\0';
+
+                    /* function-like only if '(' immediately follows name */
+                    const char *after_name = s;
+                    if (*after_name == '(')
+                    {
+                        s = after_name + 1;
+                        char params[PP_MAX_MACRO_PARAMS][PP_MAX_MACRO_PARAM_LEN];
+                        int pcount = 0;
+                        while (*s && *s != ')' && pcount < PP_MAX_MACRO_PARAMS)
+                        {
+                            while (*s && isspace((unsigned char)*s))
+                                s++;
+                            char pname[PP_MAX_MACRO_PARAM_LEN];
+                            int pi = 0;
+                            if (!pp_is_ident_char(*s, 1))
+                                break;
+                            pname[pi++] = *s++;
+                            while (*s && pp_is_ident_char(*s, 0) && pi + 1 < (int)sizeof(pname))
+                                pname[pi++] = *s++;
+                            pname[pi] = '\0';
+                            strncpy(params[pcount], pname, PP_MAX_MACRO_PARAM_LEN - 1);
+                            params[pcount][PP_MAX_MACRO_PARAM_LEN - 1] = '\0';
+                            pcount++;
+                            while (*s && isspace((unsigned char)*s))
+                                s++;
+                            if (*s == ',')
+                            {
+                                s++;
+                                continue;
+                            }
+                        }
+                        if (*s == ')')
+                            s++;
+                        while (*s && isspace((unsigned char)*s))
+                            s++;
+                        char body[PP_MAX_MACRO_BODY];
+                        strncpy(body, s, sizeof(body) - 1);
+                        body[sizeof(body) - 1] = '\0';
+                        trim_inplace(body);
+                        pp_macro_add_function(name, params, pcount, body);
+                        continue;
+                    }
+                    else
+                    {
+                        while (*s && isspace((unsigned char)*s))
+                            s++;
+                        char body[PP_MAX_MACRO_BODY];
+                        strncpy(body, s, sizeof(body) - 1);
+                        body[sizeof(body) - 1] = '\0';
+                        trim_inplace(body);
+                        pp_macro_add_object(name, body);
+                        continue;
+                    }
+                }
+                else if (strncmp(s, "undef", 5) == 0 && isspace((unsigned char)s[5]))
+                {
+                    s += 5;
+                    while (*s && isspace((unsigned char)*s))
+                        s++;
+                    char name[PP_MAX_MACRO_NAME];
+                    int ni = 0;
+                    while (*s && pp_is_ident_char(*s, (ni == 0)))
+                    {
+                        if (ni + 1 < (int)sizeof(name))
+                            name[ni++] = *s;
+                        s++;
+                    }
+                    name[ni] = '\0';
+                    trim_inplace(name);
+                    if (strlen(name))
+                        pp_macro_undef(name);
+                    continue;
+                }
+                else if (strncmp(s, "ifdef", 5) == 0 && isspace((unsigned char)s[5]))
+                {
+                    s += 5;
+                    while (*s && isspace((unsigned char)*s))
+                        s++;
+                    char name[PP_MAX_MACRO_NAME];
+                    int ni = 0;
+                    while (*s && pp_is_ident_char(*s, (ni == 0)))
+                    {
+                        if (ni + 1 < (int)sizeof(name))
+                            name[ni++] = *s;
+                        s++;
+                    }
+                    name[ni] = '\0';
+                    trim_inplace(name);
+                    int val = pp_macro_find(name) ? 1 : 0;
+                    if (cond_top >= PP_MAX_DEPTH)
+                        die("conditional depth");
+                    cond_stack[cond_top] = (cond_stack[cond_top - 1] && val) ? 1 : 0;
+                    cond_top++;
+                    continue;
+                }
+                else if (strncmp(s, "ifndef", 6) == 0 && isspace((unsigned char)s[6]))
+                {
+                    s += 6;
+                    while (*s && isspace((unsigned char)*s))
+                        s++;
+                    char name[PP_MAX_MACRO_NAME];
+                    int ni = 0;
+                    while (*s && pp_is_ident_char(*s, (ni == 0)))
+                    {
+                        if (ni + 1 < (int)sizeof(name))
+                            name[ni++] = *s;
+                        s++;
+                    }
+                    name[ni] = '\0';
+                    trim_inplace(name);
+                    int val = pp_macro_find(name) ? 0 : 1;
+                    if (cond_top >= PP_MAX_DEPTH)
+                        die("conditional depth");
+                    cond_stack[cond_top] = (cond_stack[cond_top - 1] && val) ? 1 : 0;
+                    cond_top++;
+                    continue;
+                }
+                else if (strncmp(s, "if", 2) == 0 && isspace((unsigned char)s[2]))
+                {
+                    s += 2;
+                    while (*s && isspace((unsigned char)*s))
+                        s++;
+                    int val = eval_simple_if_expr_pp(s);
+                    if (cond_top >= PP_MAX_DEPTH)
+                        die("conditional depth");
+                    cond_stack[cond_top] = (cond_stack[cond_top - 1] && val) ? 1 : 0;
+                    cond_top++;
+                    continue;
+                }
+                else if (strncmp(s, "elif", 4) == 0 && isspace((unsigned char)s[4]))
+                {
+                    if (cond_top <= 1)
+                        continue;
+                    if (cond_stack[cond_top - 1])
+                        cond_stack[cond_top - 1] = 0;
+                    else
+                    {
+                        int val = eval_simple_if_expr_pp(s + 4);
+                        cond_stack[cond_top - 1] = cond_stack[cond_top - 2] ? (val ? 1 : 0) : 0;
+                    }
+                    continue;
+                }
+                else if (strncmp(s, "else", 4) == 0 && (s[4] == '\0' || isspace((unsigned char)s[4])))
+                {
+                    if (cond_top <= 1)
+                        continue;
+                    if (cond_stack[cond_top - 2])
+                        cond_stack[cond_top - 1] = !cond_stack[cond_top - 1];
+                    else
+                        cond_stack[cond_top - 1] = 0;
+                    continue;
+                }
+                else if (strncmp(s, "endif", 5) == 0 && (s[5] == '\0' || isspace((unsigned char)s[5])))
+                {
+                    if (cond_top <= 1)
+                        continue;
+                    cond_top--;
+                    continue;
+                }
+                else
+                {
+                    continue;
+                }
+            }
+
+            if (!cond_stack[cond_top - 1])
+                continue;
+
+            char expanded[PP_OUT_MAX];
+            if (expand_macros_line_to(linebuf, expanded, sizeof(expanded), 0) != 0)
+                die("macro expansion error");
+            size_t elen = strlen(expanded);
+            if (out_len + elen + 2 > out_max)
+                die("preprocessed source too large");
+            memcpy(out + out_len, expanded, elen);
+            out_len += elen;
+            out[out_len++] = '\n';
+            out[out_len] = '\0';
+        } /* end while lines in current depth */
+
+        /* finished current buffer: pop or finish whole preprocess */
+        if (current_depth == 0)
+            break;
+        /* clear include_stack entry for popped depth (optional) */
+        include_stack[current_depth][0] = '\0';
+        current_depth--;
+        /* no need to reset cur_pos[current_depth] because it already contains parent's next pos */
+    } /* end while depth stack */
+
+    if (out_len >= out_max)
+        die("preprocess output overflow");
+    out[out_len] = '\0';
 }
 
 static int struct_find(const char *name)
@@ -2529,7 +3372,16 @@ int main(int argc, char **argv)
     code_len = 0;
     relocs_cnt = 0;
     funcs_cnt = 0;
-    compile((const char *)src_buf);
+
+    static unsigned char preproc_buf[(MAX_FILE_SIZE * 3)];
+    preprocess_src(src_buf, preproc_buf, sizeof(preproc_buf));
+
+    FILE *logs = fopen("baoc.log", "w");
+
+    fprintf(logs, "=== Preprocessed Source ===\n%s\n=== End Preprocessed Source ===\n", preproc_buf);
+    fclose(logs);
+
+    compile((const char *)preproc_buf);
 
     FILE *fcrt = fopen(crt0_path, "rb");
     if (!fcrt)

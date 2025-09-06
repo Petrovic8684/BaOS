@@ -99,7 +99,7 @@ void load_user_program(const char *name, const char **user_argv)
 
     cleanup_previous_user_space();
 
-    static unsigned char buf[65536];
+    static unsigned char buf[85000];
     unsigned int size = 0;
 
     if (fs_read_file(name, buf, sizeof(buf), &size) != FS_OK)

@@ -11,17 +11,19 @@
 #define SEEK_CUR 1
 #define SEEK_END 2
 
-typedef struct _FILE
+struct _FILE
 {
     const char *name;
-    unsigned int mode; /* 0 = read, 1 = write */
+    unsigned int mode;
     unsigned int pos;
     unsigned char buf[BUFSIZ];
     unsigned int buf_pos;
     unsigned int buf_end;
     int eof;
     int err;
-} FILE;
+};
+
+typedef struct _FILE FILE;
 
 #define stdin ((FILE *)0)
 #define stdout ((FILE *)1)
