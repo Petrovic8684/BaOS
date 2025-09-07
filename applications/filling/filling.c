@@ -19,6 +19,58 @@ static int readonly_mode = 0;
 static char status_msg[MAX_COLS] = "";
 static int screen_row_offset = 0;
 static int syntax_highlight = 0;
+static int selecting = 0;
+static int sel_start_row = 0, sel_start_col = 0;
+static int sel_end_row = 0, sel_end_col = 0;
+static char clipboard[MAX_LINES * STORAGE_COLS];
+
+static void reset_selection(void)
+{
+    selecting = 0;
+    sel_start_row = sel_start_col = sel_end_row = sel_end_col = 0;
+}
+
+static void update_selection(int new_row, int new_col)
+{
+    if (!selecting)
+    {
+        sel_start_row = cur_row;
+        sel_start_col = cur_col;
+        selecting = 1;
+    }
+    sel_end_row = new_row;
+    sel_end_col = new_col;
+}
+
+static int is_selected(int row, int col)
+{
+    if (!selecting)
+        return 0;
+
+    int start_row = sel_start_row, start_col = sel_start_col;
+    int end_row = sel_end_row, end_col = sel_end_col;
+
+    if (start_row > end_row || (start_row == end_row && start_col > end_col))
+    {
+        int tmp_row = start_row, tmp_col = start_col;
+        start_row = end_row;
+        start_col = end_col;
+        end_row = tmp_row;
+        end_col = tmp_col;
+    }
+
+    if (row < start_row || row > end_row)
+        return 0;
+
+    if (row == start_row && row == end_row)
+        return col >= start_col && col < end_col;
+    else if (row == start_row)
+        return col >= start_col;
+    else if (row == end_row)
+        return col < end_col;
+    else
+        return 1;
+}
 
 static int visible_content_rows(void)
 {
@@ -95,12 +147,13 @@ static void ensure_cursor_visible(void)
         screen_row_offset = max_offset;
 }
 
-static void print_colored_c(const char *line)
+static void print_colored_c(int row_index, const char *line)
 {
     const char *keywords[] = {
         "int", "char", "float", "double", "void", "if", "else", "for", "while",
         "return", "struct", "typedef", "enum", "const", "static", "break", "continue",
         "switch", "case", "default", "sizeof", "do", "goto"};
+
     int in_string = 0;
     int in_char = 0;
     int in_comment = 0;
@@ -109,21 +162,35 @@ static void print_colored_c(const char *line)
     {
         char c = line[i];
 
+        int selected = is_selected(row_index, i);
+
         if (in_comment)
         {
-            putchar(c);
+            if (selected)
+                printf("\033[1;37;46m%c\033[0m", c);
+            else
+                putchar(c);
+
             if (c == '\n')
                 in_comment = 0;
         }
         else if (in_string)
         {
-            printf("\033[1;32m%c\033[0m", c);
+            if (selected)
+                printf("\033[1;37;46m%c\033[0m", c);
+            else
+                printf("\033[1;32m%c\033[0m", c);
+
             if (c == '"' && line[i - 1] != '\\')
                 in_string = 0;
         }
         else if (in_char)
         {
-            printf("\033[1;32m%c\033[0m", c);
+            if (selected)
+                printf("\033[1;37;46m%c\033[0m", c);
+            else
+                printf("\033[1;32m%c\033[0m", c);
+
             if (c == '\'' && line[i - 1] != '\\')
                 in_char = 0;
         }
@@ -131,29 +198,46 @@ static void print_colored_c(const char *line)
         {
             if (c == '/' && line[i + 1] == '/')
             {
-                printf("\033[32m%s\033[0m", line + i);
+                for (int j = i; line[j]; j++)
+                {
+                    selected = is_selected(row_index, j);
+                    if (selected)
+                        printf("\033[1;37;46m%c\033[0m", line[j]);
+                    else
+                        printf("\033[32m%c\033[0m", line[j]);
+                }
                 break;
             }
             else if (c == '"')
             {
                 in_string = 1;
-                printf("\033[1;32m%c\033[0m", c);
+                if (selected)
+                    printf("\033[1;37;46m%c\033[0m", c);
+                else
+                    printf("\033[1;32m%c\033[0m", c);
             }
             else if (c == '\'')
             {
                 in_char = 1;
-                printf("\033[1;32m%c\033[0m", c);
+                if (selected)
+                    printf("\033[1;37;46m%c\033[0m", c);
+                else
+                    printf("\033[1;32m%c\033[0m", c);
             }
             else if (isdigit(c))
             {
                 int start = i;
                 while (isdigit(line[i]) || line[i] == '.' || line[i] == 'x' || (line[i] >= 'a' && line[i] <= 'f') || (line[i] >= 'A' && line[i] <= 'F'))
                     i++;
-                char num[32];
                 int len = i - start;
-                strncpy(num, line + start, len);
-                num[len] = '\0';
-                printf("\033[1;35m%s\033[0m", num);
+                for (int k = 0; k < len; k++)
+                {
+                    selected = is_selected(row_index, start + k);
+                    if (selected)
+                        printf("\033[1;37;46m%c\033[0m", line[start + k]);
+                    else
+                        printf("\033[1;35m%c\033[0m", line[start + k]);
+                }
                 i--;
             }
             else if (isalpha(c) || c == '_')
@@ -162,7 +246,6 @@ static void print_colored_c(const char *line)
                 while (isalnum(line[i]) || line[i] == '_')
                     i++;
                 int len = i - start;
-                i--;
                 char word[64];
                 if (len < 64)
                 {
@@ -177,29 +260,41 @@ static void print_colored_c(const char *line)
                             break;
                         }
 
-                    if (is_kw)
+                    for (int k = 0; k < len; k++)
                     {
-                        if (strcmp(word, "const") == 0 || strcmp(word, "static") == 0)
-                            printf("\033[33m%s\033[0m", word);
-                        else if (strcmp(word, "sizeof") == 0)
-                            printf("\033[1;32m%s\033[0m", word);
+                        selected = is_selected(row_index, start + k);
+                        if (selected)
+                            printf("\033[1;37;46m%c\033[0m", word[k]);
+                        else if (is_kw)
+                        {
+                            if (strcmp(word, "const") == 0 || strcmp(word, "static") == 0)
+                                printf("\033[33m%c\033[0m", word[k]);
+                            else if (strcmp(word, "sizeof") == 0)
+                                printf("\033[1;32m%c\033[0m", word[k]);
+                            else
+                                printf("\033[31m%c\033[0m", word[k]);
+                        }
                         else
-                            printf("\033[31m%s\033[0m", word);
-                    }
-                    else
-                    {
-                        int j = i + 1;
-                        while (line[j] == ' ' || line[j] == '\t')
-                            j++;
-                        if (line[j] == '(')
-                            printf("\033[1;33m%s\033[0m", word);
-                        else
-                            printf("\033[1;34m%s\033[0m", word);
+                        {
+                            int j = start + len;
+                            while (line[j] == ' ' || line[j] == '\t')
+                                j++;
+                            if (line[j] == '(')
+                                printf("\033[1;33m%c\033[0m", word[k]);
+                            else
+                                printf("\033[1;34m%c\033[0m", word[k]);
+                        }
                     }
                 }
+                i--;
             }
             else
-                putchar(c);
+            {
+                if (selected)
+                    printf("\033[1;37;46m%c\033[0m", c);
+                else
+                    putchar(c);
+            }
         }
     }
 }
@@ -282,13 +377,16 @@ static void editor_redraw(void)
                     char tmp[STORAGE_COLS];
                     strncpy(tmp, buffer[i] + start, len);
                     tmp[len] = '\0';
-                    print_colored_c(tmp);
+                    print_colored_c(i, tmp);
                 }
                 else
-                {
                     for (int j = 0; j < chunk; ++j)
-                        putchar(buffer[i][off + j]);
-                }
+                    {
+                        if (is_selected(i, off + j))
+                            printf("\033[1;37;46m%c\033[0m", buffer[i][off + j]);
+                        else
+                            putchar(buffer[i][off + j]);
+                    }
             }
             printf("\033[0K");
             printed++;
@@ -389,6 +487,7 @@ static void insert_newline_at_cursor(void)
     cur_col = 0;
     modified = 1;
     clear_status();
+    reset_selection();
 }
 
 static void insert_char_at_cursor(int c)
@@ -421,6 +520,7 @@ static void insert_char_at_cursor(int c)
     cur_col++;
     modified = 1;
     clear_status();
+    reset_selection();
 }
 
 static void backspace_before_cursor(void)
@@ -456,6 +556,7 @@ static void backspace_before_cursor(void)
         }
     }
     clear_status();
+    reset_selection();
 }
 
 static void move_left(void)
@@ -468,6 +569,7 @@ static void move_left(void)
         cur_col = (int)strlen(buffer[cur_row]);
     }
     clear_status();
+    reset_selection();
 }
 
 static void move_right(void)
@@ -487,6 +589,7 @@ static void move_right(void)
         }
     }
     clear_status();
+    reset_selection();
 }
 
 static void move_up(void)
@@ -499,6 +602,7 @@ static void move_up(void)
             cur_col = len;
     }
     clear_status();
+    reset_selection();
 }
 
 static void move_down(void)
@@ -512,6 +616,169 @@ static void move_down(void)
             cur_col = len;
     }
     clear_status();
+    reset_selection();
+}
+
+static void copy_selection(void)
+{
+    clear_status();
+    if (!selecting)
+    {
+        set_status(" Nothing to copy. ");
+        return;
+    }
+
+    int start_row = sel_start_row, start_col = sel_start_col;
+    int end_row = sel_end_row, end_col = sel_end_col;
+
+    if (start_row > end_row || (start_row == end_row && start_col > end_col))
+    {
+        int tmp_row = start_row, tmp_col = start_col;
+        start_row = end_row;
+        start_col = end_col;
+        end_row = tmp_row;
+        end_col = tmp_col;
+    }
+
+    clipboard[0] = '\0';
+    for (int r = start_row; r <= end_row; ++r)
+    {
+        int s_col = (r == start_row) ? start_col : 0;
+        int e_col = (r == end_row) ? end_col : (int)strlen(buffer[r]);
+        if (s_col >= e_col)
+            continue;
+        strncat(clipboard, buffer[r] + s_col, (size_t)(e_col - s_col));
+        strcat(clipboard, "\n");
+    }
+
+    set_status(" Copied selection. ");
+    reset_selection();
+    editor_redraw();
+}
+
+static void cut_selection(void)
+{
+    clear_status();
+    if (!selecting)
+    {
+        set_status(" Nothing to cut. ");
+        return;
+    }
+
+    int start_row = sel_start_row, start_col = sel_start_col;
+    int end_row = sel_end_row, end_col = sel_end_col;
+
+    if (start_row > end_row || (start_row == end_row && start_col > end_col))
+    {
+        int tmp_row = start_row, tmp_col = start_col;
+        start_row = end_row;
+        start_col = end_col;
+        end_row = tmp_row;
+        end_col = tmp_col;
+    }
+
+    clipboard[0] = '\0';
+    for (int r = start_row; r <= end_row; ++r)
+    {
+        int s_col = (r == start_row) ? start_col : 0;
+        int e_col = (r == end_row) ? end_col : (int)strlen(buffer[r]);
+        if (s_col >= e_col)
+            continue;
+        strncat(clipboard, buffer[r] + s_col, (size_t)(e_col - s_col));
+        strcat(clipboard, "\n");
+    }
+
+    for (int r = start_row; r <= end_row; ++r)
+    {
+        int s_col = (r == start_row) ? start_col : 0;
+        int e_col = (r == end_row) ? end_col : (int)strlen(buffer[r]);
+        if (s_col >= e_col)
+            continue;
+
+        if (s_col == 0 && e_col == (int)strlen(buffer[r]))
+        {
+            shift_lines_up(r);
+            end_row--;
+            r--;
+        }
+        else
+        {
+            memmove(buffer[r] + s_col, buffer[r] + e_col, strlen(buffer[r]) - e_col + 1);
+        }
+    }
+
+    cur_row = start_row;
+    cur_col = start_col;
+    modified = 1;
+    reset_selection();
+    set_status(" Cut selection. ");
+    ensure_cursor_visible();
+    editor_redraw();
+}
+
+static void paste_clipboard(void)
+{
+    clear_status();
+    if (!clipboard[0])
+    {
+        set_status(" Nothing to paste. ");
+        return;
+    }
+
+    int row = cur_row;
+    int col = cur_col;
+    char *clip = clipboard;
+
+    while (*clip && row < MAX_LINES)
+    {
+        char *nl = strchr(clip, '\n');
+
+        if (nl)
+        {
+            int len = (int)(nl - clip);
+
+            int space_left = STORAGE_COLS - 1 - (int)strlen(buffer[row]);
+            if (len > space_left)
+                len = space_left;
+
+            memmove(buffer[row] + col + len, buffer[row] + col, strlen(buffer[row]) - col + 1);
+            memcpy(buffer[row] + col, clip, len);
+
+            clip = nl + 1;
+
+            if (*clip)
+            {
+                row++;
+                if (row >= MAX_LINES)
+                    break;
+                col = 0;
+            }
+            else
+            {
+                col += len;
+                break;
+            }
+        }
+        else
+        {
+            int len = (int)strlen(clip);
+            int space_left = STORAGE_COLS - 1 - (int)strlen(buffer[row]);
+            if (len > space_left)
+                len = space_left;
+
+            memmove(buffer[row] + col + len, buffer[row] + col, strlen(buffer[row]) - col + 1);
+            memcpy(buffer[row] + col, clip, len);
+            col += len;
+            break;
+        }
+    }
+
+    cur_row = row;
+    cur_col = col;
+
+    modified = 1;
+    ensure_cursor_visible();
+    editor_redraw();
 }
 
 static void editor_open_file(const char *path)
@@ -572,6 +839,7 @@ static void editor_open_file(const char *path)
     cur_row = last_line;
     cur_col = (int)strlen(buffer[last_line]);
     clear_status();
+    reset_selection();
     readonly_mode = 0;
 }
 
@@ -652,10 +920,131 @@ static void prompt_filename_and_save(void)
             filename[sizeof(filename) - 1] = '\0';
             editor_save_to_file(filename);
             clear_status();
+            reset_selection();
             editor_redraw();
             return;
         }
     }
+}
+
+static void move_left_word_selection(void)
+{
+    if (!selecting)
+    {
+        sel_start_row = cur_row;
+        sel_start_col = cur_col;
+        selecting = 1;
+    }
+
+    char *row = buffer[cur_row];
+    int i = cur_col;
+
+    if (i > 0)
+    {
+        while (i > 0 && row[i - 1] == ' ')
+            i--;
+        while (i > 0 && row[i - 1] != ' ')
+            i--;
+    }
+    else if (cur_row > 0)
+    {
+        cur_row--;
+        cur_col = strlen(buffer[cur_row]);
+        move_left_word_selection();
+        return;
+    }
+
+    cur_col = i;
+    sel_end_row = cur_row;
+    sel_end_col = cur_col;
+
+    ensure_cursor_visible();
+    editor_redraw();
+}
+
+static void move_right_word_selection(void)
+{
+    if (!selecting)
+    {
+        sel_start_row = cur_row;
+        sel_start_col = cur_col;
+        selecting = 1;
+    }
+
+    char *row = buffer[cur_row];
+    int len = (int)strlen(row);
+    int i = cur_col;
+
+    if (i < len)
+    {
+        while (i < len && row[i] == ' ')
+            i++;
+        while (i < len && row[i] != ' ')
+            i++;
+    }
+    else if (cur_row < get_last_filled_logical_row())
+    {
+        cur_row++;
+        cur_col = 0;
+        move_right_word_selection();
+        return;
+    }
+
+    cur_col = i;
+    sel_end_row = cur_row;
+    sel_end_col = cur_col;
+
+    ensure_cursor_visible();
+    editor_redraw();
+}
+
+static void move_up_word_selection(void)
+{
+    if (!selecting)
+    {
+        sel_start_row = cur_row;
+        sel_start_col = cur_col;
+        selecting = 1;
+    }
+
+    if (cur_row > 0)
+    {
+        cur_row--;
+        int len = (int)strlen(buffer[cur_row]);
+        if (cur_col > len)
+            cur_col = len;
+    }
+
+    sel_end_row = cur_row;
+    sel_end_col = cur_col;
+
+    ensure_cursor_visible();
+    editor_redraw();
+}
+
+static void move_down_word_selection(void)
+{
+    if (!selecting)
+    {
+        sel_start_row = cur_row;
+        sel_start_col = cur_col;
+        selecting = 1;
+    }
+
+    int last = get_last_filled_logical_row();
+    if (cur_row < last)
+    {
+        cur_row++;
+        int len = (int)strlen(buffer[cur_row]);
+        if (cur_col > len)
+            cur_col = len;
+    }
+
+    sel_end_row = cur_row;
+    sel_end_col = cur_col;
+
+    ensure_cursor_visible();
+    editor_redraw();
 }
 
 int main(int argc, char **argv)
@@ -743,6 +1132,7 @@ int main(int argc, char **argv)
                     continue;
             }
             clear_status();
+            reset_selection();
             ensure_cursor_visible();
             editor_redraw();
         }
@@ -756,6 +1146,217 @@ int main(int argc, char **argv)
         else if (c == 8)
         {
             backspace_before_cursor();
+            welcome_active = 0;
+            ensure_cursor_visible();
+            editor_redraw();
+        }
+        else if (c == 127)
+        {
+            char *row = buffer[cur_row];
+            int len = (int)strlen(row);
+            if (cur_col < len)
+            {
+                for (int i = cur_col; i < len; ++i)
+                    row[i] = row[i + 1];
+                modified = 1;
+            }
+            clear_status();
+            reset_selection();
+            welcome_active = 0;
+            ensure_cursor_visible();
+            editor_redraw();
+        }
+        else if (c == 128)
+        {
+            char *row = buffer[cur_row];
+            int len = (int)strlen(row);
+            if (cur_col > 0 && cur_col <= len)
+            {
+                memmove(row, row + cur_col, (size_t)(len - cur_col + 1));
+                cur_col = 0;
+                modified = 1;
+            }
+            clear_status();
+            reset_selection();
+            welcome_active = 0;
+            ensure_cursor_visible();
+            editor_redraw();
+        }
+        else if (c == 129)
+        {
+            char *row = buffer[cur_row];
+            int len = (int)strlen(row);
+            if (cur_col > 0)
+            {
+                int i = cur_col;
+                while (i > 0 && row[i - 1] == ' ')
+                    i--;
+                while (i > 0 && row[i - 1] != ' ')
+                    i--;
+                memmove(row + i, row + cur_col, (size_t)(len - cur_col + 1));
+                cur_col = i;
+                modified = 1;
+            }
+            clear_status();
+            reset_selection();
+            welcome_active = 0;
+            ensure_cursor_visible();
+            editor_redraw();
+        }
+        else if (c == 130)
+        {
+            char *row = buffer[cur_row];
+            int len = (int)strlen(row);
+            if (cur_col < len)
+            {
+                row[cur_col] = '\0';
+                modified = 1;
+            }
+            clear_status();
+            reset_selection();
+            welcome_active = 0;
+            ensure_cursor_visible();
+            editor_redraw();
+        }
+        else if (c == 131)
+        {
+            char *row = buffer[cur_row];
+            int len = (int)strlen(row);
+            if (cur_col < len)
+            {
+                int j = cur_col;
+                while (j < len && row[j] == ' ')
+                    j++;
+                while (j < len && row[j] != ' ')
+                    j++;
+                memmove(row + cur_col, row + j, (size_t)(len - j + 1));
+                modified = 1;
+            }
+            clear_status();
+            reset_selection();
+            welcome_active = 0;
+            ensure_cursor_visible();
+            editor_redraw();
+        }
+        else if (c == 132)
+        {
+            if (!selecting)
+            {
+                sel_start_row = cur_row;
+                sel_start_col = cur_col;
+                selecting = 1;
+            }
+
+            if (cur_col > 0)
+                cur_col--;
+            else if (cur_row > 0)
+            {
+                cur_row--;
+                cur_col = strlen(buffer[cur_row]);
+            }
+
+            sel_end_row = cur_row;
+            sel_end_col = cur_col;
+
+            ensure_cursor_visible();
+            editor_redraw();
+        }
+        else if (c == 133)
+        {
+            if (!selecting)
+            {
+                sel_start_row = cur_row;
+                sel_start_col = cur_col;
+                selecting = 1;
+            }
+
+            int len = (int)strlen(buffer[cur_row]);
+            if (cur_col < len)
+                cur_col++;
+            else if (cur_row < get_last_filled_logical_row())
+            {
+                cur_row++;
+                cur_col = 0;
+            }
+
+            sel_end_row = cur_row;
+            sel_end_col = cur_col;
+
+            ensure_cursor_visible();
+            editor_redraw();
+        }
+        else if (c == 134)
+        {
+            if (!selecting)
+            {
+                sel_start_row = cur_row;
+                sel_start_col = cur_col;
+                selecting = 1;
+            }
+
+            if (cur_row > 0)
+            {
+                cur_row--;
+                int len = (int)strlen(buffer[cur_row]);
+                if (cur_col > len)
+                    cur_col = len;
+            }
+
+            sel_end_row = cur_row;
+            sel_end_col = cur_col;
+
+            ensure_cursor_visible();
+            editor_redraw();
+        }
+        else if (c == 135)
+        {
+            if (!selecting)
+            {
+                sel_start_row = cur_row;
+                sel_start_col = cur_col;
+                selecting = 1;
+            }
+
+            int last = get_last_filled_logical_row();
+            if (cur_row < last)
+            {
+                cur_row++;
+                int len = (int)strlen(buffer[cur_row]);
+                if (cur_col > len)
+                    cur_col = len;
+            }
+
+            sel_end_row = cur_row;
+            sel_end_col = cur_col;
+
+            ensure_cursor_visible();
+            editor_redraw();
+        }
+        else if (c == 136)
+            move_left_word_selection();
+        else if (c == 137)
+            move_right_word_selection();
+        else if (c == 138)
+            move_up_word_selection();
+        else if (c == 139)
+            move_down_word_selection();
+        else if (c == 140)
+        {
+            cut_selection();
+            welcome_active = 0;
+            ensure_cursor_visible();
+            editor_redraw();
+        }
+        else if (c == 141)
+        {
+            copy_selection();
+            welcome_active = 0;
+            ensure_cursor_visible();
+            editor_redraw();
+        }
+        else if (c == 142)
+        {
+            paste_clipboard();
             welcome_active = 0;
             ensure_cursor_visible();
             editor_redraw();

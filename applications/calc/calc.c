@@ -380,6 +380,143 @@ static void reset_scroll_region(void)
     fflush(stdout);
 }
 
+static int read_input(char *buf, int maxlen)
+{
+    int pos = 0;
+    int len = 0;
+    buf[0] = '\0';
+
+    while (1)
+    {
+        int c = getchar();
+
+        if (c == 3)
+        {
+            if (pos > 0)
+            {
+                pos--;
+                printf("\033[D");
+                fflush(stdout);
+            }
+            continue;
+        }
+        if (c == 4)
+        {
+            if (pos < len)
+            {
+                pos++;
+                printf("\033[C");
+                fflush(stdout);
+            }
+            continue;
+        }
+
+        if (c == 27)
+        {
+            buf[0] = '\0';
+            return 27;
+        }
+
+        if (c == '\r' || c == '\n')
+        {
+            if (len < maxlen - 1)
+            {
+                buf[len++] = '\n';
+                buf[len] = '\0';
+            }
+            putchar('\n');
+            fflush(stdout);
+            return 1;
+        }
+
+        if (c == 8)
+        {
+            if (pos > 0)
+            {
+                int old_len = len;
+                int del_pos = pos - 1;
+
+                for (int i = del_pos; i < len - 1; ++i)
+                    buf[i] = buf[i + 1];
+                len--;
+                buf[len] = '\0';
+                pos = del_pos;
+
+                printf("\033[D");
+
+                if (pos < len)
+                {
+                    fputs(buf + pos, stdout);
+                    putchar(' ');
+                    int move_back = (len - pos) + 1;
+                    if (move_back > 0)
+                        printf("\033[%dD", move_back);
+                }
+                else
+                {
+                    putchar(' ');
+                    printf("\033[D");
+                }
+
+                fflush(stdout);
+            }
+            continue;
+        }
+
+        if (c == 127)
+        {
+            if (pos < len)
+            {
+                for (int i = pos; i < len - 1; ++i)
+                    buf[i] = buf[i + 1];
+                len--;
+                buf[len] = '\0';
+
+                if (pos < len)
+                {
+                    fputs(buf + pos, stdout);
+                    putchar(' ');
+                    int move_back = (len - pos) + 1;
+                    if (move_back > 0)
+                        printf("\033[%dD", move_back);
+                }
+                else
+                {
+                    putchar(' ');
+                    printf("\033[%dD", 1);
+                }
+
+                fflush(stdout);
+            }
+            continue;
+        }
+
+        if (isalnum((unsigned char)c) || strchr("+-*/.%^()=", c))
+        {
+            if (len < maxlen - 1)
+            {
+                for (int i = len; i > pos; --i)
+                    buf[i] = buf[i - 1];
+                buf[pos] = (char)c;
+                len++;
+                buf[len] = '\0';
+
+                putchar(c);
+                if (pos < len - 1)
+                    fputs(buf + pos + 1, stdout);
+
+                int move_back = (len - pos - 1);
+                if (move_back > 0)
+                    printf("\033[%dD", move_back);
+
+                fflush(stdout);
+                pos++;
+            }
+            continue;
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
     if (argc > 1)
@@ -432,9 +569,9 @@ int main(int argc, char **argv)
         printf("> ");
         fflush(stdout);
 
-        read_line(buf, INPUT_BUF);
+        int r = read_input(buf, 78);
 
-        if (buf_has_esc(buf, INPUT_BUF))
+        if (r == 27)
         {
             printf("\033[2J");
             break;

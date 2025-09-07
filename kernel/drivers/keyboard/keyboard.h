@@ -2,6 +2,6 @@
 #define KEYBOARD_H
 
 void keyboard_init(void);
-char read(void);
+unsigned char read(void);
 
 #endif

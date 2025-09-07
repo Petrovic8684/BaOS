@@ -28,7 +28,7 @@ static inline void sys_write(const char *str)
         : "eax", "ebx", "memory");
 }
 
-static inline char sys_read(void)
+static inline unsigned char sys_read(void)
 {
     unsigned int ret;
     asm volatile(
@@ -38,7 +38,7 @@ static inline char sys_read(void)
         : [res] "=r"(ret)
         : [num] "i"(SYS_READ)
         : "eax", "ebx", "memory");
-    return (char)(ret & 0xFF);
+    return (unsigned char)(ret & 0xFF);
 }
 
 static inline int fs_make_file(const char *name)
@@ -910,7 +910,7 @@ void read_line(char *buf, int max_len)
 
     while (1)
     {
-        char c = sys_read();
+        unsigned char c = sys_read();
 
         if (c == '\n' || c == '\r')
         {
@@ -939,19 +939,149 @@ void read_line(char *buf, int max_len)
         {
             if (cursor > 0)
             {
+                int old_len = len;
                 for (int j = cursor - 1; j < len - 1; j++)
                     buf[j] = buf[j + 1];
                 len--;
                 cursor--;
-
                 buf[len] = 0;
                 redraw_buffer(buf, len, row, col);
+                if (old_len > len)
+                {
+                    update_cursor(row, col + len);
+                    for (int i = 0; i < old_len - len; i++)
+                        write(" ");
+                }
                 update_cursor(row, col + cursor);
             }
             continue;
         }
 
-        if ((unsigned char)c < 32)
+        if (c == 127)
+        {
+            if (cursor < len)
+            {
+                int old_len = len;
+                for (int j = cursor; j < len - 1; j++)
+                    buf[j] = buf[j + 1];
+                len--;
+                buf[len] = 0;
+                redraw_buffer(buf, len, row, col);
+                if (old_len > len)
+                {
+                    update_cursor(row, col + len);
+                    for (int i = 0; i < old_len - len; i++)
+                        write(" ");
+                }
+                update_cursor(row, col + cursor);
+            }
+            continue;
+        }
+
+        if (c == 128)
+        {
+            if (cursor > 0)
+            {
+                int old_len = len;
+                int tail = len - cursor;
+                for (int k = 0; k < tail; k++)
+                    buf[k] = buf[k + cursor];
+                len = tail;
+                cursor = 0;
+                buf[len] = 0;
+                redraw_buffer(buf, len, row, col);
+                if (old_len > len)
+                {
+                    update_cursor(row, col + len);
+                    for (int i = 0; i < old_len - len; i++)
+                        write(" ");
+                }
+                update_cursor(row, col + cursor);
+            }
+            continue;
+        }
+
+        if (c == 129)
+        {
+            if (cursor > 0)
+            {
+                int old_len = len;
+                int i = cursor;
+                while (i > 0 && buf[i - 1] == ' ')
+                    i--;
+                while (i > 0 && buf[i - 1] != ' ')
+                    i--;
+                int del_count = cursor - i;
+                if (del_count > 0)
+                {
+                    for (int k = i; k < len - del_count; k++)
+                        buf[k] = buf[k + del_count];
+                    len -= del_count;
+                    cursor = i;
+                    buf[len] = 0;
+                    redraw_buffer(buf, len, row, col);
+                    if (old_len > len)
+                    {
+                        update_cursor(row, col + len);
+                        for (int t = 0; t < old_len - len; t++)
+                            write(" ");
+                    }
+                    update_cursor(row, col + cursor);
+                }
+            }
+            continue;
+        }
+
+        if (c == 130)
+        {
+            if (cursor < len)
+            {
+                int old_len = len;
+                len = cursor;
+                buf[len] = 0;
+                redraw_buffer(buf, len, row, col);
+                if (old_len > len)
+                {
+                    update_cursor(row, col + len);
+                    for (int i = 0; i < old_len - len; i++)
+                        write(" ");
+                }
+                update_cursor(row, col + cursor);
+            }
+            continue;
+        }
+
+        if (c == 131)
+        {
+            if (cursor < len)
+            {
+                int old_len = len;
+                int j = cursor;
+                while (j < len && buf[j] == ' ')
+                    j++;
+                while (j < len && buf[j] != ' ')
+                    j++;
+                int del_count = j - cursor;
+                if (del_count > 0)
+                {
+                    for (int k = cursor; k < len - del_count; k++)
+                        buf[k] = buf[k + del_count];
+                    len -= del_count;
+                    buf[len] = 0;
+                    redraw_buffer(buf, len, row, col);
+                    if (old_len > len)
+                    {
+                        update_cursor(row, col + len);
+                        for (int t = 0; t < old_len - len; t++)
+                            write(" ");
+                    }
+                    update_cursor(row, col + cursor);
+                }
+            }
+            continue;
+        }
+
+        if (c < 32 || c > 126)
             continue;
 
         if (len < max_len - 1)
