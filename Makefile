@@ -73,7 +73,6 @@ CALC_BIN     = applications/calc/calc.bin
 FILLING_SRC  = applications/filling/filling.c
 FILLING_BIN  = applications/filling/filling.bin
 
-COMPILER_SRC = applications/baoc/baoc.c
 COMPILER_BIN = applications/baoc/baoc.bin
 
 USER_OBJS    = applications/*/*.o

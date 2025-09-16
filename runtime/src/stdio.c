@@ -15,7 +15,7 @@
 #define SYS_FS_WRITE_FILE_BIN 20
 
 #define MAX_OPEN_FILES 16
-#define USER_BUFFER_SIZE 1024
+#define USER_BUFFER_SIZE 2048
 
 static inline void sys_write(const char *str)
 {

@@ -28,7 +28,7 @@
 #define SYS_GET_CURSOR_COL 19
 #define SYS_FS_WRITE_FILE_BIN 20
 
-#define USER_BUFFER_SIZE 1024
+#define USER_BUFFER_SIZE 2048
 #define MAX_ARGC 64
 
 extern unsigned int loader_return_eip;
@@ -107,7 +107,7 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
 
         if (should_report_return)
         {
-            write("\033[1;33mUser program returned: \033[0m");
+            write("\033[1;33mUser program returned: ");
             write_dec(last_return);
             write("\033[0m\n");
 

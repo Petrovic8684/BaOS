@@ -82,6 +82,11 @@ typedef struct
     char name[64];
     uint32_t offset;
     int argc;
+    int is_variadic;
+    int ret_ptr_depth;
+    int ret_struct_id;
+    int param_ptr_depth[16];
+    int param_struct_id[16];
 } FuncSym;
 FuncSym funcs[MAX_FUNCS];
 int funcs_cnt = 0;
@@ -105,8 +110,9 @@ int local_stack_size;
 typedef struct
 {
     char name[64];
+    int ptr_depth;
+    int struct_id;
 } TypedefSym;
-
 TypedefSym typedefs[MAX_TYPEDEFS];
 int typedefs_cnt = 0;
 
@@ -208,7 +214,13 @@ void die(const char *m)
     else
         fprintf(stderr, "EOF\n");
     if (src)
-        fprintf(stderr, "Remaining source (around current pos): \"%s\"\n", src);
+    {
+        char buf[61];
+        strncpy(buf, src, 60);
+        buf[60] = '\0';
+        fprintf(stderr, "Remaining source (around current pos): \"%s\"\n", buf);
+    }
+
     exit(1);
 }
 
@@ -708,10 +720,8 @@ static void preprocess_src(const unsigned char *in, unsigned char *out, size_t o
     static unsigned char inc_buf[PP_MAX_DEPTH][PP_FILE_BUF_SIZE];
     static unsigned char inc_out[PP_MAX_DEPTH][PP_OUT_MAX];
     static char include_stack[PP_MAX_DEPTH][512];
-    /* per-depth current scan pointer (char pointer into inc_buf[depth]) */
     const char *cur_pos[PP_MAX_DEPTH];
 
-    /* copy cleaned input into depth 0 */
     strncpy((char *)inc_buf[0], (const char *)clean_buf, PP_FILE_BUF_SIZE - 1);
     inc_buf[0][PP_FILE_BUF_SIZE - 1] = '\0';
     include_stack[0][0] = '\0';
@@ -727,9 +737,8 @@ static void preprocess_src(const unsigned char *in, unsigned char *out, size_t o
 
     while (current_depth >= 0)
     {
-        /* current buffer and position */
         unsigned char *curbuf = inc_buf[current_depth];
-        const char *p = cur_pos[current_depth]; /* start from saved pos */
+        const char *p = cur_pos[current_depth];
 
         char linebuf[PP_LINEBUF];
         while (*p)
@@ -741,7 +750,6 @@ static void preprocess_src(const unsigned char *in, unsigned char *out, size_t o
                 die("line too long in preprocess_src");
             memcpy(linebuf, line_start, line_len);
             linebuf[line_len] = '\0';
-            /* advance p to next line and store back to cur_pos */
             p = nl ? (nl + 1) : (p + line_len);
             cur_pos[current_depth] = p;
 
@@ -797,7 +805,6 @@ static void preprocess_src(const unsigned char *in, unsigned char *out, size_t o
                         }
                         if (cyc)
                         {
-                            /* skip cyclic include silently (avoid infinite recursion) */
                             continue;
                         }
                         long r = read_file_into(pathbuf, inc_buf[current_depth + 1], PP_FILE_BUF_SIZE);
@@ -815,12 +822,9 @@ static void preprocess_src(const unsigned char *in, unsigned char *out, size_t o
                         inc_buf[current_depth + 1][PP_FILE_BUF_SIZE - 1] = '\0';
                         strncpy(include_stack[current_depth + 1], pathbuf, sizeof(include_stack[0]) - 1);
                         include_stack[current_depth + 1][sizeof(include_stack[0]) - 1] = '\0';
-                        /* push: initialize new depth's cursor to its buffer start and switch to it */
                         current_depth++;
                         cur_pos[current_depth] = (const char *)inc_buf[current_depth];
-                        /* update local p for next inner iteration to use new depth */
                         p = cur_pos[current_depth];
-                        /* continue processing inside new buffer immediately */
                         continue;
                     }
                 }
@@ -838,7 +842,6 @@ static void preprocess_src(const unsigned char *in, unsigned char *out, size_t o
                         name[ni++] = *s++;
                     name[ni] = '\0';
 
-                    /* function-like only if '(' immediately follows name */
                     const char *after_name = s;
                     if (*after_name == '(')
                     {
@@ -1015,16 +1018,13 @@ static void preprocess_src(const unsigned char *in, unsigned char *out, size_t o
             out_len += elen;
             out[out_len++] = '\n';
             out[out_len] = '\0';
-        } /* end while lines in current depth */
+        }
 
-        /* finished current buffer: pop or finish whole preprocess */
         if (current_depth == 0)
             break;
-        /* clear include_stack entry for popped depth (optional) */
         include_stack[current_depth][0] = '\0';
         current_depth--;
-        /* no need to reset cur_pos[current_depth] because it already contains parent's next pos */
-    } /* end while depth stack */
+    }
 
     if (out_len >= out_max)
         die("preprocess output overflow");
@@ -1116,14 +1116,31 @@ static int is_typedef_name(const char *name)
     return 0;
 }
 
-static void add_typedef_name(const char *name)
+void add_typedef_name(const char *name, int ptr_depth, int struct_id)
 {
     if (typedefs_cnt >= MAX_TYPEDEFS)
         die("too many typedefs");
-
     strncpy(typedefs[typedefs_cnt].name, name, sizeof(typedefs[typedefs_cnt].name) - 1);
     typedefs[typedefs_cnt].name[sizeof(typedefs[typedefs_cnt].name) - 1] = '\0';
+    typedefs[typedefs_cnt].ptr_depth = ptr_depth;
+    typedefs[typedefs_cnt].struct_id = struct_id;
     typedefs_cnt++;
+}
+
+int lookup_typedef(const char *name, int *out_ptr_depth, int *out_struct_id)
+{
+    for (int i = 0; i < typedefs_cnt; ++i)
+    {
+        if (strcmp(typedefs[i].name, name) == 0)
+        {
+            if (out_ptr_depth)
+                *out_ptr_depth = typedefs[i].ptr_depth;
+            if (out_struct_id)
+                *out_struct_id = typedefs[i].struct_id;
+            return 1;
+        }
+    }
+    return 0;
 }
 
 static int enum_find(const char *name)
@@ -1169,29 +1186,34 @@ static void add_string_literal_entry(const char *s)
     str_storage_used += len;
 }
 
-static int is_type_name(const char *name)
+int is_type_name(const char *name)
 {
     if (!name)
         return 0;
+
     if (strcmp(name, "int") == 0)
         return 1;
     if (strcmp(name, "void") == 0)
+        return 1;
+    if (strcmp(name, "char") == 0)
         return 1;
     if (strcmp(name, "unsigned") == 0)
         return 1;
     if (strcmp(name, "signed") == 0)
         return 1;
-    if (strcmp(name, "char") == 0)
-        return 1;
     if (strcmp(name, "short") == 0)
         return 1;
     if (strcmp(name, "long") == 0)
         return 1;
-    if (strcmp(name, "struct") == 0)
+    if (strcmp(name, "float") == 0)
         return 1;
-    if (strcmp(name, "union") == 0)
+    if (strcmp(name, "double") == 0)
         return 1;
-    return is_typedef_name(name);
+
+    if (lookup_typedef(name, NULL, NULL))
+        return 1;
+
+    return 0;
 }
 
 char *skip_ws(char *p)
@@ -2556,29 +2578,60 @@ void gen_stmt()
     if (curtok.type == TOK_IDENT && strcmp(curtok.ident, "typedef") == 0)
     {
         next_token();
+
+        int base_struct_id = -1;
+        int base_ptr_depth = 0;
+
         if (curtok.type != TOK_IDENT)
             die("expected type name after typedef");
 
-        if (!is_type_name(curtok.ident))
-            die("unsupported typedef base type");
-
-        if (strcmp(curtok.ident, "unsigned") == 0 || strcmp(curtok.ident, "signed") == 0)
+        if (strcmp(curtok.ident, "struct") == 0 || strcmp(curtok.ident, "union") == 0)
         {
+            int is_union = (strcmp(curtok.ident, "union") == 0);
             next_token();
-            if (curtok.type == TOK_IDENT && strcmp(curtok.ident, "int") == 0)
-                next_token();
+            expect_ident();
+            base_struct_id = struct_find(curtok.ident);
+            if (base_struct_id < 0)
+                die("unknown struct/union type in typedef");
+            next_token();
         }
         else
-            next_token();
+        {
+            if (strcmp(curtok.ident, "unsigned") == 0 || strcmp(curtok.ident, "signed") == 0)
+            {
+                next_token();
+                if (curtok.type == TOK_IDENT && strcmp(curtok.ident, "int") == 0)
+                    next_token();
+            }
+            else
+            {
+                int td_ptr = 0, td_struct = -1;
+                if (!is_type_name(curtok.ident))
+                    die("unsupported typedef base type");
+                if (lookup_typedef(curtok.ident, &td_ptr, &td_struct))
+                {
+                    base_ptr_depth += td_ptr;
+                    base_struct_id = td_struct;
+                }
+                next_token();
+            }
+        }
+
+        while (accept_sym('*'))
+            base_ptr_depth++;
 
         expect_ident();
         char tname[64];
         strncpy(tname, curtok.ident, 63);
+        tname[63] = '\0';
         next_token();
+
         expect_sym(';');
-        add_typedef_name(tname);
+
+        add_typedef_name(tname, base_ptr_depth, base_struct_id);
         return;
     }
+
     if (curtok.type == TOK_IDENT && strcmp(curtok.ident, "return") == 0)
     {
         next_token();
@@ -2600,6 +2653,7 @@ void gen_stmt()
             return;
         }
     }
+
     if (curtok.type == TOK_IDENT && strcmp(curtok.ident, "if") == 0)
     {
         next_token();
@@ -2644,7 +2698,6 @@ void gen_stmt()
                 else
                     die("too many else-if branches");
             }
-
             else
             {
                 patch_rel32_at(jz_to_next, (uint32_t)(resolve_jump_target(code_len) - (jz_to_next + 4)));
@@ -2872,6 +2925,7 @@ void gen_stmt()
         continue_addrs[loop_depth - 1][continue_counts[loop_depth - 1]++] = off;
         return;
     }
+
     if (curtok.type == TOK_IDENT && strcmp(curtok.ident, "while") == 0)
     {
         next_token();
@@ -2909,6 +2963,7 @@ void gen_stmt()
         patch_rel32_at(jz_off, rel);
         return;
     }
+
     if (accept_sym('{'))
     {
         while (!accept_sym('}'))
@@ -2916,6 +2971,7 @@ void gen_stmt()
 
         return;
     }
+
     if (curtok.type == TOK_IDENT && (strcmp(curtok.ident, "const") == 0 || is_type_name(curtok.ident) || strcmp(curtok.ident, "static") == 0 || strcmp(curtok.ident, "auto") == 0))
     {
         int is_const = 0;
@@ -3059,66 +3115,174 @@ void gen_stmt()
 void gen_function()
 {
     int is_void = 0;
+    int ret_ptr_depth = 0;
+    int ret_struct_id = -1;
 
-    if (!(curtok.type == TOK_IDENT && is_type_name(curtok.ident)))
-        die("function must start with a type (int/void or typedef)");
-    if (strcmp(curtok.ident, "void") == 0)
-        is_void = 1;
+    if (!(curtok.type == TOK_IDENT && (is_type_name(curtok.ident) || strcmp(curtok.ident, "struct") == 0 || strcmp(curtok.ident, "union") == 0)))
+        die("function must start with a type (int/void/typedef/struct)");
 
-    next_token();
+    if (strcmp(curtok.ident, "struct") == 0 || strcmp(curtok.ident, "union") == 0)
+    {
+        int is_union = (strcmp(curtok.ident, "union") == 0);
+        next_token();
+        expect_ident();
+        ret_struct_id = struct_find(curtok.ident);
+        if (ret_struct_id < 0)
+            die("unknown struct/union type in function return");
+        next_token();
+    }
+    else
+    {
+        if (strcmp(curtok.ident, "void") == 0)
+            is_void = 1;
+        next_token();
+    }
+
+    while (accept_sym('*'))
+        ret_ptr_depth++;
 
     expect_ident();
     char fname[64];
     strncpy(fname, curtok.ident, 63);
+    fname[63] = '\0';
     next_token();
+
     expect_sym('(');
+
     int argc = 0;
     char params[16][64];
+    int param_ptr_depth[16];
+    int param_struct_id[16];
+    int is_variadic = 0;
 
     if (!accept_sym(')'))
     {
         while (1)
         {
+            if (curtok.type == TOK_SYM && curtok.sym == '.' && src[0] == '.' && src[1] == '.')
+            {
+                src += 2;
+                next_token();
+                is_variadic = 1;
+                if (!accept_sym(')'))
+                    die("expected ')' after '...'");
+                break;
+            }
+
             if (curtok.type != TOK_IDENT || !is_type_name(curtok.ident))
                 die("expected type in parameter");
 
-            if (strcmp(curtok.ident, "unsigned") == 0 || strcmp(curtok.ident, "signed") == 0)
+            int this_struct_id = -1;
+            if (strcmp(curtok.ident, "struct") == 0 || strcmp(curtok.ident, "union") == 0)
             {
+                int is_union = (strcmp(curtok.ident, "union") == 0);
                 next_token();
-                if (curtok.type == TOK_IDENT && strcmp(curtok.ident, "int") == 0)
-                    next_token();
+                expect_ident();
+                this_struct_id = struct_find(curtok.ident);
+                if (this_struct_id < 0)
+                    die("unknown struct/union type in parameter");
+                next_token();
             }
             else
             {
                 next_token();
             }
 
+            int ptrd = 0;
             while (accept_sym('*'))
-                ;
+                ptrd++;
 
             expect_ident();
+            if (argc >= 16)
+                die("too many function parameters (max 16)");
             strncpy(params[argc], curtok.ident, 63);
             params[argc][63] = '\0';
+
+            param_ptr_depth[argc] = ptrd;
+            param_struct_id[argc] = this_struct_id;
+
             next_token();
             argc++;
 
             if (accept_sym(')'))
                 break;
-
             expect_sym(',');
         }
     }
 
+    if (accept_sym(';'))
+    {
+        int fi = func_find(fname);
+        if (fi >= 0)
+        {
+            if (funcs[fi].offset != (uint32_t)0xFFFFFFFF)
+                die("redefinition of function");
+            funcs[fi].argc = argc;
+            funcs[fi].is_variadic = is_variadic;
+            funcs[fi].ret_ptr_depth = ret_ptr_depth;
+            funcs[fi].ret_struct_id = ret_struct_id;
+            for (int i = 0; i < argc; ++i)
+            {
+                funcs[fi].param_ptr_depth[i] = param_ptr_depth[i];
+                funcs[fi].param_struct_id[i] = param_struct_id[i];
+            }
+        }
+        else
+        {
+            if (funcs_cnt >= MAX_FUNCS)
+                die("too many functions");
+            strncpy(funcs[funcs_cnt].name, fname, sizeof(funcs[funcs_cnt].name) - 1);
+            funcs[funcs_cnt].name[sizeof(funcs[funcs_cnt].name) - 1] = '\0';
+            funcs[funcs_cnt].offset = (uint32_t)0xFFFFFFFF;
+            funcs[funcs_cnt].argc = argc;
+            funcs[funcs_cnt].is_variadic = is_variadic;
+            funcs[funcs_cnt].ret_ptr_depth = ret_ptr_depth;
+            funcs[funcs_cnt].ret_struct_id = ret_struct_id;
+            for (int i = 0; i < argc; ++i)
+            {
+                funcs[funcs_cnt].param_ptr_depth[i] = param_ptr_depth[i];
+                funcs[funcs_cnt].param_struct_id[i] = param_struct_id[i];
+            }
+            funcs_cnt++;
+        }
+        return;
+    }
+
     uint32_t func_offset = (uint32_t)code_len;
-    if (funcs_cnt >= MAX_FUNCS)
-        die("too many functions");
-
-    strncpy(funcs[funcs_cnt].name, fname, sizeof(funcs[funcs_cnt].name) - 1);
-    funcs[funcs_cnt].name[sizeof(funcs[funcs_cnt].name) - 1] = '\0';
-
-    funcs[funcs_cnt].offset = func_offset;
-    funcs[funcs_cnt].argc = argc;
-    funcs_cnt++;
+    int existing = func_find(fname);
+    if (existing >= 0)
+    {
+        if (funcs[existing].offset != (uint32_t)0xFFFFFFFF)
+            die("redefinition of function");
+        funcs[existing].offset = func_offset;
+        funcs[existing].argc = argc;
+        funcs[existing].is_variadic = is_variadic;
+        funcs[existing].ret_ptr_depth = ret_ptr_depth;
+        funcs[existing].ret_struct_id = ret_struct_id;
+        for (int i = 0; i < argc; ++i)
+        {
+            funcs[existing].param_ptr_depth[i] = param_ptr_depth[i];
+            funcs[existing].param_struct_id[i] = param_struct_id[i];
+        }
+    }
+    else
+    {
+        if (funcs_cnt >= MAX_FUNCS)
+            die("too many functions");
+        strncpy(funcs[funcs_cnt].name, fname, sizeof(funcs[funcs_cnt].name) - 1);
+        funcs[funcs_cnt].name[sizeof(funcs[funcs_cnt].name) - 1] = '\0';
+        funcs[funcs_cnt].offset = func_offset;
+        funcs[funcs_cnt].argc = argc;
+        funcs[funcs_cnt].is_variadic = is_variadic;
+        funcs[funcs_cnt].ret_ptr_depth = ret_ptr_depth;
+        funcs[funcs_cnt].ret_struct_id = ret_struct_id;
+        for (int i = 0; i < argc; ++i)
+        {
+            funcs[funcs_cnt].param_ptr_depth[i] = param_ptr_depth[i];
+            funcs[funcs_cnt].param_struct_id[i] = param_struct_id[i];
+        }
+        funcs_cnt++;
+    }
 
     emit_u8(0x55);
     emit_u8(0x89);
@@ -3127,21 +3291,55 @@ void gen_function()
     locals_cnt = 0;
     local_stack_size = 0;
     current_fun_argbytes = argc * 4;
+    for (int i = 0; i < argc; ++i)
+    {
+        int base = local_stack_size;
+        int li = alloc_local(params[i], 0);
+        locals[li].ptr_depth = param_ptr_depth[i];
+        locals[li].struct_id = param_struct_id[i];
 
-    for (int i = 0; i < argc; i++)
-        alloc_local(params[i], 0);
+        int elem_size = 4;
+        if (locals[li].struct_id >= 0 && locals[li].ptr_depth == 0)
+            elem_size = structsyms[locals[li].struct_id].size;
+        if (elem_size < 4)
+            elem_size = 4;
+
+        locals[li].offset = base + elem_size;
+        local_stack_size = base + elem_size;
+    }
 
     if (local_stack_size > 0)
-        emit_sub_esp_imm(local_stack_size);
+        emit_sub_esp_imm((uint32_t)local_stack_size);
 
-    for (int i = 0; i < argc; i++)
+    for (int i = 0; i < argc; ++i)
     {
         int li = i;
         int param_src_disp = 8 + i * 4;
-        emit_u8(0x8B);
-        emit_u8(0x45);
-        emit_u8((uint8_t)param_src_disp);
-        emit_mov_ebp_disp_from_eax_any(neg_off(locals[li].offset));
+        int elem_size = 4;
+        if (locals[li].struct_id >= 0 && locals[li].ptr_depth == 0)
+            elem_size = structsyms[locals[li].struct_id].size;
+        if (elem_size < 4)
+            elem_size = 4;
+
+        if (elem_size == 4)
+        {
+            emit_u8(0x8B);
+            emit_u8(0x45);
+            emit_u8((uint8_t)param_src_disp);
+            emit_mov_ebp_disp_from_eax_any(neg_off(locals[li].offset));
+        }
+        else
+        {
+            for (int off = 0; off < elem_size; off += 4)
+            {
+                int src_disp = param_src_disp + off;
+                int dst_off = locals[li].offset + off;
+                emit_u8(0x8B);
+                emit_u8(0x45);
+                emit_u8((uint8_t)src_disp);
+                emit_mov_ebp_disp_from_eax_any(neg_off(dst_off));
+            }
+        }
     }
 
     expect_sym('{');
@@ -3165,20 +3363,49 @@ void compile(const char *input)
         {
             next_token();
 
+            int base_struct_id = -1;
+            int base_ptr_depth = 0;
+
             if (curtok.type != TOK_IDENT)
                 die("expected type name after typedef");
 
-            if (!is_type_name(curtok.ident))
-                die("unsupported typedef base type");
-
-            if (strcmp(curtok.ident, "unsigned") == 0 || strcmp(curtok.ident, "signed") == 0)
+            if (strcmp(curtok.ident, "struct") == 0 || strcmp(curtok.ident, "union") == 0)
             {
+                int is_union = (strcmp(curtok.ident, "union") == 0);
                 next_token();
-                if (curtok.type == TOK_IDENT && strcmp(curtok.ident, "int") == 0)
-                    next_token();
+                expect_ident();
+                base_struct_id = struct_find(curtok.ident);
+                if (base_struct_id < 0)
+                    die("unknown struct/union type in typedef");
+                next_token();
             }
             else
-                next_token();
+            {
+                if (strcmp(curtok.ident, "unsigned") == 0 || strcmp(curtok.ident, "signed") == 0)
+                {
+                    next_token();
+                    if (curtok.type == TOK_IDENT && strcmp(curtok.ident, "int") == 0)
+                        next_token();
+                }
+
+                if (curtok.type != TOK_IDENT)
+                    die("expected type name after typedef");
+
+                int td_ptr = 0, td_struct = -1;
+                if (lookup_typedef(curtok.ident, &td_ptr, &td_struct))
+                {
+                    base_ptr_depth += td_ptr;
+                    base_struct_id = td_struct;
+                    next_token();
+                }
+                else
+                {
+                    next_token();
+                }
+            }
+
+            while (accept_sym('*'))
+                base_ptr_depth++;
 
             expect_ident();
             char tname[64];
@@ -3188,7 +3415,7 @@ void compile(const char *input)
 
             expect_sym(';');
 
-            add_typedef_name(tname);
+            add_typedef_name(tname, base_ptr_depth, base_struct_id);
             continue;
         }
 
@@ -3259,9 +3486,8 @@ void compile(const char *input)
                     next_token();
                     expect_sym(';');
 
-                    add_typedef_name(tname);
-
                     int existing = struct_find(tname);
+                    int alias_struct_id = -1;
                     if (existing < 0)
                     {
                         if (structsyms_cnt >= MAX_STRUCTS)
@@ -3272,7 +3498,14 @@ void compile(const char *input)
                         dsts->field_cnt = 0;
                         for (int fi = 0; fi < srcs->field_cnt; ++fi)
                             add_struct_field(newidx, srcs->field_names[fi], srcs->field_sizes[fi]);
+                        alias_struct_id = newidx;
                     }
+                    else
+                    {
+                        alias_struct_id = existing;
+                    }
+
+                    add_typedef_name(tname, 0, alias_struct_id);
                 }
                 else
                     expect_sym(';');

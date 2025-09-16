@@ -1,4 +1,4 @@
-<img src="assets/bao.png" alt="bao" width="100px">
+<img src="github/bao.png" alt="bao" width="100px">
 
 # BaOS (Bourne again Operating System)
 
@@ -23,7 +23,7 @@ These improvements aim to make BaOS a versatile, minimal, and safe operating sys
 BaOS is structured in a clear hierarchical architecture that separates hardware management from user interaction. At the lowest level is the hardware, including the CPU, memory, and I/O devices. The kernel sits directly on top of the hardware and is responsible for all low-level management, including device I/O and the file system. It exposes its functionality to higher-level components through a set of C functions, which serve as a stable API.
 
 <div align="center">
-    <img src="assets/architecture.svg" alt="architecture">
+    <img src="github/architecture.svg" alt="architecture">
 </div>
 </br>
 

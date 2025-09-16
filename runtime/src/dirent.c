@@ -6,7 +6,7 @@
 #define SYS_FS_LIST_DIR 9
 #define SYS_FS_CHANGE_DIR 10
 
-#define USER_BUFFER_SIZE 1024
+#define USER_BUFFER_SIZE 2048
 
 static inline const char *fs_where(void)
 {
