@@ -179,7 +179,7 @@ $(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMP
 
 # ---------------- Run & Clean ----------------
 run: $(IMG)
-	$(QEMU) -drive format=raw,file=$(IMG),if=ide
+	$(QEMU) -m 1G -drive format=raw,file=$(IMG),if=ide
 
 clean:
 	$(RM) $(BOOT_BIN) $(KERNEL_OBJS) $(KERNEL_BIN) $(IMG) \

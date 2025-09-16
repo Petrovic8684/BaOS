@@ -39,6 +39,33 @@ mov si, msg_loaded
 call print_string
 
 ; -------------------------
+; Prepare E820 buffer at physical 0x8000
+; -------------------------
+mov ax, 0x0800
+mov es, ax
+xor di, di
+mov word [es:di], 0
+mov word [es:di+2], 0   ; zero 32-bit count
+mov di, 0x0004          ; point to first entry location
+
+xor ebx, ebx            ; continuation = 0
+
+.e820_loop:
+    mov eax, 0xE820
+    mov ecx, 24            ; size of buffer
+    mov edx, 0x534D4150    ; 'SMAP' signature
+    int 0x15
+    jc .e820_done          ; BIOS returned CF -> no more / error
+
+    add di, 24             ; advance to next entry slot
+    add dword [es:0], 1    ; increment 32-bit entry count (at 0x8000)
+
+    test ebx, ebx
+    jnz .e820_loop         ; if EBX != 0, continue (EBX is continuation)
+
+.e820_done:                ; at this point: 32-bit count at 0x8000, entries start at 0x8004
+
+; -------------------------
 ; Load GDT
 ; -------------------------
 lgdt [gdt_descriptor]
