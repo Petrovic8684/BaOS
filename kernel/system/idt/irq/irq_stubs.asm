@@ -16,7 +16,6 @@ irq%1:
     iretd
 %endmacro
 
-
 IRQ_STUB 0
 IRQ_STUB 1
 IRQ_STUB 2

@@ -3,6 +3,7 @@
 #include "./system/gdt/gdt.h"
 #include "./system/tss/tss.h"
 #include "./paging/paging.h"
+#include "./paging/heap/heap.h"
 #include "./fs/fs.h"
 #include "./loader/loader.h"
 #include "./drivers/keyboard/keyboard.h"
@@ -13,6 +14,8 @@ __attribute__((section(".text"), used, noreturn)) void kernel_main(void)
     idt_init();
 
     paging_init();
+    heap_init();
+
     gdt_init();
     tss_init();
 

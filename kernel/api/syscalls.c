@@ -2,6 +2,7 @@
 #include "../drivers/keyboard/keyboard.h"
 #include "../drivers/rtc/rtc.h"
 #include "../fs/fs.h"
+#include "../paging/paging.h"
 #include "../helpers/string/string.h"
 #include "../loader/loader.h"
 #include "../info/info.h"
@@ -28,6 +29,7 @@
 #define SYS_GET_CURSOR_COL 19
 #define SYS_FS_WRITE_FILE_BIN 20
 #define SYS_REBOOT 21
+#define SYS_SET_USER_PAGES 22
 
 #define USER_BUFFER_SIZE 2048
 #define MAX_ARGC 64
@@ -327,6 +329,23 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
         loader_post_return_callback = reboot;
         return_to_loader();
         return 0;
+
+    case SYS_SET_USER_PAGES:
+    {
+        if (arg == 0)
+            return 0;
+
+        struct
+        {
+            unsigned int virt_start;
+            unsigned int size;
+        } kargs;
+
+        copy_bytes_from_user((unsigned char *)&kargs, (const unsigned char *)arg, sizeof(kargs));
+        set_user_pages(kargs.virt_start, kargs.size);
+
+        return 0;
+    }
 
     default:
         write("\033[31mError: Unknown syscall.\n\033[0m");

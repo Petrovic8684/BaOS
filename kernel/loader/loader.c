@@ -5,7 +5,7 @@
 #include "../system/tss/tss.h"
 
 #define PT_LOAD 1
-#define USER_STACK_TOP 0x200000
+#define USER_STACK_TOP 0x02100000
 #define USER_STACK_PAGES 4
 #define USER_BUFFER_SIZE 2048
 #define MAX_ARGC 64
@@ -53,14 +53,10 @@ static void jump_to_user(unsigned int entry, unsigned int stack)
 
 static void cleanup_previous_user_space(void)
 {
-    if (last_user_region_size && last_user_region_start)
-    {
-        unmap_user_range(last_user_region_start, last_user_region_size);
-        last_user_region_start = 0;
-        last_user_region_size = 0;
-    }
+    unmap_all_user_pages();
 
-    unmap_user_range(USER_STACK_BOTTOM, USER_STACK_PAGES * PAGE_SIZE);
+    last_user_region_start = 0;
+    last_user_region_size = 0;
 }
 
 int load_user_program(const char *name, const char **user_argv, int surpress_errors)

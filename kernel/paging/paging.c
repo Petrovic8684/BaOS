@@ -277,17 +277,73 @@ static void unmap_page(unsigned int virt)
     }
 }
 
-void unmap_user_range(unsigned int virt_start, unsigned int size)
+void unmap_all_user_pages(void)
 {
-    if (size == 0)
-        return;
+    unsigned int pd_index;
+    for (pd_index = 0; pd_index < PAGE_ENTRIES; ++pd_index)
+    {
+        unsigned int pde = page_directory[pd_index];
 
-    unsigned int start = virt_start & 0xFFFFF000u;
-    unsigned int end = (virt_start + size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+        if (!(pde & PAGE_PRESENT))
+            continue;
 
-    unsigned int addr;
-    for (addr = start; addr < end; addr += PAGE_SIZE)
-        unmap_page(addr);
+        if (pde & PAGE_SIZE_4MB)
+        {
+            if (pde & PAGE_USER)
+            {
+                page_directory[pd_index] = 0;
+
+                unsigned int base = pd_index << 22;
+                unsigned int addr;
+                for (addr = base; addr < (base + (4U * 1024U * 1024U)); addr += PAGE_SIZE)
+                    __asm__ volatile("invlpg (%0)" ::"r"(addr) : "memory");
+            }
+            continue;
+        }
+
+        unsigned int table_phys = pde & 0xFFFFF000u;
+        unsigned int *table = (unsigned int *)table_phys;
+        if (!table)
+            continue;
+
+        unsigned int i;
+        int any_user_left = 0;
+
+        for (i = 0; i < PAGE_ENTRIES; ++i)
+        {
+            unsigned int ent = table[i];
+            if ((ent & PAGE_PRESENT) && (ent & PAGE_USER))
+            {
+                table[i] = 0;
+
+                unsigned int addr = (pd_index << 22) | (i << 12);
+                __asm__ volatile("invlpg (%0)" ::"r"(addr) : "memory");
+            }
+        }
+
+        int empty = 1;
+        for (i = 0; i < PAGE_ENTRIES; ++i)
+        {
+            if (table[i] & PAGE_PRESENT)
+            {
+                empty = 0;
+                break;
+            }
+        }
+
+        if (empty)
+        {
+            if (((unsigned int)table_phys & 0xFFFFF000u) != ((unsigned int)first_page_table & 0xFFFFF000u))
+            {
+                page_directory[pd_index] = 0;
+                free_page_table_phys(table_phys);
+            }
+            else
+                page_directory[pd_index] &= ~PAGE_USER;
+        }
+        else
+            page_directory[pd_index] &= ~PAGE_USER;
+    }
 }
 
 unsigned int get_pte(unsigned int virt)

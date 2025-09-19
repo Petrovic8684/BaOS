@@ -16,6 +16,7 @@ KERNEL_SRCS = \
 	kernel/kernel.c \
 	kernel/fs/fs.c \
 	kernel/paging/paging.c \
+	kernel/paging/heap/heap.c \
 	kernel/loader/loader.c \
 	kernel/api/syscalls.c \
 	kernel/info/info.c \
@@ -183,7 +184,7 @@ $(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMP
 
 # ---------------- Run & Clean ----------------
 run: $(IMG)
-	$(QEMU) -m 4G -drive format=raw,file=$(IMG),if=ide
+	$(QEMU) -m 3G -drive format=raw,file=$(IMG),if=ide
 
 clean:
 	$(RM) $(BOOT_BIN) $(KERNEL_OBJS) $(KERNEL_BIN) $(IMG) \
