@@ -64,6 +64,7 @@ UTILS_SRCS   =  applications/shell/utils/changedir.c \
 				applications/shell/utils/where.c \
 				applications/shell/utils/writefile.c \
 				applications/shell/utils/whatis.c \
+				applications/shell/utils/fileinfo.c \
 
 UTILS_BIN    = $(UTILS_SRCS:.c=.bin)
 UTILS_OBJS	 = $(UTILS_SRCS:.c=.o)

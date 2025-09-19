@@ -1,0 +1,12 @@
+fileinfo - displays information about a specified file
+
+Description:
+The 'fileinfo' command shows details about the file provided as an argument, such as its size and type (e.g., text, executable). If no file is specified, or if the file cannot be accessed, an error message is shown.
+
+Usage:
+fileinfo <file_name>
+
+Examples:
+fileinfo notes.txt
+fileinfo # Error: No file name provided.
+fileinfo missing.txt # Error: Could not open file 'missing.txt'.
