@@ -27,6 +27,7 @@
 #define SYS_GET_CURSOR_ROW 18
 #define SYS_GET_CURSOR_COL 19
 #define SYS_FS_WRITE_FILE_BIN 20
+#define SYS_REBOOT 21
 
 #define USER_BUFFER_SIZE 2048
 #define MAX_ARGC 64
@@ -321,6 +322,11 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
 
         return 0;
     }
+
+    case SYS_REBOOT:
+        loader_post_return_callback = reboot;
+        return_to_loader();
+        return 0;
 
     default:
         write("\033[31mError: Unknown syscall.\n\033[0m");

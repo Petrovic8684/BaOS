@@ -65,35 +65,37 @@ static unsigned char shift = 0;
 static unsigned char extended = 0;
 static unsigned char ctrl = 0;
 
-void keyboard_interrupt_handler_c(void)
+void keyboard_irq_handler(int irq)
 {
+    (void)irq;
+
     unsigned char scancode = inb(0x60);
 
     if (scancode == 0xE0)
     {
         extended = 1;
-        return;
+        goto send_eoi;
     }
 
     if (scancode == 0x2A || scancode == 0x36)
     {
         shift = 1;
         extended = 0;
-        return;
+        goto send_eoi;
     }
 
     if (scancode == 0xAA || scancode == 0xB6)
     {
         shift = 0;
         extended = 0;
-        return;
+        goto send_eoi;
     }
 
     if (scancode == 0x1D)
     {
         ctrl = 1;
         extended = 0;
-        return;
+        goto send_eoi;
     }
 
     if (scancode & 0x80)
@@ -102,10 +104,10 @@ void keyboard_interrupt_handler_c(void)
         {
             ctrl = 0;
             extended = 0;
-            return;
+            goto send_eoi;
         }
         extended = 0;
-        return;
+        goto send_eoi;
     }
 
     if (extended)
@@ -122,7 +124,7 @@ void keyboard_interrupt_handler_c(void)
                 kb_push(KEY_CTRL_UP);
             else
                 kb_push(KEY_ARR_UP);
-            return;
+            goto send_eoi;
         case 0x50:
             if (shift)
                 kb_push(KEY_SHIFT_DOWN);
@@ -130,7 +132,7 @@ void keyboard_interrupt_handler_c(void)
                 kb_push(KEY_CTRL_DOWN);
             else
                 kb_push(KEY_ARR_DOWN);
-            return;
+            goto send_eoi;
         case 0x4B:
             if (shift)
                 kb_push(KEY_SHIFT_LEFT);
@@ -138,7 +140,7 @@ void keyboard_interrupt_handler_c(void)
                 kb_push(KEY_CTRL_LEFT);
             else
                 kb_push(KEY_ARR_LEFT);
-            return;
+            goto send_eoi;
         case 0x4D:
             if (shift)
                 kb_push(KEY_SHIFT_RIGHT);
@@ -146,7 +148,7 @@ void keyboard_interrupt_handler_c(void)
                 kb_push(KEY_CTRL_RIGHT);
             else
                 kb_push(KEY_ARR_RIGHT);
-            return;
+            goto send_eoi;
         case 0x53:
             if (ctrl)
                 kb_push(KEY_CTRL_DELETE);
@@ -154,14 +156,14 @@ void keyboard_interrupt_handler_c(void)
                 kb_push(KEY_SHIFT_DELETE);
             else
                 kb_push(KEY_DELETE);
-            return;
+            goto send_eoi;
         case 0x35:
             if (ctrl || shift)
-                return;
+                goto send_eoi;
             kb_push('/');
-            return;
+            goto send_eoi;
         default:
-            return;
+            goto send_eoi;
         }
     }
     else
@@ -178,16 +180,16 @@ void keyboard_interrupt_handler_c(void)
         case 0x50:
         case 0x51:
         case 0x52:
-            return;
+            goto send_eoi;
         }
 
         switch (scancode)
         {
         case 0x1C:
             if (ctrl || shift)
-                return;
+                goto send_eoi;
             kb_push('\n');
-            return;
+            goto send_eoi;
         case 0x0E:
             if (ctrl)
                 kb_push(KEY_CTRL_BACKSPACE);
@@ -195,35 +197,35 @@ void keyboard_interrupt_handler_c(void)
                 kb_push(KEY_SHIFT_BACKSPACE);
             else
                 kb_push('\b');
-            return;
+            goto send_eoi;
         case 0x0F:
             if (ctrl || shift)
-                return;
+                goto send_eoi;
             kb_push('\t');
-            return;
+            goto send_eoi;
         case 0x01:
             kb_push(KEY_ESCAPE);
-            return;
+            goto send_eoi;
         case 0x37:
             if (ctrl || shift)
-                return;
+                goto send_eoi;
             kb_push('*');
-            return;
+            goto send_eoi;
         case 0x4A:
             if (ctrl || shift)
-                return;
+                goto send_eoi;
             kb_push('-');
-            return;
+            goto send_eoi;
         case 0x4E:
             if (ctrl || shift)
-                return;
+                goto send_eoi;
             kb_push('+');
-            return;
+            goto send_eoi;
         case 0x53:
             if (ctrl || shift)
-                return;
+                goto send_eoi;
             kb_push('.');
-            return;
+            goto send_eoi;
         }
 
         if (ctrl)
@@ -232,15 +234,15 @@ void keyboard_interrupt_handler_c(void)
             {
             case 0x2D:
                 kb_push(KEY_CTRL_X);
-                return;
+                goto send_eoi;
             case 0x2E:
                 kb_push(KEY_CTRL_C);
-                return;
+                goto send_eoi;
             case 0x2F:
                 kb_push(KEY_CTRL_V);
-                return;
+                goto send_eoi;
             default:
-                return;
+                goto send_eoi;
             }
         }
 
@@ -248,6 +250,9 @@ void keyboard_interrupt_handler_c(void)
         if (ch)
             kb_push((unsigned char)ch);
     }
+
+send_eoi:
+    outb(0x20, 0x20);
 }
 
 unsigned char read(void)
@@ -270,9 +275,4 @@ void keyboard_init(void)
     unsigned char mask = inb(PIC1_DATA);
     mask &= ~(1 << 1);
     outb(PIC1_DATA, mask);
-}
-
-void keyboard_interrupt_handler_wrapper(void)
-{
-    keyboard_interrupt_handler_c();
 }

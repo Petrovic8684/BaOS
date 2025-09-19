@@ -2,6 +2,7 @@
 #define ACPI_H
 
 #define ACPI_POWER_OFF 5
+#define FADT_HAS_RESET_REG 1
 
 typedef struct
 {
@@ -10,6 +11,11 @@ typedef struct
     char oemid[6];
     unsigned char revision;
     unsigned int rsdt_address;
+
+    unsigned int length;
+    unsigned long long xsdt_address;
+    unsigned char extended_checksum;
+    unsigned char reserved[3];
 } __attribute__((packed)) acpi_rsdp_t;
 
 typedef struct
@@ -34,9 +40,27 @@ typedef struct
 typedef struct
 {
     acpi_sdt_header_t header;
+    unsigned long long entries[];
+} __attribute__((packed)) acpi_xsdt_t;
+
+typedef struct
+{
+    unsigned char address_space_id;
+    unsigned char register_bit_width;
+    unsigned char register_bit_offset;
+    unsigned char access_width;
+    unsigned long long address;
+} __attribute__((packed)) acpi_generic_address_t;
+
+typedef struct
+{
+    acpi_sdt_header_t header;
+
     unsigned int firmware_ctrl;
     unsigned int dsdt;
+
     unsigned char reserved;
+
     unsigned char preferred_power_management_profile;
     unsigned short sci_interrupt;
     unsigned int smi_command_port;
@@ -72,8 +96,18 @@ typedef struct
     unsigned short boot_arch_flags;
     unsigned char reserved2;
     unsigned int flags;
+
+    acpi_generic_address_t reset_reg;
+    unsigned char reset_value;
+    unsigned char reserved3[3];
+
+    unsigned long long x_firmware_ctrl;
+    unsigned long long x_dsdt;
 } __attribute__((packed)) acpi_fadt_t;
 
+#define smi_command smi_command_port
+
 void power_off(void);
+void reboot(void);
 
 #endif

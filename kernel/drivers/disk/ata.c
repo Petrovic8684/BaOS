@@ -174,7 +174,7 @@ static inline void pic_send_eoi(int irq)
     outb(0x20, 0x20);
 }
 
-void ata_irq_handler_c(int irq)
+void ata_irq_handler(int irq)
 {
     (void)irq;
 

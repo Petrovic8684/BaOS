@@ -440,6 +440,23 @@ void write_dec(unsigned int v)
     write(buf);
 }
 
+void fill(const char *color)
+{
+    if (!color)
+        return;
+
+    write("\033[H");
+    write(color);
+
+    for (int r = 0; r < 25; r++)
+        for (int c = 0; c < 80; c++)
+            video[r * 80 + c] = ((unsigned short)cur_attr << 8) | ' ';
+
+    row = 0;
+    col = 0;
+    update_cursor(row, col);
+}
+
 void write_char(char ch)
 {
     vga_put_char(ch);

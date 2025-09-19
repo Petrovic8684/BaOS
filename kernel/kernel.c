@@ -18,6 +18,7 @@ __attribute__((section(".text"), used, noreturn)) void kernel_main(void)
 
     fs_init();
     keyboard_init();
+
     load_shell();
 
     while (1)

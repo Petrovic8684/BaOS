@@ -1,12 +1,13 @@
 #include "paging.h"
 #include "../drivers/display/display.h"
 
-#define PT_POOL_COUNT 64
+#define PT_POOL_COUNT 128
 #define PAGE_RW 0x2
+#define E820_MAP_ADDR 0x8000U
 
 static unsigned int page_directory[PAGE_ENTRIES] __attribute__((aligned(4096)));
 static unsigned int first_page_table[PAGE_ENTRIES] __attribute__((aligned(4096)));
-static unsigned int page_table_pool[PT_POOL_COUNT][PAGE_ENTRIES] __attribute__((aligned(4096)));
+static unsigned int page_table_pool[PT_POOL_COUNT][PAGE_ENTRIES] __attribute__((aligned(4096))) __attribute__((section(".page_tables")));
 static unsigned char page_table_used[PT_POOL_COUNT] = {0};
 
 static unsigned int get_physical_addr(void *p) { return (unsigned int)p; }
@@ -40,8 +41,6 @@ struct e820_entry
     unsigned int type;
     unsigned int acpi;
 };
-
-#define E820_MAP_ADDR 0x8000U
 
 static unsigned int get_e820_count(void)
 {

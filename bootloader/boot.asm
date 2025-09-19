@@ -21,19 +21,40 @@ align 4
 dap:
     db 0x10        ; size = 16 bytes
     db 0x00        ; reserved
-    dw 60          ; number of sectors to read
+    dw 1           ; number of sectors to read
     dw 0x0000      ; buffer offset 
     dw 0x1000      ; buffer segment 
     dq 1           ; starting LBA
 
+mov cx, 100     ; total sectors to read
+
 ; -------------------------
 ; Load kernel from disk into memory (16-bit real mode)
 ; -------------------------
-mov ah, 0x42       
-mov dl, 0x80          ; first hard disk
-mov si, dap
-int 0x13
-jc disk_error         ; jump if error
+.read_loop:
+    mov ah, 0x42
+    mov dl, 0x80
+    mov si, dap
+    int 0x13
+    jc disk_error
+
+    ; increment buffer address by 512 bytes
+    add word [dap+4], 0x0200
+    jnc .no_seg_inc
+    inc word [dap+6]
+.no_seg_inc:
+
+    ; increment LBA by 1
+    inc word [dap+8]
+    jnz .no_lba_carry
+    inc word [dap+10]
+    jnz .no_lba_carry
+    inc word [dap+12]
+    jnz .no_lba_carry
+    inc word [dap+14]
+.no_lba_carry:
+
+    loop .read_loop
 
 mov si, msg_loaded
 call print_string

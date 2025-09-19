@@ -2,5 +2,6 @@
 *.img
 *.o
 *.sym
+*.log
 
 .vscode/

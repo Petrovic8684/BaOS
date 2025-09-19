@@ -1,4 +1,4 @@
-#define SYS_POWER_OFF 4
+#define SYS_REBOOT 21
 
 int main(void)
 {
@@ -6,7 +6,7 @@ int main(void)
         "movl %[num], %%eax\n\t"
         "int $0x80\n\t"
         :
-        : [num] "i"(SYS_POWER_OFF)
+        : [num] "i"(SYS_REBOOT)
         : "eax", "memory");
 
     return 0;

@@ -16,12 +16,12 @@ KERNEL_SRCS = \
 	kernel/kernel.c \
 	kernel/fs/fs.c \
 	kernel/paging/paging.c \
-	kernel/paging/page_fault_handler.c \
 	kernel/loader/loader.c \
 	kernel/api/syscalls.c \
 	kernel/info/info.c \
 	kernel/system/pic/pic.c \
 	kernel/system/idt/idt.c \
+	kernel/system/idt/isr/isr_handlers.c \
 	kernel/system/gdt/gdt.c \
 	kernel/system/tss/tss.c \
 	kernel/system/acpi/acpi.c \
@@ -36,9 +36,9 @@ KERNEL_SRCS = \
 
 KERNEL_ASM_SRCS = \
 	kernel/system/idt/idt_flush.asm \
-	kernel/paging/page_fault.asm \
-	kernel/drivers/keyboard/keyboard_routine.asm \
-	kernel/drivers/disk/irq_stubs.asm \
+	kernel/system/idt/irq/irq_stubs.asm \
+	kernel/system/idt/isr/isr_stubs.asm \
+	
 
 SHELL_SRCS   = applications/shell/shell.c
 SHELL_DEPS 	 = applications/shell/utils/common/fs_common.c
@@ -59,6 +59,7 @@ UTILS_SRCS   =  applications/shell/utils/changedir.c \
 				applications/shell/utils/osname.c \
 				applications/shell/utils/readfile.c \
 				applications/shell/utils/shutdown.c \
+				applications/shell/utils/restart.c \
 				applications/shell/utils/version.c \
 				applications/shell/utils/where.c \
 				applications/shell/utils/writefile.c \
@@ -74,6 +75,9 @@ FILLING_SRC  = applications/filling/filling.c
 FILLING_BIN  = applications/filling/filling.bin
 
 COMPILER_BIN = applications/baoc/baoc.bin
+
+TEST_SRC	 = applications/test.c
+TEST_BIN	 = applications/test.bin
 
 USER_OBJS    = applications/*/*.o
 
@@ -150,7 +154,7 @@ $(LIBC_SYM): $(RUNTIME_BIN)
 	$(LD) -m elf_i386 -T kernel/loader/user.ld -o $@ $^
 
 # ---------------- Disk image -----------------
-$(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMPILER_BIN) $(UTILS_BIN) \
+$(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMPILER_BIN) $(TEST_BIN) $(UTILS_BIN) \
        $(RUNTIME_BIN) $(CRT0_BIN) $(LIBC_SYM)
 	$(DD) if=/dev/zero of=$(IMG) bs=1M count=$(IMG_SIZE)
 	$(DD) if=$(BOOT_BIN) of=$(IMG) conv=notrunc
@@ -163,9 +167,8 @@ $(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMP
 	$(PY) tools/mkfs_inject.py $(IMG) $(CRT0_BIN) /lib
 	$(PY) tools/mkfs_inject.py $(IMG) $(RUNTIME_BIN) /lib
 	$(PY) tools/mkfs_inject.py $(IMG) $(LIBC_SYM) /lib
-	$(PY) tools/mkfs_inject.py $(IMG) applications/test.c /programs
 
-	for prog in $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMPILER_BIN); do \
+	for prog in $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMPILER_BIN) $(TEST_BIN); do \
 		$(PY) tools/mkfs_inject.py $(IMG) $$prog /programs; \
 	done
 
@@ -179,9 +182,9 @@ $(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMP
 
 # ---------------- Run & Clean ----------------
 run: $(IMG)
-	$(QEMU) -m 1G -drive format=raw,file=$(IMG),if=ide
+	$(QEMU) -m 4G -drive format=raw,file=$(IMG),if=ide
 
 clean:
 	$(RM) $(BOOT_BIN) $(KERNEL_OBJS) $(KERNEL_BIN) $(IMG) \
-	      $(SHELL_BIN) $(SHELL_DEPS:.c=.o) $(CALC_BIN) $(FILLING_BIN) $(COMPILER_BIN) $(UTILS_BIN) $(UTILS_OBJS) $(LIBC_SYM) \
+	      $(SHELL_BIN) $(SHELL_DEPS:.c=.o) $(CALC_BIN) $(FILLING_BIN) $(COMPILER_BIN) $(TEST_BIN) $(UTILS_BIN) $(UTILS_OBJS) $(LIBC_SYM) \
 	      $(RUNTIME_SRC_OBJS) $(CRT0_OBJ) $(CRT0_BIN) $(RUNTIME_BIN) $(USER_OBJS)

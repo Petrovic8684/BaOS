@@ -18,6 +18,8 @@ typedef struct ATA_Driver
 void ata_set_fs_drv(ATA_Driver *drv);
 ATA_Driver *ata_get_fs_drv(void);
 
+void ata_irq_handler(int irq);
+
 int ata_init(ATA_Driver *drv, unsigned short tf_port, unsigned short dcr_port, unsigned char sbits);
 
 int fs_disk_read(unsigned int lba, unsigned int sectors, void *buffer);
