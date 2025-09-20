@@ -12,7 +12,6 @@
 #define SYS_FS_READ_FILE 16
 #define SYS_GET_CURSOR_ROW 18
 #define SYS_GET_CURSOR_COL 19
-#define SYS_FS_WRITE_FILE_BIN 20
 
 #define MAX_OPEN_FILES 16
 #define USER_BUFFER_SIZE 2048
@@ -69,26 +68,7 @@ static inline int fs_delete_file(const char *name)
     return (int)ret;
 }
 
-static inline int fs_write_file(const char *name, const char *text)
-{
-    struct
-    {
-        const char *name;
-        const char *text;
-    } args = {name, text};
-    unsigned int ret;
-    asm volatile(
-        "movl %[num], %%eax\n\t"
-        "movl %[a], %%ebx\n\t"
-        "int $0x80\n\t"
-        "movl %%ebx, %[res]\n\t"
-        : [res] "=r"(ret)
-        : [num] "i"(SYS_FS_WRITE_FILE), [a] "r"(&args)
-        : "eax", "ebx", "memory");
-    return (int)ret;
-}
-
-static inline int fs_write_file_bin(const char *name, const unsigned char *data, unsigned int size)
+static inline int fs_write_file(const char *name, const unsigned char *data, unsigned int size)
 {
     struct
     {
@@ -103,7 +83,7 @@ static inline int fs_write_file_bin(const char *name, const unsigned char *data,
         "int $0x80\n\t"
         "movl %%ebx, %[res]\n\t"
         : [res] "=r"(ret)
-        : [num] "i"(SYS_FS_WRITE_FILE_BIN), [a] "r"(&args)
+        : [num] "i"(SYS_FS_WRITE_FILE), [a] "r"(&args)
         : "eax", "ebx", "memory");
     return (int)ret;
 }
@@ -586,7 +566,7 @@ int fputc(int c, FILE *stream)
         if (can_add > 0)
             memcpy(tmp_all + got, stream->buf, can_add);
 
-        int wres = fs_write_file_bin(stream->name, tmp_all, got + can_add);
+        int wres = fs_write_file(stream->name, tmp_all, got + can_add);
         stream->buf_pos = 0;
 
         if (wres < 0)
@@ -1315,7 +1295,7 @@ int fflush(FILE *stream)
         if (can_add > 0)
             memcpy(combined + got, stream->buf, can_add);
 
-        int wres = fs_write_file_bin(stream->name, combined, got + can_add);
+        int wres = fs_write_file(stream->name, combined, got + can_add);
         stream->buf_pos = 0;
         if (wres < 0)
         {

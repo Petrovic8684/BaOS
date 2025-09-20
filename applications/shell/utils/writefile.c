@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <string.h>
+#include <ctype.h>
 
 int main(int argc, char *argv[])
 {
@@ -9,7 +11,19 @@ int main(int argc, char *argv[])
     }
 
     const char *name = argv[1];
-    const char *text = argv[2];
+
+    if (strlen(name) > 16)
+    {
+        printf("\033[31mError: Name exceeds maximum length of 16 characters.\033[0m\n");
+        return 1;
+    }
+
+    for (size_t i = 0; i < strlen(name); i++)
+        if (!isalnum((unsigned char)name[i]))
+        {
+            printf("\033[31mError: Name must contain only letters and digits.\033[0m\n");
+            return 1;
+        }
 
     FILE *f_check = fopen(name, "rb");
     if (f_check)
@@ -44,36 +58,18 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    size_t len = 0;
-    while (text[len])
-        len++;
+    for (int i = 2; i < argc; ++i)
+    {
+        if (i > 2)
+            fputc(' ', f);
+        fputs(argv[i], f);
+    }
 
-    size_t written = fwrite(text, 1, len, f);
-    if (written != len)
+    fputc('\n', f);
+
+    if (fflush(f) == EOF || fclose(f) != 0)
     {
         printf("\033[31mError: I/O error occurred while writing to file '%s'.\033[0m\n", name);
-        fclose(f);
-        return 1;
-    }
-
-    const char newline = '\n';
-    if (fwrite(&newline, 1, 1, f) != 1)
-    {
-        printf("\033[31mError: Failed to write newline to file '%s'.\033[0m\n", name);
-        fclose(f);
-        return 1;
-    }
-
-    if (fflush(f) == EOF)
-    {
-        printf("\033[31mError: I/O error occurred while writing to file '%s'.\033[0m\n", name);
-        fclose(f);
-        return 1;
-    }
-
-    if (fclose(f) != 0)
-    {
-        printf("\033[31mError: Failed to close file '%s' after writing.\033[0m\n", name);
         return 1;
     }
 

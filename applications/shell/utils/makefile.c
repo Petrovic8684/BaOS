@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <dirent.h>
 #include <string.h>
+#include <ctype.h>
 
 int main(int argc, char *argv[])
 {
@@ -12,6 +13,19 @@ int main(int argc, char *argv[])
     }
 
     const char *name = argv[1];
+
+    if (strlen(name) > 16)
+    {
+        printf("\033[31mError: Name exceeds maximum length of 16 characters.\033[0m\n");
+        return 1;
+    }
+
+    for (size_t i = 0; i < strlen(name); i++)
+        if (!isalnum((unsigned char)name[i]))
+        {
+            printf("\033[31mError: Name must contain only letters and digits.\033[0m\n");
+            return 1;
+        }
 
     char parent[512];
     path_parent(name, parent, sizeof(parent));

@@ -54,9 +54,7 @@ static void user_exception(const char *title, unsigned int error_code, unsigned 
 
     write("\033[1;33mAborting user program, returning to shell...\033[0m\n");
 
-    loader_return_eip = 0;
-    loader_saved_esp = 0;
-    loader_saved_ebp = 0;
+    reset_loader_context();
 
     load_shell();
 

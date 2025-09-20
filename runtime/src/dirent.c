@@ -8,35 +8,31 @@
 
 #define USER_BUFFER_SIZE 2048
 
-static inline const char *fs_where(void)
+static inline char *fs_where(void)
 {
     static char buffer[USER_BUFFER_SIZE];
     asm volatile(
         "movl %[num], %%eax\n\t"
         "movl %[buffer], %%ebx\n\t"
-        "movl %[size], %%ecx\n\t"
         "int $0x80\n\t"
         :
         : [num] "i"(SYS_FS_WHERE),
-          [buffer] "r"(buffer),
-          [size] "r"(USER_BUFFER_SIZE)
-        : "eax", "ebx", "ecx", "memory");
+          [buffer] "r"(buffer)
+        : "eax", "ebx", "memory");
     return buffer;
 }
 
-static inline const char *fs_list_dir(void)
+static inline char *fs_list_dir(void)
 {
     static char buffer[USER_BUFFER_SIZE];
     asm volatile(
         "movl %[num], %%eax\n\t"
         "movl %[buffer], %%ebx\n\t"
-        "movl %[size], %%ecx\n\t"
         "int $0x80\n\t"
         :
         : [num] "i"(SYS_FS_LIST_DIR),
-          [buffer] "r"(buffer),
-          [size] "r"(USER_BUFFER_SIZE)
-        : "eax", "ebx", "ecx", "memory");
+          [buffer] "r"(buffer)
+        : "eax", "ebx", "memory");
     return buffer;
 }
 
@@ -148,7 +144,7 @@ DIR *opendir(const char *name)
         d->types[i] = DT_UNKNOWN;
 
     char original[USER_BUFFER_SIZE];
-    const char *orig_p = fs_where();
+    char *orig_p = fs_where();
     if (orig_p)
     {
         unsigned int k = 0;
@@ -176,7 +172,7 @@ DIR *opendir(const char *name)
         changed = 1;
     }
 
-    const char *listing = fs_list_dir();
+    char *listing = fs_list_dir();
     parse_list_into_dir(d, listing);
 
     if (changed)
@@ -187,7 +183,7 @@ DIR *opendir(const char *name)
             {
                 for (int iter = 0; iter < 128; iter++)
                 {
-                    const char *now = fs_where();
+                    char *now = fs_where();
                     if (!now)
                         break;
                     if (strncmp(now, original, USER_BUFFER_SIZE) == 0)
@@ -200,7 +196,7 @@ DIR *opendir(const char *name)
         {
             for (int iter = 0; iter < 128; iter++)
             {
-                const char *now = fs_where();
+                char *now = fs_where();
                 if (!now)
                     break;
                 if (strncmp(now, original, USER_BUFFER_SIZE) == 0)

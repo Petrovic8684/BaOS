@@ -6,7 +6,7 @@
 #include <limits.h>
 
 #define SYS_EXIT 0
-#define SYS_SET_USER_PAGES 22
+#define SYS_SET_USER_PAGES 21
 
 #define ALIGN_UP(x, a) (((x) + ((a) - 1)) & ~((a) - 1))
 #define ALLOC_ALIGN 8

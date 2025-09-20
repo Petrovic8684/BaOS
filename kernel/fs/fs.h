@@ -54,13 +54,12 @@ int fs_is_initialized(void);
 void fs_init(void);
 int fs_make_dir(const char *name);
 int fs_make_file(const char *name);
-const char *fs_list_dir(void);
+char *fs_list_dir(void);
 int fs_change_dir(const char *name);
-const char *fs_where(void);
+char *fs_where(void);
 int fs_delete_dir(const char *name);
 int fs_delete_file(const char *name);
-int fs_write_file(const char *name, const char *text);
-int fs_write_file_bin(const char *name, const unsigned char *data, unsigned int size);
+int fs_write_file(const char *name, const unsigned char *data, unsigned int size);
 int fs_read_file(const char *name, unsigned char *out_buf, unsigned int buf_size, unsigned int *out_size);
 
 #endif

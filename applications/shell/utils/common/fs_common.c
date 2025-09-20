@@ -451,7 +451,7 @@ int get_normalized_cwd(char *out, size_t out_sz)
     return normalize_path(".", out, out_sz);
 }
 
-const char *where(void)
+char *where(void)
 {
     static char buf[256];
     if (getcwd(buf, sizeof(buf)))
@@ -467,7 +467,7 @@ const char *where(void)
 
 const char *get_current_dir_name(void)
 {
-    const char *path = where();
+    char *path = where();
     if (!path || path[0] == '\0')
         return "/";
 

@@ -1,36 +1,28 @@
 #include "loader.h"
 #include "../drivers/display/display.h"
+#include "../helpers/string/string.h"
+#include "../helpers/memory/memory.h"
 #include "../fs/fs.h"
 #include "../paging/paging.h"
+#include "../paging/heap/heap.h"
 #include "../system/tss/tss.h"
 
 #define PT_LOAD 1
 #define USER_STACK_TOP 0x02100000
 #define USER_STACK_PAGES 4
-#define USER_BUFFER_SIZE 2048
-#define MAX_ARGC 64
 #define USER_STACK_BOTTOM (USER_STACK_TOP - USER_STACK_PAGES * PAGE_SIZE)
-
-unsigned int loader_return_eip = 0;
-unsigned int loader_saved_esp = 0;
-unsigned int loader_saved_ebp = 0;
-
-const char *next_prog_name = 0;
-const char **next_prog_argv = 0;
 
 void (*loader_post_return_callback)(void) = 0;
 
+static unsigned int loader_return_eip = 0;
+static unsigned int loader_saved_esp = 0;
+static unsigned int loader_saved_ebp = 0;
+
+static const char *next_prog_name = 0;
+static const char **next_prog_argv = 0;
+
 static unsigned int last_user_region_start = 0;
 static unsigned int last_user_region_size = 0;
-
-static void copy_from_user(char *kernel_buf, const char *user_buf, unsigned int max_len)
-{
-    unsigned int i = 0;
-    for (; i < max_len - 1 && user_buf[i] != '\0'; i++)
-        kernel_buf[i] = user_buf[i];
-
-    kernel_buf[i] = '\0';
-}
 
 static void jump_to_user(unsigned int entry, unsigned int stack)
 {
@@ -51,12 +43,43 @@ static void jump_to_user(unsigned int entry, unsigned int stack)
                  : "ax");
 }
 
+__attribute__((naked)) void return_to_loader(void)
+{
+    asm volatile(".intel_syntax noprefix\n\t"
+                 "mov ax, 0x10\n\t"
+                 "mov ds, ax\n\t"
+                 "mov es, ax\n\t"
+                 "mov eax, dword ptr [loader_return_eip]\n\t"
+                 "test eax, eax\n\t"
+                 "jz 1f\n\t"
+                 "mov esp, dword ptr [loader_saved_esp]\n\t"
+                 "mov ebp, dword ptr [loader_saved_ebp]\n\t"
+                 "jmp eax\n\t"
+                 "1:\n\t"
+                 "cli\n\t"
+                 "hlt\n\t"
+                 ".att_syntax\n\t");
+}
+
 static void cleanup_previous_user_space(void)
 {
     unmap_all_user_pages();
 
     last_user_region_start = 0;
     last_user_region_size = 0;
+}
+
+void reset_loader_context(void)
+{
+    loader_return_eip = 0;
+    loader_saved_esp = 0;
+    loader_saved_ebp = 0;
+}
+
+void set_next_program(const char **argv)
+{
+    next_prog_argv = argv;
+    next_prog_name = argv[0];
 }
 
 int load_user_program(const char *name, const char **user_argv, int surpress_errors)
@@ -70,13 +93,22 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
 
     cleanup_previous_user_space();
 
-    static unsigned char buf[85000];
+    unsigned int file_size = 0;
+    if (fs_read_file(name, ((void *)0), 0, &file_size) != FS_OK)
+    {
+        write("\033[31mError: Could not get file size.\033[0m\n");
+        return -1;
+    }
+
+    unsigned char *buf = kmalloc(file_size);
     unsigned int size = 0;
 
-    if (fs_read_file(name, buf, sizeof(buf), &size) != FS_OK)
+    if (fs_read_file(name, buf, file_size, &size) != FS_OK)
     {
         if (surpress_errors == 0)
             write("\033[31mError: Failed to read user program.\n\033[0m");
+
+        kfree(buf);
         return -1;
     }
 
@@ -84,6 +116,8 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
     {
         if (surpress_errors == 0)
             write("User program empty.\n");
+
+        kfree(buf);
         return -1;
     }
 
@@ -92,6 +126,8 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
     {
         if (surpress_errors == 0)
             write("\033[31mError: Not a valid ELF file.\n\033[0m");
+
+        kfree(buf);
         return -1;
     }
 
@@ -130,6 +166,8 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
             dest[j] = 0;
     }
 
+    kfree(buf);
+
     if (map_max > map_min && map_min != 0xFFFFFFFFu)
     {
         unsigned int aligned_start = map_min & 0xFFFFF000u;
@@ -145,8 +183,8 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
 
     set_user_pages(USER_STACK_BOTTOM, USER_STACK_PAGES * PAGE_SIZE);
 
-    char kernel_buf[USER_BUFFER_SIZE];
     char *string_ptrs[MAX_ARGC];
+    char kernel_buf[MAX_ARGV_LEN];
     int argc = 0;
     unsigned int stack_top = USER_STACK_TOP;
     unsigned int cur = stack_top;
@@ -156,11 +194,9 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
         if (!user_argv || user_argv[i] == ((void *)0))
             break;
 
-        copy_from_user(kernel_buf, user_argv[i], USER_BUFFER_SIZE);
+        mem_copy(kernel_buf, user_argv[i], str_count(user_argv[i]) + 1);
 
-        unsigned int slen = 0;
-        while (slen < USER_BUFFER_SIZE && kernel_buf[slen])
-            slen++;
+        unsigned int slen = str_count(kernel_buf);
         unsigned int needed = slen + 1;
 
         if (cur < USER_STACK_BOTTOM + needed)
@@ -220,9 +256,7 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
     }
 
 user_return:
-    loader_return_eip = 0;
-    loader_saved_esp = 0;
-    loader_saved_ebp = 0;
+    reset_loader_context();
 
     cleanup_previous_user_space();
 

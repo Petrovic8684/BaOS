@@ -7,7 +7,7 @@
 
 #define USER_BUFFER_SIZE 2048
 
-static inline const char *fs_where(void)
+static inline char *fs_where(void)
 {
     static char buffer[USER_BUFFER_SIZE];
     asm volatile("movl %[num], %%eax\n\t"
@@ -52,7 +52,7 @@ int chdir(const char *path)
 
 char *getcwd(char *buf, size_t size)
 {
-    const char *p = fs_where();
+    char *p = fs_where();
     if (!p)
         return NULL;
 

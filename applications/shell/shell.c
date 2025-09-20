@@ -94,10 +94,10 @@ void process_command(char *cmd)
         ++p;
     char *args = (*p != '\0') ? p : NULL;
 
-    const char *paths[] = {"/programs", "/programs/utils"};
+    const char *paths[] = {".", "/programs", "/programs/utils"};
     bool launched = false;
 
-    for (int pidx = 0; pidx < 2 && !launched; ++pidx)
+    for (int pidx = 0; pidx < 3 && !launched; ++pidx)
     {
         DIR *d = opendir(paths[pidx]);
         if (!d)

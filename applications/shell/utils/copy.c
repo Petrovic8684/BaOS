@@ -1,6 +1,7 @@
 #include "./common/fs_common.h"
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 #include <dirent.h>
 
 int main(int argc, char *argv[])
@@ -23,11 +24,13 @@ int main(int argc, char *argv[])
         printf("\033[31mError: Failed to normalize source path.\033[0m\n");
         return 1;
     }
+
     if (normalize_path(dst, dst_norm, sizeof(dst_norm)) != 0)
     {
         printf("\033[31mError: Failed to normalize destination path.\033[0m\n");
         return 1;
     }
+
     if (get_normalized_cwd(cwd_norm, sizeof(cwd_norm)) != 0)
     {
         printf("\033[31mError: Failed to get working directory.\033[0m\n");
@@ -78,6 +81,22 @@ int main(int argc, char *argv[])
         printf("\033[31mError: Cannot copy a directory into its own subdirectory.\033[0m\n");
         return 1;
     }
+
+    const char *base = path_basename(dst_use_norm);
+    size_t base_len = strlen(base);
+
+    if (base_len > 16)
+    {
+        printf("\033[31mError: Destination name exceeds maximum length of 16 characters.\033[0m\n");
+        return 1;
+    }
+
+    for (size_t i = 0; i < base_len; i++)
+        if (!isalnum((unsigned char)base[i]) || base[i] == '.')
+        {
+            printf("\033[31mError: Destination name must contain only letters and digits.\033[0m\n");
+            return 1;
+        }
 
     DIR *sd = opendir(src_norm);
     if (sd)

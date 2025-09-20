@@ -14,7 +14,7 @@ bool is_subpath(const char *parent, const char *child);
 void path_parent(const char *path, char *out, size_t out_sz);
 const char *path_basename(const char *path);
 int get_normalized_cwd(char *out, size_t out_sz);
-const char *where(void);
+char *where(void);
 const char *get_current_dir_name(void);
 
 #endif

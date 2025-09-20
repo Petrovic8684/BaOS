@@ -3,7 +3,9 @@
 #include "../drivers/rtc/rtc.h"
 #include "../fs/fs.h"
 #include "../paging/paging.h"
+#include "../paging/heap/heap.h"
 #include "../helpers/string/string.h"
+#include "../helpers/memory/memory.h"
 #include "../loader/loader.h"
 #include "../info/info.h"
 #include "../system/acpi/acpi.h"
@@ -27,82 +29,19 @@
 #define SYS_LOAD_USER_PROGRAM 17
 #define SYS_GET_CURSOR_ROW 18
 #define SYS_GET_CURSOR_COL 19
-#define SYS_FS_WRITE_FILE_BIN 20
-#define SYS_REBOOT 21
-#define SYS_SET_USER_PAGES 22
-
-#define USER_BUFFER_SIZE 2048
-#define MAX_ARGC 64
-
-extern unsigned int loader_return_eip;
-extern unsigned int loader_saved_esp;
-extern unsigned int loader_saved_ebp;
+#define SYS_REBOOT 20
+#define SYS_SET_USER_PAGES 21
 
 extern void (*loader_post_return_callback)(void);
-
-extern const char *next_prog_name;
-extern const char **next_prog_argv;
 
 static unsigned int last_return = 0;
 static unsigned int should_report_return = 0;
 
-static char saved_prog_argv_storage[MAX_ARGC][USER_BUFFER_SIZE];
+static char saved_prog_argv_storage[MAX_ARGC][MAX_ARGV_LEN];
 static const char *saved_prog_argv_ptrs[MAX_ARGC + 1];
-
-__attribute__((naked)) static void return_to_loader(void)
-{
-    asm volatile(".intel_syntax noprefix\n\t"
-                 "mov ax, 0x10\n\t"
-                 "mov ds, ax\n\t"
-                 "mov es, ax\n\t"
-                 "mov eax, dword ptr [loader_return_eip]\n\t"
-                 "test eax, eax\n\t"
-                 "jz 1f\n\t"
-                 "mov esp, dword ptr [loader_saved_esp]\n\t"
-                 "mov ebp, dword ptr [loader_saved_ebp]\n\t"
-                 "jmp eax\n\t"
-                 "1:\n\t"
-                 "cli\n\t"
-                 "hlt\n\t"
-                 ".att_syntax\n\t");
-}
-
-static void copy_from_user(char *kernel_buf, const char *user_buf, unsigned int max_len)
-{
-    unsigned int i = 0;
-    for (; i < max_len - 1 && user_buf[i] != '\0'; i++)
-        kernel_buf[i] = user_buf[i];
-
-    kernel_buf[i] = '\0';
-}
-
-static void copy_to_user(char *user_buf, const char *kernel_buf, unsigned int max_len)
-{
-    unsigned int i;
-    for (i = 0; i < max_len - 1 && kernel_buf[i] != '\0'; i++)
-        user_buf[i] = kernel_buf[i];
-    user_buf[i] = '\0';
-}
-
-static void copy_bytes_to_user(char *user_buf, const char *kernel_buf, unsigned int len)
-{
-    unsigned int i;
-    for (i = 0; i < len; i++)
-        user_buf[i] = kernel_buf[i];
-}
-
-static void copy_bytes_from_user(unsigned char *kernel_buf, const unsigned char *user_buf, unsigned int len)
-{
-    unsigned int i;
-    for (i = 0; i < len; i++)
-        kernel_buf[i] = user_buf[i];
-}
 
 static unsigned int handle_syscall(unsigned int num, unsigned int arg)
 {
-    char kernel_buf[USER_BUFFER_SIZE];
-    char *user_buf;
-
     switch (num)
     {
     case SYS_EXIT:
@@ -123,8 +62,8 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
 
     case SYS_WRITE:
     {
-        copy_from_user(kernel_buf, (const char *)arg, sizeof(kernel_buf));
-        write(kernel_buf);
+        const char *text = (const char *)arg;
+        write(text);
         return 0;
     }
 
@@ -147,29 +86,45 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
 
     case SYS_OS_NAME:
     {
-        user_buf = (char *)arg;
         const char *name = os_name();
-        copy_to_user(user_buf, name, USER_BUFFER_SIZE);
+        unsigned int length = str_count(name) + 1;
+
+        mem_copy((char *)arg, name, length);
         return 0;
     }
 
     case SYS_KERNEL_VERSION:
     {
-        user_buf = (char *)arg;
-        const char *ver = kernel_version();
-        copy_to_user(user_buf, ver, USER_BUFFER_SIZE);
+        const char *version = kernel_version();
+        unsigned int length = str_count(version) + 1;
+
+        mem_copy((char *)arg, version, length);
         return 0;
     }
 
     case SYS_FS_WHERE:
-        user_buf = (char *)arg;
-        copy_to_user(user_buf, fs_where(), USER_BUFFER_SIZE);
+    {
+        char *path = fs_where();
+
+        unsigned int length = str_count(path) + 1;
+        mem_copy((char *)arg, path, length);
+
+        kfree(path);
         return 0;
+    }
 
     case SYS_FS_LIST_DIR:
-        user_buf = (char *)arg;
-        copy_to_user(user_buf, fs_list_dir(), USER_BUFFER_SIZE);
+    {
+        char *contents = fs_list_dir();
+        if (!contents)
+            return -1;
+
+        unsigned int length = str_count(contents) + 1;
+        mem_copy((char *)arg, contents, length);
+
+        kfree(contents);
         return 0;
+    }
 
     case SYS_FS_CHANGE_DIR:
         return fs_change_dir((const char *)arg);
@@ -191,9 +146,28 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
         struct
         {
             const char *name;
-            const char *text;
-        } *args = (void *)arg;
-        return fs_write_file(args->name, args->text);
+            const unsigned char *data;
+            unsigned int size;
+        } *uargs = (void *)arg;
+
+        if (!uargs || !uargs->name)
+            return (unsigned int)FS_ERR_NO_NAME;
+
+        const char *name = uargs->name;
+
+        fs_delete_file(name);
+        int r = fs_make_file(name);
+        if (r != FS_OK)
+            return (unsigned int)r;
+
+        if (uargs->data && uargs->size > 0)
+        {
+            r = fs_write_file(name, uargs->data, uargs->size);
+            if (r != FS_OK)
+                return (unsigned int)r;
+        }
+
+        return 0;
     }
 
     case SYS_FS_READ_FILE:
@@ -212,20 +186,19 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
         if (!((uargs->out_buf && uargs->buf_size > 0) || (uargs->out_buf == ((void *)0) && uargs->out_size)))
             return (unsigned int)FS_ERR_NO_NAME;
 
-        static unsigned char kbuf[USER_BUFFER_SIZE];
         unsigned int out_sz = 0;
+        int r;
 
-        unsigned int to_request = (uargs->buf_size > USER_BUFFER_SIZE) ? USER_BUFFER_SIZE : uargs->buf_size;
+        if (uargs->out_buf)
+            r = fs_read_file(uargs->name, uargs->out_buf, uargs->buf_size, &out_sz);
+        else
+            r = fs_read_file(uargs->name, ((void *)0), 0, &out_sz);
 
-        int r = fs_read_file(uargs->name, (uargs->out_buf ? kbuf : ((void *)0)), to_request, &out_sz);
         if (r != FS_OK)
             return (unsigned int)r;
 
-        if (uargs->out_buf && out_sz > 0)
-            copy_bytes_to_user((char *)uargs->out_buf, (const char *)kbuf, out_sz);
-
         if (uargs->out_size)
-            copy_bytes_to_user((char *)uargs->out_size, (const char *)&out_sz, sizeof(unsigned int));
+            mem_copy((char *)uargs->out_size, (const char *)&out_sz, sizeof(unsigned int));
 
         return 0;
     }
@@ -251,7 +224,7 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
                 continue;
             }
 
-            copy_from_user(saved_prog_argv_storage[kargc], user_argv[i], USER_BUFFER_SIZE);
+            mem_copy(saved_prog_argv_storage[kargc], user_argv[i], str_count(user_argv[i]) + 1);
             saved_prog_argv_ptrs[kargc] = saved_prog_argv_storage[kargc];
             kargc++;
         }
@@ -264,9 +237,7 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
             return 0;
         }
 
-        next_prog_argv = saved_prog_argv_ptrs;
-        next_prog_name = saved_prog_argv_ptrs[0];
-
+        set_next_program(saved_prog_argv_ptrs);
         loader_post_return_callback = load_next_program;
 
         return_to_loader();
@@ -285,46 +256,6 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
         return col;
     }
 
-    case SYS_FS_WRITE_FILE_BIN:
-    {
-        struct
-        {
-            const char *name;
-            const unsigned char *data;
-            unsigned int size;
-        } *uargs = (void *)arg;
-
-        if (!uargs || !uargs->name)
-            return (unsigned int)FS_ERR_NO_NAME;
-
-        const char *name = uargs->name;
-        unsigned int total = uargs->size;
-        const unsigned char *user_data = uargs->data;
-
-        fs_delete_file(name);
-        int r = fs_make_file(name);
-        if (r != FS_OK)
-            return (unsigned int)r;
-
-        unsigned int off = 0;
-        unsigned char kbuf[USER_BUFFER_SIZE];
-
-        while (off < total)
-        {
-            unsigned int chunk = (total - off > USER_BUFFER_SIZE) ? USER_BUFFER_SIZE : (total - off);
-
-            copy_bytes_from_user(kbuf, user_data + off, chunk);
-
-            int wr = fs_write_file_bin(name, kbuf, chunk);
-            if (wr != FS_OK)
-                return (unsigned int)wr;
-
-            off += chunk;
-        }
-
-        return 0;
-    }
-
     case SYS_REBOOT:
         loader_post_return_callback = reboot;
         return_to_loader();
@@ -341,7 +272,7 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
             unsigned int size;
         } kargs;
 
-        copy_bytes_from_user((unsigned char *)&kargs, (const unsigned char *)arg, sizeof(kargs));
+        mem_copy((unsigned char *)&kargs, (const unsigned char *)arg, sizeof(kargs));
         set_user_pages(kargs.virt_start, kargs.size);
 
         return 0;

@@ -3,7 +3,7 @@
 
 int main()
 {
-    const char *path = where();
+    char *path = where();
     printf("%s\n", path);
     return 0;
 }

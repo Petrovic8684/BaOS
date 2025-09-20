@@ -1,6 +1,9 @@
 #ifndef LOADER_H
 #define LOADER_H
 
+#define MAX_ARGC 64
+#define MAX_ARGV_LEN 128
+
 typedef unsigned int Elf32_Addr;
 typedef unsigned int Elf32_Off;
 typedef unsigned short Elf32_Half;
@@ -36,14 +39,14 @@ typedef struct
     Elf32_Word p_align;
 } Elf32_Phdr;
 
-extern unsigned int loader_return_eip;
-extern unsigned int loader_saved_esp;
-extern unsigned int loader_saved_ebp;
+typedef void (*user_entry_t)(void);
 
 extern void (*loader_post_return_callback)(void);
 
-typedef void (*user_entry_t)(void);
+void reset_loader_context(void);
+void set_next_program(const char **argv);
 void load_next_program(void);
 void load_shell(void);
+__attribute__((naked)) void return_to_loader(void);
 
 #endif

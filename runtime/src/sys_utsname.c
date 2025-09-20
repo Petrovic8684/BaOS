@@ -4,8 +4,6 @@
 #define SYS_OS_NAME 6
 #define SYS_KERNEL_VERSION 7
 
-#define USER_BUFFER_SIZE 1024
-
 int uname(struct utsname *buf)
 {
   if (!buf)

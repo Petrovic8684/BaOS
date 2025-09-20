@@ -1,7 +1,7 @@
 #include "info.h"
 
 #define OS_NAME "BaOS (Jovan Petrovic, 2025)"
-#define KERNEL_VERSION "1.1"
+#define KERNEL_VERSION "v2.0.0 codename 'Dumpling'"
 
 const char *os_name(void)
 {
