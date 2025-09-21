@@ -371,7 +371,6 @@ static unsigned int get_cr2(void)
 
 void paging_init(void)
 {
-    clear();
     write("About to enable paging...\n");
 
     unsigned long long total_detected = 0;

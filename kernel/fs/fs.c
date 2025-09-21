@@ -415,7 +415,7 @@ void fs_init(void)
         fs_current_dir_lba = fs_super.root_dir_lba;
         fs_initialized = 1;
 
-        write("\033[32mUsing existing file system on disk.\033[0m\n\n");
+        write("\033[32mUsing existing file system on disk.\033[0m\n");
         return;
     }
 
@@ -467,7 +467,7 @@ void fs_init(void)
     fs_current_dir_lba = root_lba;
     fs_initialized = 1;
 
-    write("\033[32mCreated a new file system.\033[0m\n\n");
+    write("\033[32mCreated a new file system.\033[0m\n");
 }
 
 int fs_make_dir(const char *name)

@@ -7,7 +7,7 @@
 #include "../helpers/string/string.h"
 #include "../helpers/memory/memory.h"
 #include "../loader/loader.h"
-#include "../info/info.h"
+#include "../info/uname.h"
 #include "../system/acpi/acpi.h"
 
 #define SYS_EXIT 0
@@ -15,8 +15,7 @@
 #define SYS_READ 3
 #define SYS_POWER_OFF 4
 #define SYS_RTC_NOW 5
-#define SYS_OS_NAME 6
-#define SYS_KERNEL_VERSION 7
+#define SYS_UNAME 6
 #define SYS_FS_WHERE 8
 #define SYS_FS_LIST_DIR 9
 #define SYS_FS_CHANGE_DIR 10
@@ -84,44 +83,46 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
         return now;
     }
 
-    case SYS_OS_NAME:
+    case SYS_UNAME:
     {
-        const char *name = os_name();
-        unsigned int length = str_count(name) + 1;
+        struct utsname *buf = (struct utsname *)arg;
+        mem_copy(buf, &uname_info, sizeof(struct utsname));
 
-        mem_copy((char *)arg, name, length);
-        return 0;
-    }
-
-    case SYS_KERNEL_VERSION:
-    {
-        const char *version = kernel_version();
-        unsigned int length = str_count(version) + 1;
-
-        mem_copy((char *)arg, version, length);
         return 0;
     }
 
     case SYS_FS_WHERE:
     {
+        char *user_buf = (char *)arg;
+
         char *path = fs_where();
+        unsigned int len = str_count(path) + 1;
 
-        unsigned int length = str_count(path) + 1;
-        mem_copy((char *)arg, path, length);
+        if (!user_buf)
+            return len;
 
+        mem_copy(user_buf, path, len);
         kfree(path);
+
         return 0;
     }
 
     case SYS_FS_LIST_DIR:
     {
+        char *user_buf = (char *)arg;
         char *contents = fs_list_dir();
         if (!contents)
             return -1;
 
-        unsigned int length = str_count(contents) + 1;
-        mem_copy((char *)arg, contents, length);
+        unsigned int len = str_count(contents) + 1;
 
+        if (!user_buf)
+        {
+            kfree(contents);
+            return len;
+        }
+
+        mem_copy(user_buf, contents, len);
         kfree(contents);
         return 0;
     }

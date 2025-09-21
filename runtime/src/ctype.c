@@ -112,3 +112,26 @@ int toupper(int c)
         return (int)(uc - 'a' + 'A');
     return (int)uc;
 }
+
+int isblank(int c)
+{
+    if (c == (int)EOF)
+        return 0;
+    unsigned char uc = (unsigned char)c;
+    return (uc == ' ' || uc == '\t');
+}
+
+int isascii(int c)
+{
+    if (c == (int)EOF)
+        return 0;
+    unsigned char uc = (unsigned char)c;
+    return (uc <= 0x7f);
+}
+
+int toascii(int c)
+{
+    if (c == (int)EOF)
+        return c;
+    return (int)((unsigned char)c & 0x7f);
+}

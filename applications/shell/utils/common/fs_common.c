@@ -4,7 +4,7 @@
 #include <dirent.h>
 #include <unistd.h>
 #include <stdbool.h>
-#include <sys_stat.h>
+#include <sys/stat.h>
 
 int normalize_path(const char *input, char *out, size_t out_sz)
 {

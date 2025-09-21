@@ -1,8 +1,6 @@
 #ifndef CTYPE_H
 #define CTYPE_H
 
-#include <stddef.h>
-
 int isalnum(int c);
 int isalpha(int c);
 int iscntrl(int c);
@@ -16,5 +14,8 @@ int isprint(int c);
 int isxdigit(int c);
 int tolower(int c);
 int toupper(int c);
+int isblank(int c);
+int isascii(int c);
+int toascii(int c);
 
 #endif

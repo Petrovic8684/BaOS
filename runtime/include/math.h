@@ -1,8 +1,6 @@
 #ifndef MATH_H
 #define MATH_H
 
-#include <stddef.h>
-
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
@@ -44,4 +42,21 @@ double cosh(double x);
 double tanh(double x);
 
 double hypot(double x, double y);
+
+double acosh(double x);
+double asinh(double x);
+double atanh(double x);
+
+double log1p(double x);
+double expm1(double x);
+
+double cbrt(double x);
+double round(double x);
+double trunc(double x);
+double fma(double x, double y, double z);
+double nan(const char *tagp);
+double inf(int sign);
+double fmax(double x, double y);
+double fmin(double x, double y);
+
 #endif

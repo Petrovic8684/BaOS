@@ -614,6 +614,6 @@ int main(int argc, char **argv)
     }
 
     reset_scroll_region();
-    fflush(stdout);
+
     return 0;
 }

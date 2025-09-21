@@ -1,8 +1,6 @@
 #ifndef _DIRENT_H_
 #define _DIRENT_H_
 
-#include <stddef.h>
-
 #define DIRENT_NAME_MAX 16
 #define DIRENT_MAX_ENTRIES 32
 #define DIRENT_MAX_STREAMS 4

@@ -1,39 +1,81 @@
 #include <dirent.h>
 #include <stddef.h>
 #include <string.h>
+#include <stdlib.h>
 
 #define SYS_FS_WHERE 8
 #define SYS_FS_LIST_DIR 9
 #define SYS_FS_CHANGE_DIR 10
 
-#define USER_BUFFER_SIZE 2048
-
-static inline char *fs_where(void)
+static unsigned int fs_where_len(void)
 {
-    static char buffer[USER_BUFFER_SIZE];
+    unsigned int len;
     asm volatile(
         "movl %[num], %%eax\n\t"
-        "movl %[buffer], %%ebx\n\t"
+        "movl $0, %%ebx\n\t"
         "int $0x80\n\t"
-        :
-        : [num] "i"(SYS_FS_WHERE),
-          [buffer] "r"(buffer)
+        "movl %%eax, %[res]"
+        : [res] "=r"(len)
+        : [num] "i"(SYS_FS_WHERE)
         : "eax", "ebx", "memory");
-    return buffer;
+    return len;
 }
 
-static inline char *fs_list_dir(void)
+static char *fs_where(void)
 {
-    static char buffer[USER_BUFFER_SIZE];
+    unsigned int len = fs_where_len();
+    if (len == 0)
+        return NULL;
+
+    char *buf = malloc(len);
+    if (!buf)
+        return NULL;
+
     asm volatile(
         "movl %[num], %%eax\n\t"
-        "movl %[buffer], %%ebx\n\t"
+        "movl %[ptr], %%ebx\n\t"
+        "int $0x80\n\t"
+        :
+        : [num] "i"(SYS_FS_WHERE), [ptr] "r"(buf)
+        : "eax", "ebx", "memory");
+
+    return buf;
+}
+
+static unsigned int fs_list_dir_len(void)
+{
+    unsigned int len;
+    asm volatile(
+        "movl %[num], %%eax\n\t"
+        "movl $0, %%ebx\n\t"
+        "int $0x80\n\t"
+        "movl %%eax, %[res]"
+        : [res] "=r"(len)
+        : [num] "i"(SYS_FS_LIST_DIR)
+        : "eax", "ebx", "memory");
+    return len;
+}
+
+static char *fs_list_dir(void)
+{
+    unsigned int len = fs_list_dir_len();
+    if (len == 0)
+        return NULL;
+
+    char *buf = malloc(len);
+    if (!buf)
+        return NULL;
+
+    asm volatile(
+        "movl %[num], %%eax\n\t"
+        "movl %[ptr], %%ebx\n\t"
         "int $0x80\n\t"
         :
         : [num] "i"(SYS_FS_LIST_DIR),
-          [buffer] "r"(buffer)
+          [ptr] "r"(buf)
         : "eax", "ebx", "memory");
-    return buffer;
+
+    return buf;
 }
 
 static inline int fs_change_dir(const char *name)
@@ -143,22 +185,9 @@ DIR *opendir(const char *name)
     for (unsigned int i = 0; i < DIRENT_MAX_ENTRIES; i++)
         d->types[i] = DT_UNKNOWN;
 
-    char original[USER_BUFFER_SIZE];
     char *orig_p = fs_where();
-    if (orig_p)
-    {
-        unsigned int k = 0;
-        while (k < USER_BUFFER_SIZE - 1 && orig_p[k] != '\0')
-        {
-            original[k] = orig_p[k];
-            k++;
-        }
-        original[k] = '\0';
-    }
-    else
-    {
-        original[0] = '\0';
-    }
+    if (!orig_p)
+        orig_p = strdup("/");
 
     int changed = 0;
     if (name && name[0] != '\0' && !(name[0] == '.' && name[1] == '\0'))
@@ -166,6 +195,7 @@ DIR *opendir(const char *name)
         int ch = fs_change_dir(name);
         if (ch != 0)
         {
+            free(orig_p);
             d->in_use = 0;
             return NULL;
         }
@@ -175,36 +205,11 @@ DIR *opendir(const char *name)
     char *listing = fs_list_dir();
     parse_list_into_dir(d, listing);
 
-    if (changed)
-    {
-        if (original[0] != '\0')
-        {
-            if (fs_change_dir(original) != 0)
-            {
-                for (int iter = 0; iter < 128; iter++)
-                {
-                    char *now = fs_where();
-                    if (!now)
-                        break;
-                    if (strncmp(now, original, USER_BUFFER_SIZE) == 0)
-                        break;
-                    fs_change_dir("..");
-                }
-            }
-        }
-        else
-        {
-            for (int iter = 0; iter < 128; iter++)
-            {
-                char *now = fs_where();
-                if (!now)
-                    break;
-                if (strncmp(now, original, USER_BUFFER_SIZE) == 0)
-                    break;
-                fs_change_dir("..");
-            }
-        }
-    }
+    if (changed && orig_p)
+        fs_change_dir(orig_p);
+
+    free(orig_p);
+    free(listing);
 
     return (DIR *)d;
 }

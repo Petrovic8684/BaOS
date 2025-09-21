@@ -708,3 +708,131 @@ double hypot(double x, double y)
     double r = y / x;
     return x * sqrt(1.0 + r * r);
 }
+
+double acosh(double x)
+{
+    if (x < 1.0)
+    {
+        dbl_bits nanp;
+        nanp.u32[1] = 0x7FF80000u;
+        nanp.u32[0] = 0;
+        return nanp.d;
+    }
+    return log(x + sqrt(x * x - 1.0));
+}
+
+double asinh(double x)
+{
+    if (x == 0.0)
+        return x;
+    double s = (x > 0) ? 1.0 : -1.0;
+    x = fabs(x);
+    return s * log(x + sqrt(x * x + 1.0));
+}
+
+double atanh(double x)
+{
+    if (x >= 1.0 || x <= -1.0)
+    {
+        dbl_bits nanp;
+        nanp.u32[1] = 0x7FF80000u;
+        nanp.u32[0] = 0;
+        return nanp.d;
+    }
+    return 0.5 * log((1.0 + x) / (1.0 - x));
+}
+
+double log1p(double x)
+{
+    if (x <= -1.0)
+    {
+        dbl_bits ninf;
+        ninf.u32[1] = 0xFFF00000u;
+        ninf.u32[0] = 0;
+        return ninf.d;
+    }
+    if (fabs(x) < 1e-8)
+        return x - 0.5 * x * x;
+    return log(1.0 + x);
+}
+
+double expm1(double x)
+{
+    if (fabs(x) < 1e-5)
+        return x + 0.5 * x * x;
+    return exp(x) - 1.0;
+}
+
+double cbrt(double x)
+{
+    if (x == 0.0)
+        return 0.0;
+    double s = (x > 0.0) ? 1.0 : -1.0;
+    x = fabs(x);
+    double y = exp(log(x) / 3.0);
+    return s * y;
+}
+
+double round(double x)
+{
+    if (!isfinite(x))
+        return x;
+    double ip;
+    double frac = modf(x, &ip);
+    if (frac > 0.5)
+        return ip + 1.0;
+    else if (frac < -0.5)
+        return ip - 1.0;
+    else if (frac == 0.5)
+        return ip + 1.0;
+    else if (frac == -0.5)
+        return ip - 1.0;
+    return ip;
+}
+
+double trunc(double x)
+{
+    double ip;
+    modf(x, &ip);
+    return ip;
+}
+
+double fma(double x, double y, double z)
+{
+    return x * y + z;
+}
+
+double nan(const char *tagp)
+{
+    (void)tagp;
+    dbl_bits nanp;
+    nanp.u32[1] = 0x7FF80000u;
+    nanp.u32[0] = 0;
+    return nanp.d;
+}
+
+double inf(int sign)
+{
+    dbl_bits infp;
+    infp.u32[1] = 0x7FF00000u | (sign < 0 ? 0x80000000u : 0);
+    infp.u32[0] = 0;
+    return infp.d;
+}
+
+double fmax(double x, double y)
+{
+    if (isnan(x))
+        return y;
+    if (isnan(y))
+        return x;
+    return (x > y) ? x : y;
+}
+
+double fmin(double x, double y)
+{
+    if (isnan(x))
+        return y;
+    if (isnan(y))
+        return x;
+    return (x < y) ? x : y;
+}

@@ -3,5 +3,6 @@
 *.o
 *.sym
 *.log
+*.a
 
 .vscode/

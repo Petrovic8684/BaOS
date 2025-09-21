@@ -44,6 +44,11 @@ void exit(int code)
         : "eax", "ebx", "memory");
 }
 
+void abort(void)
+{
+    exit(1);
+}
+
 double strtod(const char *nptr, char **endptr)
 {
     const char *s = nptr;
@@ -486,4 +491,158 @@ void *calloc(unsigned int nmemb, unsigned int size)
 
     memset(p, 0, total);
     return p;
+}
+
+static unsigned int rand_seed = 1;
+
+void srand(unsigned int seed)
+{
+    rand_seed = seed;
+}
+
+int rand(void)
+{
+    rand_seed = rand_seed * 1103515245 + 12345;
+    return (int)((rand_seed >> 16) & 0x7FFF);
+}
+
+double atof(const char *nptr)
+{
+    return strtod(nptr, NULL);
+}
+
+int atoi(const char *nptr)
+{
+    return (int)strtol(nptr, NULL, 10);
+}
+
+long atol(const char *nptr)
+{
+    return strtol(nptr, NULL, 10);
+}
+
+int abs(int n)
+{
+    return n < 0 ? -n : n;
+}
+
+long labs(long n)
+{
+    return n < 0 ? -n : n;
+}
+
+long long llabs(long long n)
+{
+    return n < 0 ? -n : n;
+}
+
+div_t div(int numer, int denom)
+{
+    div_t r;
+    r.quot = numer / denom;
+    r.rem = numer % denom;
+    return r;
+}
+
+ldiv_t ldiv(long numer, long denom)
+{
+    ldiv_t r;
+    r.quot = numer / denom;
+    r.rem = numer % denom;
+    return r;
+}
+
+lldiv_t lldiv(long long numer, long long denom)
+{
+    lldiv_t r;
+    int neg_q = 0, neg_r = 0;
+
+    if (numer < 0)
+    {
+        numer = -numer;
+        neg_q = 1;
+    }
+    if (denom < 0)
+    {
+        denom = -denom;
+        neg_q ^= 1;
+    }
+
+    r.quot = 0;
+    r.rem = numer;
+
+    while (r.rem >= denom)
+    {
+        r.rem -= denom;
+        r.quot++;
+    }
+
+    if (neg_q)
+        r.quot = -r.quot;
+    if ((numer < 0) != (denom < 0))
+        r.rem = -r.rem;
+
+    return r;
+}
+
+void *bsearch(const void *key, const void *base, size_t nitems, size_t size,
+              int (*compar)(const void *, const void *))
+{
+    size_t left = 0;
+    size_t right = nitems;
+    while (left < right)
+    {
+        size_t mid = left + (right - left) / 2;
+        const void *elem = (const char *)base + mid * size;
+        int cmp = compar(key, elem);
+        if (cmp < 0)
+            right = mid;
+        else if (cmp > 0)
+            left = mid + 1;
+        else
+            return (void *)elem;
+    }
+    return NULL;
+}
+
+static void qsort_recursive(char *base, size_t nmemb, size_t size,
+                            int (*compar)(const void *, const void *))
+{
+    if (nmemb < 2)
+        return;
+
+    char *pivot = base + (nmemb / 2) * size;
+    char *left = base;
+    char *right = base + (nmemb - 1) * size;
+    char tmp[size];
+
+    while (left <= right)
+    {
+        while (compar(left, pivot) < 0)
+            left += size;
+        while (compar(right, pivot) > 0)
+            right -= size;
+        if (left <= right)
+        {
+            memcpy(tmp, left, size);
+            memcpy(left, right, size);
+            memcpy(right, tmp, size);
+            left += size;
+            right -= size;
+        }
+    }
+
+    size_t left_count = (right - base) / size + 1;
+    size_t right_count = nmemb - ((left - base) / size);
+
+    if (left_count > 0)
+        qsort_recursive(base, left_count, size, compar);
+    if (right_count > 0)
+        qsort_recursive(left, right_count, size, compar);
+}
+
+void qsort(void *base, size_t nmemb, size_t size,
+           int (*compar)(const void *, const void *))
+{
+    qsort_recursive((char *)base, nmemb, size, compar);
 }

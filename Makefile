@@ -19,7 +19,7 @@ KERNEL_SRCS = \
 	kernel/paging/heap/heap.c \
 	kernel/loader/loader.c \
 	kernel/api/syscalls.c \
-	kernel/info/info.c \
+	kernel/info/uname.c \
 	kernel/system/pic/pic.c \
 	kernel/system/idt/idt.c \
 	kernel/system/idt/isr/isr_handlers.c \
@@ -57,11 +57,10 @@ UTILS_SRCS   =  applications/shell/utils/changedir.c \
 				applications/shell/utils/makedir.c \
 				applications/shell/utils/makefile.c \
 				applications/shell/utils/move.c \
-				applications/shell/utils/osname.c \
+				applications/shell/utils/uname.c \
 				applications/shell/utils/readfile.c \
 				applications/shell/utils/shutdown.c \
 				applications/shell/utils/restart.c \
-				applications/shell/utils/version.c \
 				applications/shell/utils/where.c \
 				applications/shell/utils/writefile.c \
 				applications/shell/utils/whatis.c \
@@ -114,6 +113,7 @@ RUNTIME_SRC_LIST = \
 RUNTIME_SRC_OBJS = $(RUNTIME_SRC_LIST:.c=.o)
 RUNTIME_INCLUDE  = -Iruntime/include
 RUNTIME_BIN      = runtime/libc.bin
+RUNTIME_LIB      = runtime/libc.a
 
 # ---------------- Default target ----------------
 all: $(IMG)
@@ -142,6 +142,9 @@ $(CRT0_BIN): $(CRT0_OBJ)
 $(RUNTIME_BIN): $(RUNTIME_SRC_OBJS)
 	$(LD) -m elf_i386 --oformat binary -o $@ $^
 
+$(RUNTIME_LIB): $(RUNTIME_SRC_OBJS)
+	ar rcs $@ $^
+
 $(LIBC_SYM): $(RUNTIME_BIN)
 	$(PY) tools/generate_sym.py $(RUNTIME_BIN) > $@
 
@@ -149,11 +152,11 @@ $(LIBC_SYM): $(RUNTIME_BIN)
 %.o: %.c
 	$(CC) -ffreestanding -m32 -nostdlib -fno-pie $(RUNTIME_INCLUDE) -c $< -o $@
 
-%.bin: %.o $(SHELL_DEPS:.c=.o) $(CRT0_OBJ) $(RUNTIME_SRC_OBJS)
-	$(LD) -m elf_i386 -T kernel/loader/user.ld -o $@ $^
+%.bin: %.o $(SHELL_DEPS:.c=.o) $(CRT0_OBJ) $(RUNTIME_LIB)
+	$(LD) -m elf_i386 -T kernel/loader/user.ld --gc-sections -o $@ $^
 
-%.bin: %.o $(CRT0_OBJ) $(RUNTIME_SRC_OBJS)
-	$(LD) -m elf_i386 -T kernel/loader/user.ld -o $@ $^
+%.bin: %.o $(CRT0_OBJ) $(RUNTIME_LIB)
+	$(LD) -m elf_i386 -T kernel/loader/user.ld --gc-sections -o $@ $^
 
 # ---------------- Disk image -----------------
 $(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMPILER_BIN) $(TEST_BIN) $(UTILS_BIN) \
@@ -164,6 +167,10 @@ $(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMP
 
 	for h in runtime/include/*.h; do \
 		$(PY) tools/mkfs_inject.py $(IMG) $$h /lib/include; \
+	done
+
+	for h in runtime/include/sys/*.h; do \
+		$(PY) tools/mkfs_inject.py $(IMG) $$h /lib/include/sys; \
 	done
 
 	$(PY) tools/mkfs_inject.py $(IMG) $(CRT0_BIN) /lib
@@ -189,4 +196,4 @@ run: $(IMG)
 clean:
 	$(RM) $(BOOT_BIN) $(KERNEL_OBJS) $(KERNEL_BIN) $(IMG) \
 	      $(SHELL_BIN) $(SHELL_DEPS:.c=.o) $(CALC_BIN) $(FILLING_BIN) $(COMPILER_BIN) $(TEST_BIN) $(UTILS_BIN) $(UTILS_OBJS) $(LIBC_SYM) \
-	      $(RUNTIME_SRC_OBJS) $(CRT0_OBJ) $(CRT0_BIN) $(RUNTIME_BIN) $(USER_OBJS)
+	      $(RUNTIME_SRC_OBJS) $(CRT0_OBJ) $(CRT0_BIN) $(RUNTIME_BIN) $(RUNTIME_LIB) $(USER_OBJS)

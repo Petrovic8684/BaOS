@@ -1,8 +1,6 @@
 #ifndef TIME_H
 #define TIME_H
 
-#include <stddef.h>
-
 typedef long time_t;
 
 struct tm

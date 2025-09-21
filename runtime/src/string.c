@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stdlib.h>
 
 size_t strlen(const char *s)
 {
@@ -316,4 +317,38 @@ char *strtok(char *s, const char *delim)
 {
     static char *saveptr;
     return strtok_r(s, delim, &saveptr);
+}
+
+char *strdup(const char *s)
+{
+    if (!s)
+        return NULL;
+
+    size_t len = strlen(s);
+    char *new_str = (char *)malloc(len + 1);
+    if (!new_str)
+        return NULL;
+
+    for (size_t i = 0; i <= len; i++)
+        new_str[i] = s[i];
+
+    return new_str;
+}
+
+char *stpcpy(char *dest, const char *src)
+{
+    while (*src)
+        *dest++ = *src++;
+    *dest = '\0';
+    return dest;
+}
+
+char *stpncpy(char *dest, const char *src, size_t n)
+{
+    size_t i = 0;
+    for (; i < n && src[i] != '\0'; i++)
+        dest[i] = src[i];
+    for (; i < n; i++)
+        dest[i] = '\0';
+    return dest + ((i < n) ? i : n);
 }

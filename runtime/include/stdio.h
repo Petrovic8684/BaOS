@@ -5,7 +5,6 @@
 #include <stddef.h>
 
 #define EOF -1
-#define BUFSIZ 2048
 
 #define SEEK_SET 0
 #define SEEK_CUR 1
@@ -16,7 +15,7 @@ struct _FILE
     const char *name;
     unsigned int mode;
     unsigned int pos;
-    unsigned char buf[BUFSIZ];
+    unsigned char *buf;
     unsigned int buf_pos;
     unsigned int buf_end;
     int eof;

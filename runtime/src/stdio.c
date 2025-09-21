@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #define SYS_WRITE 1
 #define SYS_READ 3
@@ -14,7 +15,6 @@
 #define SYS_GET_CURSOR_COL 19
 
 #define MAX_OPEN_FILES 16
-#define USER_BUFFER_SIZE 2048
 
 static inline void sys_write(const char *str)
 {
@@ -76,6 +76,7 @@ static inline int fs_write_file(const char *name, const unsigned char *data, uns
         const unsigned char *data;
         unsigned int size;
     } args = {name, data, size};
+
     unsigned int ret;
     asm volatile(
         "movl %[num], %%eax\n\t"
@@ -506,9 +507,9 @@ static FILE *alloc_file_slot(void)
     {
         if (_file_table[i].name == NULL)
         {
-            _file_table[i].name = NULL;
             _file_table[i].mode = 0;
             _file_table[i].pos = 0;
+            _file_table[i].buf = NULL;
             _file_table[i].buf_pos = 0;
             _file_table[i].buf_end = 0;
             _file_table[i].eof = 0;
@@ -516,7 +517,6 @@ static FILE *alloc_file_slot(void)
             return &_file_table[i];
         }
     }
-
     return NULL;
 }
 
@@ -525,7 +525,18 @@ static void free_file_slot(FILE *f)
     if (!f)
         return;
 
-    f->name = NULL;
+    if (f->buf)
+    {
+        free(f->buf);
+        f->buf = NULL;
+    }
+
+    if (f->name)
+    {
+        free((void *)f->name);
+        f->name = NULL;
+    }
+
     f->mode = 0;
     f->pos = 0;
     f->buf_pos = 0;
@@ -538,44 +549,40 @@ static int stdin_ungetc = -1;
 
 int fputc(int c, FILE *stream)
 {
-    if (stream == stdout || stream == stderr)
-    {
-        char buf[2] = {(char)c, 0};
-        write(buf);
-        return c;
-    }
-
     if (!stream)
         return EOF;
 
-    stream->buf[stream->buf_pos++] = (unsigned char)c;
-
-    if (stream->buf_pos >= BUFSIZ)
+    if (stream == stdout || stream == stderr)
     {
-        unsigned char tmp_all[USER_BUFFER_SIZE];
-        unsigned int got = 0;
+        char tmp[2] = {(char)c, 0};
+        write(tmp);
+        return c;
+    }
 
-        int rc = fs_read_file(stream->name, tmp_all, USER_BUFFER_SIZE, &got);
-        if (rc != 0)
-            got = 0;
-
-        unsigned int can_add = USER_BUFFER_SIZE - got;
-        if (can_add > (unsigned int)stream->buf_pos)
-            can_add = (unsigned int)stream->buf_pos;
-
-        if (can_add > 0)
-            memcpy(tmp_all + got, stream->buf, can_add);
-
-        int wres = fs_write_file(stream->name, tmp_all, got + can_add);
-        stream->buf_pos = 0;
-
-        if (wres < 0)
+    if (!stream->buf)
+    {
+        stream->buf = (unsigned char *)malloc(128);
+        if (!stream->buf)
         {
             stream->err = 1;
             return EOF;
         }
+        stream->buf_pos = 0;
+        stream->buf_end = 128;
+    }
+    else if (stream->buf_pos >= stream->buf_end)
+    {
+        unsigned char *new_buf = (unsigned char *)realloc(stream->buf, stream->buf_end * 2);
+        if (!new_buf)
+        {
+            stream->err = 1;
+            return EOF;
+        }
+        stream->buf = new_buf;
+        stream->buf_end *= 2;
     }
 
+    stream->buf[stream->buf_pos++] = (unsigned char)c;
     return c;
 }
 
@@ -864,12 +871,14 @@ static void redraw_buffer(const char *buf, int len, int start_row, int start_col
 
     if (len > 0)
     {
-        char tmp[BUFSIZ + 1];
-        if (len > BUFSIZ)
-            len = BUFSIZ;
+        char *tmp = (char *)malloc(len + 1);
+        if (!tmp)
+            return;
+
         memcpy(tmp, buf, len);
         tmp[len] = '\0';
         write(tmp);
+        free(tmp);
     }
 
     send_move_syscall(start_row + 1, start_col + len + 1);
@@ -1280,28 +1289,41 @@ int fflush(FILE *stream)
     if (stream->buf_pos == 0)
         return 0;
 
-    {
-        unsigned char combined[USER_BUFFER_SIZE];
-        unsigned int got = 0;
+    int file_size_i = fs_read_file_size(stream->name);
+    if (file_size_i < 0)
+        file_size_i = 0;
 
-        int rc = fs_read_file(stream->name, combined, USER_BUFFER_SIZE, &got);
-        if (rc != 0)
+    size_t file_size = (size_t)file_size_i;
+    size_t need = file_size + (size_t)stream->buf_pos;
+
+    if (need < file_size || need < (size_t)stream->buf_pos)
+    {
+        stream->err = 1;
+        return EOF;
+    }
+
+    unsigned char *combined = (unsigned char *)malloc(need);
+    if (!combined)
+    {
+        stream->err = 1;
+        return EOF;
+    }
+
+    unsigned int got = 0;
+    if (file_size > 0)
+        if (fs_read_file(stream->name, combined, (unsigned int)file_size, &got) != 0)
             got = 0;
 
-        unsigned int can_add = USER_BUFFER_SIZE - got;
-        if (can_add > (unsigned int)stream->buf_pos)
-            can_add = (unsigned int)stream->buf_pos;
+    memcpy(combined + got, stream->buf, (size_t)stream->buf_pos);
 
-        if (can_add > 0)
-            memcpy(combined + got, stream->buf, can_add);
+    int wres = fs_write_file(stream->name, combined, (unsigned int)(got + stream->buf_pos));
+    free(combined);
+    stream->buf_pos = 0;
 
-        int wres = fs_write_file(stream->name, combined, got + can_add);
-        stream->buf_pos = 0;
-        if (wres < 0)
-        {
-            stream->err = 1;
-            return EOF;
-        }
+    if (wres < 0)
+    {
+        stream->err = 1;
+        return EOF;
     }
 
     return 0;
@@ -1316,22 +1338,38 @@ FILE *fopen(const char *pathname, const char *mode)
     if (!f)
         return NULL;
 
-    f->name = pathname;
-    f->pos = 0;
+    f->buf = NULL;
     f->buf_pos = 0;
     f->buf_end = 0;
+    f->name = strdup(pathname);
+    if (!f->name)
+    {
+        free_file_slot(f);
+        return NULL;
+    }
     f->eof = 0;
     f->err = 0;
 
     if (mode[0] == 'r')
     {
         f->mode = 0;
-        unsigned int got = 0;
-        int rc = fs_read_file(f->name, f->buf, BUFSIZ, &got);
-        if (rc == 0)
+        int size = fs_read_file_size(f->name);
+        if (size > 0)
         {
-            f->buf_end = got;
+            f->buf = (unsigned char *)malloc(size);
+            if (!f->buf)
+            {
+                free_file_slot(f);
+                return NULL;
+            }
+            unsigned int got = 0;
+            if (fs_read_file(f->name, f->buf, size, &got) != 0)
+            {
+                free_file_slot(f);
+                return NULL;
+            }
             f->buf_pos = 0;
+            f->buf_end = got;
         }
         else
         {
@@ -1342,12 +1380,8 @@ FILE *fopen(const char *pathname, const char *mode)
     else if (mode[0] == 'w')
     {
         f->mode = 1;
-
         fs_delete_file(f->name);
         fs_make_file(f->name);
-
-        f->buf_pos = 0;
-        f->buf_end = 0;
     }
     else if (mode[0] == 'a')
     {
@@ -1355,8 +1389,16 @@ FILE *fopen(const char *pathname, const char *mode)
         int size = fs_read_file_size(f->name);
         if (size > 0)
         {
-            f->buf_end = (unsigned int)size;
-            f->buf_pos = f->buf_end % BUFSIZ;
+            f->buf = (unsigned char *)malloc(size);
+            if (!f->buf)
+            {
+                free_file_slot(f);
+                return NULL;
+            }
+            unsigned int got = 0;
+            fs_read_file(f->name, f->buf, size, &got);
+            f->buf_pos = got;
+            f->buf_end = got;
         }
         else
         {
@@ -1383,8 +1425,7 @@ int fclose(FILE *stream)
         return EOF;
 
     if (stream->mode == 1 && stream->buf_pos > 0)
-        if (fflush(stream) == EOF)
-            stream->err = 1;
+        fflush(stream);
 
     free_file_slot(stream);
     return 0;

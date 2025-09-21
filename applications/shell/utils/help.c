@@ -18,14 +18,13 @@ int main(void)
         "  \033[1;33mreadfile\033[0m   - Read text from file     "
         "\033[1;33mcopy\033[0m       - Copy file or directory\n"
         "  \033[1;33mmove\033[0m       - Move file or directory  "
-        "\033[1;33mosname\033[0m     - Show OS name\n"
-        "  \033[1;33mversion\033[0m    - Show kernel version     "
-        "\033[1;33mclear\033[0m      - Clear the screen\n"
-        "  \033[1;33mfileinfo\033[0m   - Show file information   "
-        "\033[1;33mshutdown\033[0m   - Shutdown the system\n"
-        "  \033[1;33mrestart\033[0m    - Restart the system\n\n");
+        "\033[1;33muname\033[0m      - Show system information\n"
+        "  \033[1;33mclear\033[0m      - Clear the screen        "
+        "\033[1;33mfileinfo\033[0m   - Show file information\n"
+        "  \033[1;33mshutdown\033[0m   - Shutdown the system     "
+        "\033[1;33mrestart\033[0m    - Restart the system\n\n");
 
-    printf("- To see what any command does, type '\033[1;33mwhatis\033[0m' followed by the command name without arguments.\n");
+    printf("To see what any command does, type '\033[1;33mwhatis\033[0m' followed by the command name without any arguments.\n");
 
     return 0;
 }

@@ -1,20 +1,44 @@
 #include <unistd.h>
 #include <string.h>
+#include <stdlib.h>
 
 #define SYS_FS_WHERE 8
 #define SYS_FS_CHANGE_DIR 10
 #define SYS_FS_DELETE_DIR 12
 
-#define USER_BUFFER_SIZE 2048
-
-static inline char *fs_where(void)
+static unsigned int fs_where_len(void)
 {
-    static char buffer[USER_BUFFER_SIZE];
-    asm volatile("movl %[num], %%eax\n\t"
-                 "movl %[buffer], %%ebx\n\t"
-                 "movl %[size], %%ecx\n\t"
-                 "int $0x80\n\t" : : [num] "i"(SYS_FS_WHERE), [buffer] "r"(buffer), [size] "r"(USER_BUFFER_SIZE) : "eax", "ebx", "ecx", "memory");
-    return buffer;
+    unsigned int len;
+    asm volatile(
+        "movl %[num], %%eax\n\t"
+        "movl $0, %%ebx\n\t"
+        "int $0x80\n\t"
+        "movl %%eax, %[res]"
+        : [res] "=r"(len)
+        : [num] "i"(SYS_FS_WHERE)
+        : "eax", "ebx", "memory");
+    return len;
+}
+
+static char *fs_where(void)
+{
+    unsigned int len = fs_where_len();
+    if (len == 0)
+        return NULL;
+
+    char *buf = malloc(len);
+    if (!buf)
+        return NULL;
+
+    asm volatile(
+        "movl %[num], %%eax\n\t"
+        "movl %[ptr], %%ebx\n\t"
+        "int $0x80\n\t"
+        :
+        : [num] "i"(SYS_FS_WHERE), [ptr] "r"(buf)
+        : "eax", "ebx", "memory");
+
+    return buf;
 }
 
 static inline int fs_change_dir(const char *name)
@@ -58,9 +82,13 @@ char *getcwd(char *buf, size_t size)
 
     size_t len = strlen(p);
     if (len + 1 > size)
+    {
+        free(p);
         return NULL;
+    }
 
     memcpy(buf, p, len + 1);
+    free(p);
     return buf;
 }
 
