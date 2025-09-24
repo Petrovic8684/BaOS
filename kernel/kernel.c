@@ -6,7 +6,7 @@
 #include "./paging/heap/heap.h"
 #include "./fs/fs.h"
 #include "./loader/loader.h"
-#include "./drivers/keyboard/keyboard.h"
+#include "./drivers/drivers.h"
 
 __attribute__((section(".text"), used, noreturn)) void kernel_main(void)
 {
@@ -20,7 +20,7 @@ __attribute__((section(".text"), used, noreturn)) void kernel_main(void)
     tss_init();
 
     fs_init();
-    keyboard_init();
+    drivers_init();
 
     load_shell();
 

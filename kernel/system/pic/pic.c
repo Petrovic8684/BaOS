@@ -17,7 +17,7 @@ void pic_init(void)
     outb(0xA1, 0x01);
 
     outb(0x21, 0xF9);
-    outb(0xA1, 0x3F);
+    outb(0xA1, 0x3E);
 
     write("\033[32mPIC initialized.\n\033[0m");
 }

@@ -17,6 +17,7 @@ KERNEL_SRCS = \
 	kernel/fs/fs.c \
 	kernel/paging/paging.c \
 	kernel/paging/heap/heap.c \
+	kernel/drivers/drivers.c \
 	kernel/loader/loader.c \
 	kernel/api/syscalls.c \
 	kernel/info/sys/sys.c \
@@ -80,8 +81,6 @@ CALC_BIN     = applications/calc/calc.bin
 FILLING_SRC  = applications/filling/filling.c
 FILLING_BIN  = applications/filling/filling.bin
 
-COMPILER_BIN = applications/baoc/baoc.bin
-
 USER_OBJS    = applications/*/*.o
 
 DOCS = applications/shell/utils/docs/*
@@ -97,8 +96,6 @@ IMG_SIZE  = 16
 CRT0_SRC  = runtime/crt0.c
 CRT0_OBJ  = runtime/crt0.o
 CRT0_BIN  = runtime/crt0.bin
-
-LIBC_SYM  = runtime/libc.sym
 
 RUNTIME_SRC_LIST = \
 	runtime/src/stdio.c \
@@ -148,9 +145,6 @@ $(RUNTIME_BIN): $(RUNTIME_SRC_OBJS)
 $(RUNTIME_LIB): $(RUNTIME_SRC_OBJS)
 	ar rcs $@ $^
 
-$(LIBC_SYM): $(RUNTIME_BIN)
-	$(PY) tools/generate_sym.py $(RUNTIME_BIN) > $@
-
 # ---------------- Shell & Apps build ----------------
 %.o: %.c
 	$(CC) -ffreestanding -m32 -nostdlib -fno-pie $(RUNTIME_INCLUDE) -c $< -o $@
@@ -159,8 +153,8 @@ $(LIBC_SYM): $(RUNTIME_BIN)
 	$(LD) -m elf_i386 -T kernel/loader/user.ld --gc-sections -o $@ $^
 
 # ---------------- Disk image -----------------
-$(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMPILER_BIN) $(UTILS_BIN) \
-       $(RUNTIME_BIN) $(CRT0_BIN) $(LIBC_SYM)
+$(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(UTILS_BIN) \
+       $(RUNTIME_BIN) $(CRT0_BIN)
 	$(DD) if=/dev/zero of=$(IMG) bs=1M count=$(IMG_SIZE)
 	$(DD) if=$(BOOT_BIN) of=$(IMG) conv=notrunc
 	$(DD) if=$(KERNEL_BIN) of=$(IMG) seek=1 conv=notrunc
@@ -175,15 +169,12 @@ $(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMP
 
 	$(PY) tools/mkfs_inject.py $(IMG) $(CRT0_BIN) /lib
 	$(PY) tools/mkfs_inject.py $(IMG) $(RUNTIME_BIN) /lib
-	$(PY) tools/mkfs_inject.py $(IMG) $(LIBC_SYM) /lib
 
-	for prog in $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMPILER_BIN); do \
+	for prog in $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN); do \
 		$(PY) tools/mkfs_inject.py $(IMG) $$prog /programs; \
 	done
 	
 	$(PY) tools/mkfs_inject.py $(IMG) kernel/drivers/rtc/timezone /config;
-
-	$(PY) tools/mkfs_inject.py $(IMG) applications/test.c /programs;
 
 	for prog in $(UTILS_BIN); do \
 		$(PY) tools/mkfs_inject.py $(IMG) $$prog /programs/utils; \
@@ -193,12 +184,11 @@ $(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMP
 		$(PY) tools/mkfs_inject.py $(IMG) $$doc /docs; \
 	done
 
-
 # ---------------- Run & Clean ----------------
 run: $(IMG)
 	$(QEMU) -m 3G -drive format=raw,file=$(IMG),if=ide
 
 clean:
 	$(RM) $(BOOT_BIN) $(KERNEL_OBJS) $(KERNEL_BIN) $(IMG) \
-	      $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMPILER_BIN) $(UTILS_BIN) $(UTILS_OBJS) $(LIBC_SYM) \
+	      $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(UTILS_BIN) $(UTILS_OBJS) \
 	      $(RUNTIME_SRC_OBJS) $(CRT0_OBJ) $(CRT0_BIN) $(RUNTIME_BIN) $(RUNTIME_LIB) $(USER_OBJS)
