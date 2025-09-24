@@ -101,11 +101,11 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    printf("\033[1;33mFile count:\033[0m\n\n");
+    printf("\033[1;33m--- FILE COUNT ---\033[0m\n\n");
 
     printf("\033[1;33mCharacters:\033[0m %d\n", chars);
-    printf("\033[1;33mWords:\033[0m %d\n", words);
-    printf("\033[1;33mLines:\033[0m %d\n", lines);
+    printf("\033[1;33mWords:\033[0m      %d\n", words);
+    printf("\033[1;33mLines:\033[0m      %d\n", lines);
 
     free(buffer);
     return 0;
