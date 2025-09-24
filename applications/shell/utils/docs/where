@@ -1,0 +1,10 @@
+where - shows the current working directory
+
+Description:
+The 'where' command prints the full path of the current working directory. It does not take any arguments.
+
+Usage:
+where
+
+Examples:
+where

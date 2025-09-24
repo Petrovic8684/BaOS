@@ -1,0 +1,12 @@
+filedump - displays a file's contents in hexadecimal and ASCII
+
+Description:
+The 'filedump' command reads a specified file and prints its contents in a combined hexadecimal and ASCII format. Each line shows 16 bytes, with their offset in the file, hexadecimal values, and printable ASCII characters. Non-printable characters are displayed as '..' It is useful for inspecting binary files or debugging file content. Errors are reported if the file cannot be opened or read.
+
+Usage:
+filedump <file_name>
+
+Examples:
+filedump notes.txt # Output: Hex + ASCII view of notes.txt
+filedump binary.dat # Output: Hex + ASCII view of binary.dat
+filedump missing.txt # Error: Cannot open file: missing.txt

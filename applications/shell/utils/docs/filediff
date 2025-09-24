@@ -1,0 +1,13 @@
+filediff - compares two files byte by byte
+
+Description:
+The 'filediff' command compares two specified files and checks if they are identical. It opens both files, verifies their sizes, and performs a byte-by-byte comparison. If the files differ, it reports the first differing byte with its hexadecimal value and printable character (non-printable characters are shown as '.'). Errors are reported if files cannot be opened, read, or if memory allocation fails.
+
+Usage:
+filediff <file1> <file2>
+
+Examples:
+filediff notes.txt backup.txt # Output: Files are identical
+filediff notes.txt backup2.txt # Output: Files differ at byte 45 (0x41 'A' vs 0x42 'B')
+filediff empty.txt empty2.txt # Output: Files are identical (both empty)
+filediff missing.txt file.txt # Error: Could not open file 'missing.txt'

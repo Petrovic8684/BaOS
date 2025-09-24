@@ -1,0 +1,12 @@
+filemove - moves or renames file
+
+Description:
+The 'filemove' command relocates a file from the specified source path to the destination path. It can also be used to rename a file. If the destination is an existing directory, the source will be moved inside it.
+
+Usage:
+filemove <source> <destination>
+
+Examples:
+filemove file.txt /home/user/Documents
+filemove oldname.txt newname.txt
+filemove # Error: Invalid source or destination provided.

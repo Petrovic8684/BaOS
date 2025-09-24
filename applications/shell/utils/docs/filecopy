@@ -1,0 +1,12 @@
+filecopy - copies file from source to destination
+
+Description:
+The 'filecopy' command copies a file from the specified source path to the destination path. If the destination is an existing directory, the source will be copied inside it.
+
+Usage:
+filecopy <source> <destination>
+
+Examples:
+filecopy file.txt /home/user/Documents
+filecopy file.txt file2.txt
+filecopy # Error: Invalid source or destination provided.

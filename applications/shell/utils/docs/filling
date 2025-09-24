@@ -1,0 +1,12 @@
+filling - terminal-based text editor
+
+Description:
+The 'filling' program is a lightweight terminal text editor that allows you to create, view, and edit text files. It supports basic cursor movement, text insertion, deletion, and saving. If a file with the ".c" extension is opened, C syntax highlighting is automatically enabled. Non-text files are opened in read-only mode with a warning.
+
+Usage:
+filling [<filename>]
+
+Examples:
+filling
+filling notes.txt
+filling program.c

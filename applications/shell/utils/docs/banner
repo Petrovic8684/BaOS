@@ -1,0 +1,13 @@
+banner - prints text as large ASCII art letters
+
+Description:
+The 'banner' command displays the provided text as large ASCII art letters. It supports uppercase and lowercase letters, digits, and a selection of common symbols. The output is adjusted to fit an 80×25 terminal screen. If the text exceeds the available space, it will be truncated with a warning. If no text is provided, an error message is shown.
+
+Usage:
+banner <text>
+
+Examples:
+banner Hello World
+banner 123!@#
+banner # Error: Invalid text provided.
+banner ThisIsAVeryLongTextThatExceedsTheScreenWidth # Warning: output truncated.

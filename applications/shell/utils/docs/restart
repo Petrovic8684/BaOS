@@ -1,0 +1,10 @@
+restart - restarts the system
+
+Description:
+The 'restart' command immediately reboots the system using a low-level system call. It does not take any arguments. Use with caution, as unsaved data may be lost.
+
+Usage:
+restart
+
+Examples:
+restart

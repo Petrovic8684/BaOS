@@ -1,0 +1,13 @@
+filecount - counts characters, words, and lines in a text file
+
+Description:
+The 'filecount' command opens a specified text file and counts the number of characters, words, and lines. It validates that the file exists and is a text file; binary files are rejected. If the file is empty, it reports (empty file). Errors are reported if the file cannot be opened, read, or if memory allocation fails.
+
+Usage:
+filecount <file_name>
+
+Examples:
+filecount notes.txt # Output: Characters: 345, Words: 78, Lines: 12
+filecount empty.txt # Output: (empty file)
+filecount binary.bin # Error: Not a text file
+filecount missing.txt # Error: Could not open file 'missing.txt'

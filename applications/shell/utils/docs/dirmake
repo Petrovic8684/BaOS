@@ -1,0 +1,12 @@
+dirmake - creates a new directory
+
+Description:
+The 'dirmake' command creates a new directory with the specified name. If no name is provided, or if the directory cannot be created, an error message is shown.
+
+Usage:
+dirmake <directory_name>
+
+Examples:
+dirmake NewDirectory
+dirmake # Error: Invalid name provided.
+dirmake ExistingDirectory # Error: Could not create directory 'ExistingDirectory'.

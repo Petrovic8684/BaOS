@@ -1,11 +1,29 @@
 #include "fs.h"
+#include "../drivers/display/display.h"
+#include "../drivers/disk/ata.h"
+#include "../helpers/string/string.h"
+#include "../helpers/memory/memory.h"
+#include "../helpers/ports/ports.h"
+#include "../paging/heap/heap.h"
+
+#define FS_MAGIC 0x46535953u // 'FSYS'
+
+#define SUPERBLOCK_LBA 2048u
+#define DIR_TABLE_START_LBA (SUPERBLOCK_LBA + 1u)
+#define DIR_TABLE_SECTORS (MAX_DIRS)
+#define FILE_TABLE_START_LBA (DIR_TABLE_START_LBA + DIR_TABLE_SECTORS)
+#define FILE_TABLE_SECTORS (MAX_FILES)
+#define DATA_START_LBA (FILE_TABLE_START_LBA + FILE_TABLE_SECTORS)
 
 static int fs_initialized = 0;
+
 static unsigned int fs_current_dir_lba = 0;
 static FS_SuperOnDisk fs_super;
 
 static int read_sector(unsigned int lba, void *buf)
 {
+    ATA_Driver *fs_drv = ata_get_fs_drv();
+
     if (!fs_drv || !fs_drv->exists)
         return FS_ERR_NO_DRV;
 
@@ -18,6 +36,8 @@ static int read_sector(unsigned int lba, void *buf)
 
 static int write_sector(unsigned int lba, const void *buf)
 {
+    ATA_Driver *fs_drv = ata_get_fs_drv();
+
     if (!fs_drv || !fs_drv->exists)
         return FS_ERR_NO_DRV;
 
@@ -185,43 +205,221 @@ static void set_file_bitmap(int idx, unsigned char val)
         fs_super.file_bitmap[idx] = val ? 1 : 0;
 }
 
+static int contains_slash(const char *s)
+{
+    if (!s)
+        return 0;
+    unsigned int n = str_count(s);
+    for (unsigned int i = 0; i < n; i++)
+        if (s[i] == '/')
+            return 1;
+    return 0;
+}
+
+static int get_next_component(const char *path, unsigned int *pos, char *out, unsigned int out_sz)
+{
+    unsigned int n = str_count(path);
+    unsigned int i = *pos;
+
+    while (i < n && path[i] == '/')
+        i++;
+
+    if (i >= n)
+    {
+        out[0] = '\0';
+        *pos = i;
+        return 0;
+    }
+
+    unsigned int start = i;
+    unsigned int len = 0;
+    while (i < n && path[i] != '/')
+    {
+        if (len + 1 >= out_sz)
+            return -1;
+        out[len++] = path[i++];
+    }
+    out[len] = '\0';
+    *pos = i;
+
+    return 1;
+}
+
+static int has_more_components(const char *path, unsigned int pos)
+{
+    unsigned int n = str_count(path);
+    unsigned int i = pos;
+    while (i < n)
+    {
+        if (path[i] == '/')
+        {
+            i++;
+            continue;
+        }
+        return 1;
+    }
+    return 0;
+}
+
+static int find_child_dir_lba(const FS_Dir *parent_dir, const char *name, unsigned int *out_lba)
+{
+    for (unsigned int i = 0; i < parent_dir->dir_count; i++)
+    {
+        unsigned int child_lba = parent_dir->dirs_lba[i];
+        FS_Dir tmp;
+        if (read_dir_lba(child_lba, &tmp) != FS_OK)
+            return FS_ERR_IO;
+        if (str_equal(tmp.name, name))
+        {
+            *out_lba = child_lba;
+            return FS_OK;
+        }
+    }
+    return FS_ERR_NOT_EXISTS;
+}
+
+static int resolve_path(const char *path, unsigned int *out_dir_lba, char *out_name, int stop_before_last)
+{
+    if (!fs_initialized)
+        return FS_ERR_NOT_INIT;
+
+    unsigned int pos = 0;
+    unsigned int n = str_count(path);
+
+    if (n == 0)
+    {
+        if (stop_before_last)
+        {
+            out_name[0] = '\0';
+            *out_dir_lba = fs_current_dir_lba;
+        }
+        else
+        {
+            *out_dir_lba = fs_current_dir_lba;
+            if (out_name)
+                out_name[0] = '\0';
+        }
+        return FS_OK;
+    }
+
+    unsigned int cur_lba;
+    if (path[0] == '/')
+    {
+        cur_lba = fs_super.root_dir_lba;
+        pos = 1;
+    }
+    else
+    {
+        cur_lba = fs_current_dir_lba;
+        pos = 0;
+    }
+
+    char token[MAX_NAME];
+    int rc;
+    int produced;
+
+    while (1)
+    {
+        produced = get_next_component(path, &pos, token, sizeof(token));
+        if (produced == 0)
+        {
+            if (stop_before_last)
+            {
+                out_name[0] = '\0';
+                *out_dir_lba = cur_lba;
+                return FS_OK;
+            }
+            else
+            {
+                *out_dir_lba = cur_lba;
+                if (out_name)
+                    out_name[0] = '\0';
+                return FS_OK;
+            }
+        }
+        if (produced == -1)
+            return FS_ERR_NAME_LONG;
+
+        int more = has_more_components(path, pos);
+        int is_last = (more == 0);
+
+        if (stop_before_last && is_last)
+        {
+            str_copy_fixed(out_name, token, MAX_NAME);
+            *out_dir_lba = cur_lba;
+            return FS_OK;
+        }
+
+        if (str_equal(token, "."))
+            continue;
+
+        else if (str_equal(token, ".."))
+        {
+            FS_Dir curdir;
+            if (read_dir_lba(cur_lba, &curdir) != FS_OK)
+                return FS_ERR_IO;
+            cur_lba = curdir.parent_lba;
+            continue;
+        }
+        else
+        {
+            FS_Dir curdir;
+            if (read_dir_lba(cur_lba, &curdir) != FS_OK)
+                return FS_ERR_IO;
+            unsigned int child_lba = 0;
+            rc = find_child_dir_lba(&curdir, token, &child_lba);
+            if (rc != FS_OK)
+                return FS_ERR_NOT_EXISTS;
+            cur_lba = child_lba;
+            continue;
+        }
+    }
+
+    return FS_ERR_IO;
+}
+
+int fs_is_initialized(void)
+{
+    return fs_initialized;
+}
+
 void fs_init(void)
 {
-    static ATA_Driver drv;
+    static ATA_Driver drv_inst;
+    ATA_Driver *drv = &drv_inst;
 
-    clear();
-    write("fs_init: start.\n");
-    if (ata_init(&drv, 0x1F0, 0x3F6, 0) != 0)
+    write("Initializing file system...\n");
+    if (ata_init(drv, 0x1F0, 0x3F6, 0) != 0)
     {
-        write_colored("fs_init: ATA init failed.\n", 0x04);
+        write("\033[31mError: ATA init failed.\033[0m\n");
 
         fs_initialized = 0;
-        fs_drv = 0;
+        ata_set_fs_drv(((void *)0));
         return;
     }
 
-    fs_drv = &drv;
-    write_colored("fs_init: ATA init ok.\n", 0x02);
+    ata_set_fs_drv(drv);
+    write("\033[32mATA initialized.\033[0m\n");
 
-    if (!fs_drv->exists)
+    if (!drv->exists)
     {
-        write_colored("fs_init: no ata device.\n", 0x04);
+        write("\033[31mError: No ata device found.\033[0m\n");
 
         fs_initialized = 0;
         return;
     }
 
-    write("fs_init: loading super.\n");
+    write("Loading super...\n");
     if (load_super() == FS_OK)
     {
         fs_current_dir_lba = fs_super.root_dir_lba;
         fs_initialized = 1;
 
-        write_colored("fs_init: using existing FS on disk.\n\n", 0x02);
+        write("\033[32mUsing existing file system on disk.\033[0m\n");
         return;
     }
 
-    write_colored("fs_init: no valid super - formatting new FS.\n", 0x02);
+    write("\033[32mNo valid super found. Formatting a new file system.\033[0m\n");
 
     mem_set(&fs_super, 0, sizeof(FS_SuperOnDisk));
 
@@ -245,10 +443,10 @@ void fs_init(void)
     root.dir_count = 0;
     root.file_count = 0;
 
-    write("fs_init: writing root dir.\n");
+    write("Writing root directory...\n");
     if (write_dir_lba(root_lba, &root) != FS_OK)
     {
-        write_colored("fs_init: failed to write root dir.\n", 0x04);
+        write("\033[31mError: Failed to write root directory.\033[0m\n");
 
         fs_initialized = 0;
         return;
@@ -257,10 +455,10 @@ void fs_init(void)
     set_dir_bitmap(root_idx, 1);
     fs_super.root_dir_lba = root_lba;
 
-    write("fs_init: storing super.\n");
+    write("Storing super...\n");
     if (store_super() != FS_OK)
     {
-        write_colored("fs_init: failed to write/verify super\n", 0x04);
+        write("\033[31mError: Failed to write or verify super.\033[0m\n");
 
         fs_initialized = 0;
         return;
@@ -269,19 +467,7 @@ void fs_init(void)
     fs_current_dir_lba = root_lba;
     fs_initialized = 1;
 
-    write_colored("fs_init: created new FS.\n\n", 0x02);
-}
-
-const char *fs_get_current_dir_name(void)
-{
-    static FS_Dir cur;
-    if (!fs_initialized)
-        return "(fs not init)";
-
-    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
-        return "(io error)";
-
-    return cur.name;
+    write("\033[32mCreated a new file system.\033[0m\n");
 }
 
 int fs_make_dir(const char *name)
@@ -289,14 +475,20 @@ int fs_make_dir(const char *name)
     if (!fs_initialized)
         return FS_ERR_NOT_INIT;
 
-    if (str_count(name) >= MAX_NAME)
+    if (!contains_slash(name) && str_count(name) >= MAX_NAME)
         return FS_ERR_NAME_LONG;
 
-    if (str_count(name) == 0)
+    char final_name[MAX_NAME];
+    unsigned int parent_lba = 0;
+    int rc = resolve_path(name, &parent_lba, final_name, 1);
+    if (rc != FS_OK)
+        return rc;
+
+    if (str_count(final_name) == 0)
         return FS_ERR_NO_NAME;
 
     FS_Dir cur;
-    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+    if (read_dir_lba(parent_lba, &cur) != FS_OK)
         return FS_ERR_IO;
 
     if ((int)cur.dir_count >= MAX_DIRS_PER_DIR)
@@ -310,7 +502,7 @@ int fs_make_dir(const char *name)
         if (read_dir_lba(child_lba, &tmp) != FS_OK)
             return FS_ERR_IO;
 
-        if (str_equal(tmp.name, name))
+        if (str_equal(tmp.name, final_name))
             return FS_ERR_EXISTS;
     }
 
@@ -322,7 +514,7 @@ int fs_make_dir(const char *name)
         if (read_file_lba(child_lba, &tmp) != FS_OK)
             return FS_ERR_IO;
 
-        if (str_equal(tmp.name, name))
+        if (str_equal(tmp.name, final_name))
             return FS_ERR_EXISTS;
     }
 
@@ -334,8 +526,8 @@ int fs_make_dir(const char *name)
 
     FS_Dir nd;
     mem_set(&nd, 0, sizeof(FS_Dir));
-    str_copy_fixed(nd.name, name, MAX_NAME);
-    nd.parent_lba = fs_current_dir_lba;
+    str_copy_fixed(nd.name, final_name, MAX_NAME);
+    nd.parent_lba = parent_lba;
     nd.dir_count = 0;
     nd.file_count = 0;
 
@@ -349,7 +541,7 @@ int fs_make_dir(const char *name)
     cur.dirs_lba[cur.dir_count] = new_lba;
     cur.dir_count++;
 
-    if (write_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+    if (write_dir_lba(parent_lba, &cur) != FS_OK)
         return FS_ERR_IO;
 
     return FS_OK;
@@ -360,14 +552,20 @@ int fs_make_file(const char *name)
     if (!fs_initialized)
         return FS_ERR_NOT_INIT;
 
-    if (str_count(name) >= MAX_NAME)
+    if (!contains_slash(name) && str_count(name) >= MAX_NAME)
         return FS_ERR_NAME_LONG;
 
-    if (str_count(name) == 0)
+    char final_name[MAX_NAME];
+    unsigned int parent_lba = 0;
+    int rc = resolve_path(name, &parent_lba, final_name, 1);
+    if (rc != FS_OK)
+        return rc;
+
+    if (str_count(final_name) == 0)
         return FS_ERR_NO_NAME;
 
     FS_Dir cur;
-    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+    if (read_dir_lba(parent_lba, &cur) != FS_OK)
         return FS_ERR_IO;
 
     if ((int)cur.file_count >= MAX_FILES_PER_DIR)
@@ -381,7 +579,7 @@ int fs_make_file(const char *name)
         if (read_dir_lba(child_lba, &tmp) != FS_OK)
             return FS_ERR_IO;
 
-        if (str_equal(tmp.name, name))
+        if (str_equal(tmp.name, final_name))
             return FS_ERR_EXISTS;
     }
 
@@ -393,7 +591,7 @@ int fs_make_file(const char *name)
         if (read_file_lba(child_lba, &tmp) != FS_OK)
             return FS_ERR_IO;
 
-        if (str_equal(tmp.name, name))
+        if (str_equal(tmp.name, final_name))
             return FS_ERR_EXISTS;
     }
 
@@ -405,7 +603,7 @@ int fs_make_file(const char *name)
 
     FS_File nf;
     mem_set(&nf, 0, sizeof(FS_File));
-    str_copy_fixed(nf.name, name, MAX_NAME);
+    str_copy_fixed(nf.name, final_name, MAX_NAME);
     nf.size = 0;
     nf.data_lba = 0;
 
@@ -419,73 +617,91 @@ int fs_make_file(const char *name)
     cur.files_lba[cur.file_count] = new_lba;
     cur.file_count++;
 
-    if (write_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+    if (write_dir_lba(parent_lba, &cur) != FS_OK)
         return FS_ERR_IO;
 
     return FS_OK;
 }
 
-void fs_list_dir(void)
+char *fs_list_dir(void)
 {
     if (!fs_initialized)
     {
-        write_colored("Error: File system not initialized.\n", 0x04);
-        return;
+        char *err = kmalloc(32);
+        if (!err)
+            return ((void *)0);
+        str_copy_fixed(err, "Error: File system not initialized.\n", 32);
+        return err;
     }
 
     FS_Dir cur;
     if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
     {
-        write_colored("Error: I/O error.\n", 0x04);
-        return;
+        char *err = kmalloc(24);
+        if (!err)
+            return ((void *)0);
+        str_copy_fixed(err, "Error: I/O error.\n", 24);
+        return err;
     }
 
-    int printed = 0;
+    unsigned int est_size = 0;
     for (unsigned int i = 0; i < cur.dir_count; i++)
     {
-        unsigned int child_lba = cur.dirs_lba[i];
         FS_Dir tmp;
+        if (read_dir_lba(cur.dirs_lba[i], &tmp) == FS_OK)
+            est_size += str_count(tmp.name) + 2;
+    }
+    for (unsigned int i = 0; i < cur.file_count; i++)
+    {
+        FS_File tmp;
+        if (read_file_lba(cur.files_lba[i], &tmp) == FS_OK)
+            est_size += str_count(tmp.name) + 1;
+    }
+    if (est_size == 0)
+        est_size = 20;
+    est_size += 2;
 
-        if (read_dir_lba(child_lba, &tmp) != FS_OK)
+    char *output = kmalloc(est_size);
+    if (!output)
+        return ((void *)0);
+
+    int pos = 0;
+    int printed = 0;
+
+    for (unsigned int i = 0; i < cur.dir_count; i++)
+    {
+        FS_Dir tmp;
+        if (read_dir_lba(cur.dirs_lba[i], &tmp) != FS_OK)
             continue;
 
-        char out[32];
-        unsigned int ni = 0;
-        for (unsigned int k = 0; k < MAX_NAME && tmp.name[k]; k++)
-            out[ni++] = tmp.name[k];
+        for (unsigned int k = 0; tmp.name[k]; k++)
+            output[pos++] = tmp.name[k];
 
-        out[ni++] = ' ';
-        out[ni] = '\0';
-
-        write_colored(out, 0x09);
+        output[pos++] = '/';
+        output[pos++] = ' ';
         printed = 1;
     }
 
     for (unsigned int i = 0; i < cur.file_count; i++)
     {
-        unsigned int child_lba = cur.files_lba[i];
         FS_File tmp;
-
-        if (read_file_lba(child_lba, &tmp) != FS_OK)
+        if (read_file_lba(cur.files_lba[i], &tmp) != FS_OK)
             continue;
 
-        char out[32];
-        unsigned int ni = 0;
+        for (unsigned int k = 0; tmp.name[k]; k++)
+            output[pos++] = tmp.name[k];
 
-        for (unsigned int k = 0; k < MAX_NAME && tmp.name[k]; k++)
-            out[ni++] = tmp.name[k];
-
-        out[ni++] = ' ';
-        out[ni] = '\0';
-
-        write(out);
+        output[pos++] = ' ';
         printed = 1;
     }
 
     if (!printed)
-        write("(empty directory)\n");
+        str_copy_fixed(output, "(empty directory)\n", est_size);
     else
-        write("\n");
+        output[pos++] = '\n';
+
+    output[pos] = '\0';
+    return output;
 }
 
 int fs_change_dir(const char *name)
@@ -496,43 +712,25 @@ int fs_change_dir(const char *name)
     if (str_count(name) == 0)
         return FS_ERR_NO_NAME;
 
-    FS_Dir cur;
-    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
-        return FS_ERR_IO;
+    unsigned int dir_lba = 0;
+    char dummy[MAX_NAME];
+    int rc = resolve_path(name, &dir_lba, dummy, 0);
+    if (rc != FS_OK)
+        return rc;
 
-    if (str_equal(name, ".."))
-    {
-        if (fs_current_dir_lba == fs_super.root_dir_lba)
-            return FS_OK;
-
-        fs_current_dir_lba = cur.parent_lba;
-        return FS_OK;
-    }
-
-    for (unsigned int i = 0; i < cur.dir_count; i++)
-    {
-        unsigned int child_lba = cur.dirs_lba[i];
-        FS_Dir tmp;
-
-        if (read_dir_lba(child_lba, &tmp) != FS_OK)
-            return FS_ERR_IO;
-
-        if (str_equal(tmp.name, name))
-        {
-            fs_current_dir_lba = child_lba;
-            return FS_OK;
-        }
-    }
-
-    return FS_ERR_NOT_EXISTS;
+    fs_current_dir_lba = dir_lba;
+    return FS_OK;
 }
 
-void fs_where(void)
+char *fs_where(void)
 {
     if (!fs_initialized)
     {
-        write_colored("Error: File system not initialized.\n", 0x04);
-        return;
+        char *err = kmalloc(32);
+        if (!err)
+            return ((void *)0);
+        str_copy_fixed(err, "Error: File system not initialized.\n", 32);
+        return err;
     }
 
     unsigned int path_lbas[MAX_DIRS];
@@ -546,8 +744,11 @@ void fs_where(void)
 
         if (read_dir_lba(lba, &cur) != FS_OK)
         {
-            write_colored("Error: I/O error.\n", 0x04);
-            return;
+            char *err = kmalloc(24);
+            if (!err)
+                return ((void *)0);
+            str_copy_fixed(err, "Error: I/O error.\n", 24);
+            return err;
         }
 
         if (lba == cur.parent_lba)
@@ -556,24 +757,47 @@ void fs_where(void)
         lba = cur.parent_lba;
     }
 
-    write("/");
+    unsigned int est_size = 1;
+    for (int i = depth - 2; i >= 0; i--)
+    {
+        FS_Dir tmp;
+        if (read_dir_lba(path_lbas[i], &tmp) != FS_OK)
+            continue;
+        est_size += str_count(tmp.name) + 1;
+    }
+    est_size += 1;
+
+    char *path = kmalloc(est_size);
+    if (!path)
+        return ((void *)0);
+
+    int pos = 0;
+    path[pos++] = '/';
+    path[pos] = '\0';
 
     for (int i = depth - 2; i >= 0; i--)
     {
-        FS_Dir cur;
-        if (read_dir_lba(path_lbas[i], &cur) != FS_OK)
+        FS_Dir tmp;
+        if (read_dir_lba(path_lbas[i], &tmp) != FS_OK)
         {
-            write_colored("Error: I/O error.\n", 0x04);
-            return;
+            kfree(path);
+            char *err = kmalloc(24);
+            if (!err)
+                return ((void *)0);
+            str_copy_fixed(err, "Error: I/O error.\n", 24);
+            return err;
         }
 
-        write(cur.name);
+        for (int j = 0; tmp.name[j]; j++)
+            path[pos++] = tmp.name[j];
 
         if (i > 0)
-            write("/");
+            path[pos++] = '/';
+
+        path[pos] = '\0';
     }
 
-    write("\n");
+    return path;
 }
 
 int fs_delete_dir(const char *name)
@@ -584,8 +808,17 @@ int fs_delete_dir(const char *name)
     if (str_count(name) == 0)
         return FS_ERR_NO_NAME;
 
+    char final_name[MAX_NAME];
+    unsigned int parent_lba = 0;
+    int rc = resolve_path(name, &parent_lba, final_name, 1);
+    if (rc != FS_OK)
+        return rc;
+
+    if (str_count(final_name) == 0)
+        return FS_ERR_NO_NAME;
+
     FS_Dir cur;
-    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+    if (read_dir_lba(parent_lba, &cur) != FS_OK)
         return FS_ERR_IO;
 
     for (unsigned int i = 0; i < cur.dir_count; i++)
@@ -596,7 +829,7 @@ int fs_delete_dir(const char *name)
         if (read_dir_lba(child_lba, &tmp) != FS_OK)
             return FS_ERR_IO;
 
-        if (str_equal(tmp.name, name))
+        if (str_equal(tmp.name, final_name))
         {
             if (tmp.dir_count > 0 || tmp.file_count > 0)
                 return FS_ERR_EXISTS;
@@ -613,7 +846,7 @@ int fs_delete_dir(const char *name)
 
             cur.dir_count--;
 
-            if (write_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+            if (write_dir_lba(parent_lba, &cur) != FS_OK)
                 return FS_ERR_IO;
 
             return FS_OK;
@@ -631,21 +864,43 @@ int fs_delete_file(const char *name)
     if (str_count(name) == 0)
         return FS_ERR_NO_NAME;
 
+    char final_name[MAX_NAME];
+    unsigned int parent_lba = 0;
+    int rc = resolve_path(name, &parent_lba, final_name, 1);
+    if (rc != FS_OK)
+        return rc;
+
+    if (str_count(final_name) == 0)
+        return FS_ERR_NO_NAME;
+
     FS_Dir cur;
-    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+    if (read_dir_lba(parent_lba, &cur) != FS_OK)
         return FS_ERR_IO;
 
     for (unsigned int i = 0; i < cur.file_count; i++)
     {
-        unsigned int child_lba = cur.files_lba[i];
-        FS_File tmp;
-
-        if (read_file_lba(child_lba, &tmp) != FS_OK)
+        unsigned int file_lba = cur.files_lba[i];
+        FS_File f;
+        if (read_file_lba(file_lba, &f) != FS_OK)
             return FS_ERR_IO;
 
-        if (str_equal(tmp.name, name))
+        if (str_equal(f.name, final_name))
         {
-            int idx = lba_to_file_index(child_lba);
+            if (f.data_lba != 0 && f.size > 0)
+            {
+                unsigned char zero[512];
+                mem_set(zero, 0, sizeof(zero));
+                unsigned int sectors = (f.size + 511) / 512;
+                for (unsigned int s = 0; s < sectors; s++)
+                    if (write_sector(f.data_lba + s, zero) != FS_OK)
+                        return FS_ERR_IO;
+            }
+
+            mem_set(&f, 0, sizeof(FS_File));
+            if (write_file_lba(file_lba, &f) != FS_OK)
+                return FS_ERR_IO;
+
+            int idx = lba_to_file_index(file_lba);
             if (idx >= 0)
                 set_file_bitmap(idx, 0);
 
@@ -654,10 +909,9 @@ int fs_delete_file(const char *name)
 
             for (unsigned int j = i; j + 1 < cur.file_count; j++)
                 cur.files_lba[j] = cur.files_lba[j + 1];
-
             cur.file_count--;
 
-            if (write_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+            if (write_dir_lba(parent_lba, &cur) != FS_OK)
                 return FS_ERR_IO;
 
             return FS_OK;
@@ -667,97 +921,94 @@ int fs_delete_file(const char *name)
     return FS_ERR_NOT_EXISTS;
 }
 
-int fs_write_file(const char *name, const char *text)
+int fs_write_file(const char *name, const unsigned char *data, unsigned int size)
 {
     if (!fs_initialized)
         return FS_ERR_NOT_INIT;
 
-    if (str_count(name) == 0)
+    if (!name || str_count(name) == 0)
         return FS_ERR_NO_NAME;
 
-    if (str_count(text) == 0)
-        return FS_ERR_NO_TEXT;
+    if (size == 0)
+        return FS_OK;
+
+    char final_name[MAX_NAME];
+    unsigned int parent_lba = 0;
+    int rc = resolve_path(name, &parent_lba, final_name, 1);
+    if (rc != FS_OK)
+        return rc;
+
+    if (str_count(final_name) == 0)
+        return FS_ERR_NO_NAME;
 
     FS_Dir cur;
-    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+    if (read_dir_lba(parent_lba, &cur) != FS_OK)
         return FS_ERR_IO;
 
     for (unsigned int i = 0; i < cur.file_count; i++)
     {
         unsigned int file_lba = cur.files_lba[i];
         FS_File f;
-
         if (read_file_lba(file_lba, &f) != FS_OK)
             return FS_ERR_IO;
 
-        if (str_equal(f.name, name))
+        if (str_equal(f.name, final_name))
         {
-            unsigned int len = str_count(text);
-            if (len > 512)
-                len = 512;
-
-            unsigned char buf[512];
-            for (unsigned int j = 0; j < len; j++)
-                buf[j] = text[j];
-
-            for (unsigned int j = len; j < 512; j++)
-                buf[j] = 0;
-
-            f.size = len;
-            if (f.data_lba == 0)
-                f.data_lba = DATA_START_LBA + file_lba;
-
-            if (write_sector(f.data_lba, buf) != FS_OK)
+            int file_idx = lba_to_file_index(file_lba);
+            if (file_idx < 0)
                 return FS_ERR_IO;
 
+            if (f.data_lba == 0)
+                f.data_lba = DATA_START_LBA + (unsigned int)file_idx;
+
+            unsigned int written = 0;
+            unsigned int sector_lba = f.data_lba + (f.size / 512u);
+            unsigned int sector_off = f.size % 512u;
+            unsigned char buf[512];
+
+            if (sector_off != 0)
+            {
+                if (read_sector(sector_lba, buf) != FS_OK)
+                    return FS_ERR_IO;
+                unsigned int can = 512 - sector_off;
+                unsigned int to_copy = (size - written < can) ? (size - written) : can;
+                for (unsigned int j = 0; j < to_copy; j++)
+                    buf[sector_off + j] = data[written + j];
+                if (write_sector(sector_lba, buf) != FS_OK)
+                    return FS_ERR_IO;
+                written += to_copy;
+                sector_lba++;
+            }
+
+            while (written + 512 <= size)
+            {
+                for (unsigned int j = 0; j < 512; j++)
+                    buf[j] = data[written + j];
+                if (write_sector(sector_lba, buf) != FS_OK)
+                    return FS_ERR_IO;
+                sector_lba++;
+                written += 512;
+            }
+
+            if (written < size)
+            {
+                unsigned int rem = size - written;
+                for (unsigned int j = 0; j < rem; j++)
+                    buf[j] = data[written + j];
+                for (unsigned int j = rem; j < 512; j++)
+                    buf[j] = 0;
+                if (write_sector(sector_lba, buf) != FS_OK)
+                    return FS_ERR_IO;
+                written += rem;
+            }
+
+            f.size = f.size + size;
             if (write_file_lba(file_lba, &f) != FS_OK)
                 return FS_ERR_IO;
 
-            return FS_OK;
-        }
-    }
-
-    return FS_ERR_NOT_EXISTS;
-}
-
-int fs_read_file(const char *name)
-{
-    if (!fs_initialized)
-        return FS_ERR_NOT_INIT;
-
-    if (str_count(name) == 0)
-        return FS_ERR_NO_NAME;
-
-    FS_Dir cur;
-    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
-        return FS_ERR_IO;
-
-    for (unsigned int i = 0; i < cur.file_count; i++)
-    {
-        unsigned int file_lba = cur.files_lba[i];
-        FS_File f;
-
-        if (read_file_lba(file_lba, &f) != FS_OK)
-            return FS_ERR_IO;
-
-        if (str_equal(f.name, name))
-        {
-            if (f.data_lba == 0 || f.size == 0)
-            {
-                write("(empty file)\n");
-                return FS_OK;
-            }
-
-            unsigned char buf[512];
-            if (read_sector(f.data_lba, buf) != FS_OK)
+            if (store_super() != FS_OK)
                 return FS_ERR_IO;
 
-            for (unsigned int j = 0; j < f.size; j++)
-                write_char(buf[j]);
-
-            if (buf[f.size - 1] != '\n')
-                write("\n");
-
             return FS_OK;
         }
     }
@@ -765,7 +1016,7 @@ int fs_read_file(const char *name)
     return FS_ERR_NOT_EXISTS;
 }
 
-int fs_read_file_buffer(const char *name, unsigned char *out_buf, unsigned int buf_size, unsigned int *out_size)
+int fs_read_file(const char *name, unsigned char *out_buf, unsigned int buf_size, unsigned int *out_size)
 {
     if (!fs_initialized)
         return FS_ERR_NOT_INIT;
@@ -773,8 +1024,17 @@ int fs_read_file_buffer(const char *name, unsigned char *out_buf, unsigned int b
     if (str_count(name) == 0)
         return FS_ERR_NO_NAME;
 
+    char final_name[MAX_NAME];
+    unsigned int parent_lba = 0;
+    int rc = resolve_path(name, &parent_lba, final_name, 1);
+    if (rc != FS_OK)
+        return rc;
+
+    if (str_count(final_name) == 0)
+        return FS_ERR_NO_NAME;
+
     FS_Dir cur;
-    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
+    if (read_dir_lba(parent_lba, &cur) != FS_OK)
         return FS_ERR_IO;
 
     for (unsigned int i = 0; i < cur.file_count; i++)
@@ -785,7 +1045,7 @@ int fs_read_file_buffer(const char *name, unsigned char *out_buf, unsigned int b
         if (read_file_lba(file_lba, &f) != FS_OK)
             return FS_ERR_IO;
 
-        if (str_equal(f.name, name))
+        if (str_equal(f.name, final_name))
         {
             if (f.data_lba == 0 || f.size == 0)
             {
@@ -813,6 +1073,8 @@ int fs_read_file_buffer(const char *name, unsigned char *out_buf, unsigned int b
                         out_buf[written + j] = buf[j];
                     written += can_copy;
                 }
+                else
+                    written += to_copy;
 
                 remaining -= to_copy;
                 sector_lba++;
@@ -826,88 +1088,4 @@ int fs_read_file_buffer(const char *name, unsigned char *out_buf, unsigned int b
     }
 
     return FS_ERR_NOT_EXISTS;
-}
-
-void fs_info(const char *name)
-{
-    if (!fs_initialized)
-    {
-        write_colored("Error: File system not initialized.\n", 0x04);
-        return;
-    }
-
-    if (str_count(name) == 0)
-    {
-        write_colored("Error: No such file or directory.\n", 0x04);
-        return;
-    }
-
-    FS_Dir cur;
-    if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
-    {
-        write_colored("Error: I/O error occured while reading info.\n", 0x04);
-        return;
-    }
-
-    for (unsigned int i = 0; i < cur.file_count; i++)
-    {
-        unsigned int file_lba = cur.files_lba[i];
-        FS_File f;
-
-        if (read_file_lba(file_lba, &f) != FS_OK)
-            continue;
-
-        if (str_equal(f.name, name))
-        {
-            write("File: ");
-            write(f.name);
-            write("\n");
-            write("Size: ");
-            write(uint_to_str(f.size));
-            write(" bytes\n");
-            write("In directory: ");
-            write(cur.name);
-            write("\n");
-
-            return;
-        }
-    }
-
-    for (unsigned int i = 0; i < cur.dir_count; i++)
-    {
-        unsigned int dir_lba = cur.dirs_lba[i];
-        FS_Dir d;
-
-        if (read_dir_lba(dir_lba, &d) != FS_OK)
-            continue;
-
-        if (str_equal(d.name, name))
-        {
-            write("Directory: ");
-            write(d.name);
-            write("\n");
-
-            FS_Dir parent;
-            if (read_dir_lba(d.parent_lba, &parent) != FS_OK)
-            {
-                write_colored("Error: Parent read error.\n", 0x04);
-                return;
-            }
-
-            write("Parent directory: ");
-            write(parent.name);
-            write("\n");
-
-            write("Files: ");
-            write(uint_to_str(d.file_count));
-            write("\n");
-            write("Subdirectories: ");
-            write(uint_to_str(d.dir_count));
-            write("\n");
-
-            return;
-        }
-    }
-
-    write_colored("Error: No such file or directory.\n", 0x04);
 }

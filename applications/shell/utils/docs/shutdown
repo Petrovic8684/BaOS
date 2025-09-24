@@ -1,0 +1,10 @@
+shutdown - powers off the system
+
+Description:
+The 'shutdown' command immediately powers off the system using a low-level system call. It does not take any arguments. Use with caution, as unsaved data may be lost.
+
+Usage:
+shutdown
+
+Examples:
+shutdown

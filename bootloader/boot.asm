@@ -15,20 +15,76 @@ mov si, msg_loading
 call print_string
 
 ; -------------------------
+; Disk Address Packet for LBA
+; -------------------------
+align 4
+dap:
+    db 0x10        ; size = 16 bytes
+    db 0x00        ; reserved
+    dw 1           ; number of sectors to read
+    dw 0x0000      ; buffer offset 
+    dw 0x1000      ; buffer segment 
+    dq 1           ; starting LBA
+
+mov cx, 100     ; total sectors to read
+
+; -------------------------
 ; Load kernel from disk into memory (16-bit real mode)
 ; -------------------------
-mov bx, 0x1000        ; memory address to load kernel (0x1000)
-mov dh, 0             ; head = 0
-mov dl, 0x80          ; first hard disk
-mov ch, 0             ; cylinder = 0
-mov cl, 2             ; start at sector 2 (after boot sector)
-mov al, 54            ; number of sectors to read
-mov ah, 0x02          ; BIOS read sectors function
-int 0x13
-jc disk_error         ; jump if error
+.read_loop:
+    mov ah, 0x42
+    mov dl, 0x80
+    mov si, dap
+    int 0x13
+    jc disk_error
+
+    ; increment buffer address by 512 bytes
+    add word [dap+4], 0x0200
+    jnc .no_seg_inc
+    inc word [dap+6]
+.no_seg_inc:
+
+    ; increment LBA by 1
+    inc word [dap+8]
+    jnz .no_lba_carry
+    inc word [dap+10]
+    jnz .no_lba_carry
+    inc word [dap+12]
+    jnz .no_lba_carry
+    inc word [dap+14]
+.no_lba_carry:
+
+    loop .read_loop
 
 mov si, msg_loaded
 call print_string
+
+; -------------------------
+; Prepare E820 buffer at physical 0x8000
+; -------------------------
+mov ax, 0x0800
+mov es, ax
+xor di, di
+mov word [es:di], 0
+mov word [es:di+2], 0   ; zero 32-bit count
+mov di, 0x0004          ; point to first entry location
+
+xor ebx, ebx            ; continuation = 0
+
+.e820_loop:
+    mov eax, 0xE820
+    mov ecx, 24            ; size of buffer
+    mov edx, 0x534D4150    ; 'SMAP' signature
+    int 0x15
+    jc .e820_done          ; BIOS returned CF -> no more / error
+
+    add di, 24             ; advance to next entry slot
+    add dword [es:0], 1    ; increment 32-bit entry count (at 0x8000)
+
+    test ebx, ebx
+    jnz .e820_loop         ; if EBX != 0, continue (EBX is continuation)
+
+.e820_done:                ; at this point: 32-bit count at 0x8000, entries start at 0x8004
 
 ; -------------------------
 ; Load GDT
@@ -56,11 +112,11 @@ protected_mode_entry:
     mov esp, 0x90000          ; stack for protected mode
     xor ebp, ebp              ; clear base pointer
 
-    ; Jump to C kernel at 0x1000
-    jmp 0x08:0x1000           ; far jump to kernel
+    ; Jump to C kernel at 0x10000
+    jmp 0x08:0x10000          ; far jump to kernel
 
 ; -------------------------
-; GDT (flat memory model)
+; GDT (kernel, flat memory model)
 gdt_start:
     dq 0x0000000000000000      ; null descriptor
     dq 0x00CF9A000000FFFF      ; code segment

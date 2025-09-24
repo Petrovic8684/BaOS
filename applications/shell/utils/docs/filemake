@@ -1,0 +1,12 @@
+filemake - creates a new empty file
+
+Description:
+The 'filemake' command creates a new empty file with the specified name. If the parent directory does not exist, or if the file cannot be created, an error message is shown.
+
+Usage:
+filemake <file_name>
+
+Examples:
+filemake notes.txt
+filemake # Error: Invalid name provided.
+filemake /nonexistent/path/file.txt # Error: Parent directory '/nonexistent/path' does not exist.
