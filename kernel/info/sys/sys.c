@@ -1,4 +1,4 @@
-#include "uname.h"
+#include "sys.h"
 
 #define OS_NAME "BaOS (Jovan Petrovic, 2025)\0"
 #define NODENAME "localhost\0"

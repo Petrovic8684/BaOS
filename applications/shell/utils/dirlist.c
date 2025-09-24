@@ -26,7 +26,7 @@ int main(int argc, char *argv[])
     }
 
     if (!printed_any)
-        printf("(empty directory)");
+        printf("\033[1;33m(empty directory)\033[0m");
 
     printf("\n");
     closedir(d);

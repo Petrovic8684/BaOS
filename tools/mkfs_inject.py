@@ -204,7 +204,7 @@ def sanitize_target_folder(raw):
     s = re.sub(r'^(/*)[A-Za-z]:', '/', s)
     s = re.sub(r'^//+', '/', s)
 
-    candidates = ['/lib', '/programs', '/programs', '/docs']
+    candidates = ['/lib', '/programs', '/config', '/docs']
     for cand in candidates:
         idx = s.lower().rfind(cand)
         if idx != -1:

@@ -2,15 +2,22 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdarg.h>
+#include <stdlib.h>
 
-#define MAX_LINES 200
 #define MAX_COLS 80
 #define WELCOME_LINES 2
 #define TERM_ROWS 25
 #define MAX_PRINTABLE (MAX_COLS)
-#define STORAGE_COLS (2048)
+#define MAX_FILE_NAME 16
 
-static char buffer[MAX_LINES][STORAGE_COLS];
+static char **buffer = NULL;
+static size_t num_lines = 0;
+static size_t *line_sizes = NULL;
+static size_t default_line_size = 128;
+
+static char *clipboard = NULL;
+static size_t clipboard_size = 0;
+
 static char filename[128] = "NO NAME";
 static int cur_row = 0, cur_col = 0;
 static int modified = 0;
@@ -22,7 +29,140 @@ static int syntax_highlight = 0;
 static int selecting = 0;
 static int sel_start_row = 0, sel_start_col = 0;
 static int sel_end_row = 0, sel_end_col = 0;
-static char clipboard[MAX_LINES * STORAGE_COLS];
+
+void editor_init(void)
+{
+    num_lines = 16;
+    default_line_size = 128;
+
+    buffer = malloc(num_lines * sizeof(char *));
+    if (!buffer)
+    {
+        printf("\033[31mError: Out of memory.\033[0m\n");
+        exit(1);
+    }
+
+    line_sizes = malloc(num_lines * sizeof(size_t));
+    if (!line_sizes)
+    {
+        printf("\033[31mError: Out of memory.\033[0m\n");
+        exit(1);
+    }
+
+    for (size_t i = 0; i < num_lines; i++)
+    {
+        line_sizes[i] = default_line_size;
+        buffer[i] = calloc(line_sizes[i], 1);
+        if (!buffer[i])
+        {
+            printf("\033[31mError: Out of memory.\033[0m\n");
+            exit(1);
+        }
+        buffer[i][0] = '\0';
+    }
+
+    clipboard_size = 1024;
+    clipboard = calloc(clipboard_size, 1);
+    if (!clipboard)
+    {
+        printf("\033[31mError: Out of memory.\033[0m\n");
+        exit(1);
+    }
+    clipboard[0] = '\0';
+}
+
+void ensure_buffer_rows(size_t row);
+
+void ensure_line_capacity(int row, size_t needed)
+{
+    if (row < 0)
+        return;
+    ensure_buffer_rows((size_t)row);
+    if (needed <= line_sizes[row])
+        return;
+
+    size_t new_size = line_sizes[row] ? line_sizes[row] * 2 : default_line_size;
+    while (new_size <= needed)
+        new_size *= 2;
+
+    char *p = realloc(buffer[row], new_size);
+    if (!p)
+    {
+        printf("\033[31mError: Out of memory.\033[0m\n");
+        exit(1);
+    }
+    if (new_size > line_sizes[row])
+        memset(p + line_sizes[row], 0, new_size - line_sizes[row]);
+
+    buffer[row] = p;
+    line_sizes[row] = new_size;
+}
+
+void ensure_buffer_rows(size_t row)
+{
+    if (row < num_lines)
+        return;
+
+    size_t new_num = num_lines ? num_lines : 1;
+    while (new_num <= row)
+        new_num *= 2;
+
+    char **nbuf = realloc(buffer, new_num * sizeof(char *));
+    size_t *nsz = realloc(line_sizes, new_num * sizeof(size_t));
+    if (!nbuf || !nsz)
+    {
+        printf("\033[31mError: Out of memory.\033[0m\n");
+        exit(1);
+    }
+    buffer = nbuf;
+    line_sizes = nsz;
+
+    for (size_t i = num_lines; i < new_num; ++i)
+    {
+        line_sizes[i] = default_line_size;
+        buffer[i] = calloc(line_sizes[i], 1);
+        if (!buffer[i])
+        {
+            printf("\033[31mError: Out of memory.\033[0m\n");
+            exit(1);
+        }
+        buffer[i][0] = '\0';
+    }
+
+    num_lines = new_num;
+}
+
+void clipboard_reset(void)
+{
+    if (!clipboard)
+        return;
+    clipboard[0] = '\0';
+}
+
+void clipboard_append_text(const char *text, size_t tlen)
+{
+    if (!clipboard)
+        editor_init();
+
+    size_t curr_len = strlen(clipboard);
+    if (curr_len + tlen + 1 >= clipboard_size)
+    {
+        size_t new_size = clipboard_size ? clipboard_size * 2 : 1024;
+        while (new_size <= curr_len + tlen)
+            new_size *= 2;
+        char *p = realloc(clipboard, new_size);
+        if (!p)
+        {
+            printf("\033[31mError: Out of memory.\033[0m\n");
+            exit(1);
+        }
+        clipboard = p;
+        clipboard_size = new_size;
+    }
+
+    memcpy(clipboard + curr_len, text, tlen);
+    clipboard[curr_len + tlen] = '\0';
+}
 
 static void reset_selection(void)
 {
@@ -83,6 +223,8 @@ static int visible_content_rows(void)
 
 static int content_rows_used_by_line(int logical_row)
 {
+    if (logical_row < 0 || (size_t)logical_row >= num_lines)
+        return 1;
     int len = (int)strlen(buffer[logical_row]);
     if (len == 0)
         return 1;
@@ -92,24 +234,28 @@ static int content_rows_used_by_line(int logical_row)
 static int total_content_rows(void)
 {
     int total = 0;
-    for (int i = 0; i < MAX_LINES; ++i)
-        total += content_rows_used_by_line(i);
+    for (size_t i = 0; i < num_lines; ++i)
+        total += content_rows_used_by_line((int)i);
     return total;
 }
 
 static int content_rows_before_logical(int logical_row)
 {
     int total = 0;
-    for (int i = 0; i < logical_row && i < MAX_LINES; ++i)
+    for (int i = 0; i < logical_row && (size_t)i < num_lines; ++i)
         total += content_rows_used_by_line(i);
     return total;
 }
 
 static int get_last_filled_logical_row(void)
 {
-    for (int i = MAX_LINES - 1; i >= 0; --i)
+    if (num_lines == 0)
+        return 0;
+    for (long i = (long)num_lines - 1; i >= 0; --i)
+    {
         if (buffer[i][0] != '\0')
-            return i;
+            return (int)i;
+    }
     return 0;
 }
 
@@ -253,7 +399,7 @@ static void print_colored_c(int row_index, const char *line)
                     word[len] = '\0';
 
                     int is_kw = 0;
-                    for (int k = 0; k < sizeof(keywords) / sizeof(keywords[0]); k++)
+                    for (int k = 0; k < (int)(sizeof(keywords) / sizeof(keywords[0])); k++)
                         if (strcmp(word, keywords[k]) == 0)
                         {
                             is_kw = 1;
@@ -316,10 +462,9 @@ static void set_status(const char *fmt, ...)
 
 static int will_wrap_to_last_row(int row, int col)
 {
-    int len = (int)strlen(buffer[row]);
-    int new_len = len + 1;
-    int used_rows = (new_len + MAX_PRINTABLE - 1) / MAX_PRINTABLE;
-    return row + used_rows > MAX_LINES - 1;
+    (void)row;
+    (void)col;
+    return 0;
 }
 
 static void clear_status(void) { status_msg[0] = '\0'; }
@@ -350,7 +495,8 @@ static void editor_redraw(void)
     int visible = visible_content_rows();
     int printed = 0;
     int content_index = 0;
-    for (int i = 0; i < MAX_LINES && printed < visible; ++i)
+
+    for (size_t i = 0; i < num_lines && printed < visible; ++i)
     {
         int llen = (int)strlen(buffer[i]);
         int used = (llen == 0) ? 1 : ((llen + MAX_PRINTABLE - 1) / MAX_PRINTABLE);
@@ -374,19 +520,27 @@ static void editor_redraw(void)
                 {
                     int start = off;
                     int len = chunk;
-                    char tmp[STORAGE_COLS];
+                    char *tmp = malloc((size_t)len + 1);
+                    if (!tmp)
+                    {
+                        printf("\033[31mError: Out of memory.\033[0m\n");
+                        exit(1);
+                    }
                     strncpy(tmp, buffer[i] + start, len);
                     tmp[len] = '\0';
-                    print_colored_c(i, tmp);
+                    print_colored_c((int)i, tmp);
+                    free(tmp);
                 }
                 else
+                {
                     for (int j = 0; j < chunk; ++j)
                     {
-                        if (is_selected(i, off + j))
+                        if (is_selected((int)i, off + j))
                             printf("\033[1;37;46m%c\033[0m", buffer[i][off + j]);
                         else
                             putchar(buffer[i][off + j]);
                     }
+                }
             }
             printf("\033[0K");
             printed++;
@@ -402,6 +556,7 @@ static void editor_redraw(void)
         printf("\033[%d;1H\033[0K\033[47;30m%s\033[0m", TERM_ROWS, status_msg);
     else
         printf("\033[%d;1H\033[0K", TERM_ROWS);
+
     int before = content_rows_before_logical(cur_row);
     int in_row_index = cur_col / MAX_PRINTABLE;
     int cursor_content_index = before + in_row_index;
@@ -422,43 +577,59 @@ static void editor_redraw(void)
 
 static void shift_lines_down(int from)
 {
-    int i;
-    if (from < 0 || from >= MAX_LINES)
+    if (from < 0)
         return;
-    for (i = MAX_LINES - 1; i > from; --i)
+    ensure_buffer_rows((size_t)from);
+
+    if (num_lines == 0)
+        return;
+    free(buffer[num_lines - 1]);
+
+    for (size_t i = (size_t)num_lines - 1; i > from; --i)
     {
-        memcpy(buffer[i], buffer[i - 1], STORAGE_COLS);
-        buffer[i][STORAGE_COLS - 1] = '\0';
+        buffer[i] = buffer[i - 1];
+        line_sizes[i] = line_sizes[i - 1];
     }
-    memset(buffer[from], 0, STORAGE_COLS);
-    buffer[from][STORAGE_COLS - 1] = '\0';
+
+    line_sizes[from] = default_line_size;
+    buffer[from] = calloc(line_sizes[from], 1);
+    if (!buffer[from])
+    {
+        printf("\033[31mError: Out of memory.\033[0m\n");
+        exit(1);
+    }
+    buffer[from][0] = '\0';
 }
 
 static void shift_lines_up(int from)
 {
-    int i;
-    if (from < 0 || from >= MAX_LINES)
+    if (from < 0 || (size_t)from >= num_lines)
         return;
-    for (i = from; i < MAX_LINES - 1; ++i)
+
+    free(buffer[from]);
+
+    for (size_t i = from; i < num_lines - 1; ++i)
     {
-        memcpy(buffer[i], buffer[i + 1], STORAGE_COLS);
-        buffer[i][STORAGE_COLS - 1] = '\0';
+        buffer[i] = buffer[i + 1];
+        line_sizes[i] = line_sizes[i + 1];
     }
-    memset(buffer[MAX_LINES - 1], 0, STORAGE_COLS);
-    buffer[MAX_LINES - 1][STORAGE_COLS - 1] = '\0';
+
+    line_sizes[num_lines - 1] = default_line_size;
+    buffer[num_lines - 1] = calloc(line_sizes[num_lines - 1], 1);
+    if (!buffer[num_lines - 1])
+    {
+        printf("\033[31mError: Out of memory.\033[0m\n");
+        exit(1);
+    }
+    buffer[num_lines - 1][0] = '\0';
 }
 
 static void insert_newline_at_cursor(void)
 {
+    ensure_buffer_rows((size_t)cur_row + 1);
+
     char *row = buffer[cur_row];
     int len = (int)strlen(row);
-
-    if (cur_row >= MAX_LINES - 1)
-    {
-        cur_col = len;
-        set_status(" Reached maximum number of lines. ");
-        return;
-    }
 
     shift_lines_down(cur_row + 1);
 
@@ -468,20 +639,15 @@ static void insert_newline_at_cursor(void)
         if (right_len > MAX_PRINTABLE)
             right_len = MAX_PRINTABLE;
 
-        if (cur_row + 1 >= MAX_LINES - 1)
-        {
-            cur_col = len;
-            set_status(" Reached maximum number of lines. ");
-            return;
-        }
-
-        memset(buffer[cur_row + 1], 0, STORAGE_COLS);
-        strncpy(buffer[cur_row + 1], row + cur_col, right_len);
+        ensure_line_capacity(cur_row + 1, (size_t)right_len + 1);
+        buffer[cur_row + 1][0] = '\0';
+        strncpy(buffer[cur_row + 1], row + cur_col, (size_t)right_len);
         buffer[cur_row + 1][right_len] = '\0';
+
         row[cur_col] = '\0';
     }
     else
-        memset(buffer[cur_row + 1], 0, STORAGE_COLS);
+        buffer[cur_row + 1][0] = '\0';
 
     cur_row++;
     cur_col = 0;
@@ -495,22 +661,19 @@ static void insert_char_at_cursor(int c)
     if (cur_row < 0)
         cur_row = 0;
 
+    ensure_buffer_rows((size_t)cur_row);
     char *row = buffer[cur_row];
     int len = (int)strlen(row);
 
     int used_rows = (len + 1 + MAX_PRINTABLE - 1) / MAX_PRINTABLE;
-    if (cur_row + used_rows > MAX_LINES - 1)
-    {
-        set_status(" Reached maximum number of lines. ");
-        return;
-    }
+    (void)used_rows;
 
     if (cur_col < 0)
         cur_col = 0;
     if (cur_col > len)
         cur_col = len;
-    if (len >= STORAGE_COLS - 1)
-        return;
+
+    ensure_line_capacity(cur_row, (size_t)len + 2);
 
     for (int i = len; i >= cur_col; --i)
         row[i + 1] = row[i];
@@ -541,11 +704,13 @@ static void backspace_before_cursor(void)
         {
             int prev_len = (int)strlen(buffer[cur_row - 1]);
             int this_len = len;
-            if (prev_len + this_len >= STORAGE_COLS - 1)
+            ensure_line_capacity(cur_row - 1, (size_t)prev_len + (size_t)this_len + 1);
+
+            if (prev_len + this_len >= (int)line_sizes[cur_row - 1])
             {
-                int copy_len = (STORAGE_COLS - 1) - prev_len;
+                int copy_len = (int)line_sizes[cur_row - 1] - 1 - prev_len;
                 if (copy_len > 0)
-                    strncat(buffer[cur_row - 1], buffer[cur_row], copy_len);
+                    strncat(buffer[cur_row - 1], buffer[cur_row], (size_t)copy_len);
             }
             else
                 strcat(buffer[cur_row - 1], buffer[cur_row]);
@@ -640,15 +805,15 @@ static void copy_selection(void)
         end_col = tmp_col;
     }
 
-    clipboard[0] = '\0';
+    clipboard_reset();
     for (int r = start_row; r <= end_row; ++r)
     {
         int s_col = (r == start_row) ? start_col : 0;
         int e_col = (r == end_row) ? end_col : (int)strlen(buffer[r]);
         if (s_col >= e_col)
             continue;
-        strncat(clipboard, buffer[r] + s_col, (size_t)(e_col - s_col));
-        strcat(clipboard, "\n");
+        clipboard_append_text(buffer[r] + s_col, (size_t)(e_col - s_col));
+        clipboard_append_text("\n", 1);
     }
 
     set_status(" Copied selection. ");
@@ -677,15 +842,15 @@ static void cut_selection(void)
         end_col = tmp_col;
     }
 
-    clipboard[0] = '\0';
+    clipboard_reset();
     for (int r = start_row; r <= end_row; ++r)
     {
         int s_col = (r == start_row) ? start_col : 0;
         int e_col = (r == end_row) ? end_col : (int)strlen(buffer[r]);
         if (s_col >= e_col)
             continue;
-        strncat(clipboard, buffer[r] + s_col, (size_t)(e_col - s_col));
-        strcat(clipboard, "\n");
+        clipboard_append_text(buffer[r] + s_col, (size_t)(e_col - s_col));
+        clipboard_append_text("\n", 1);
     }
 
     for (int r = start_row; r <= end_row; ++r)
@@ -719,7 +884,7 @@ static void cut_selection(void)
 static void paste_clipboard(void)
 {
     clear_status();
-    if (!clipboard[0])
+    if (!clipboard || !clipboard[0])
     {
         set_status(" Nothing to paste. ");
         return;
@@ -729,7 +894,7 @@ static void paste_clipboard(void)
     int col = cur_col;
     char *clip = clipboard;
 
-    while (*clip && row < MAX_LINES)
+    while (*clip)
     {
         char *nl = strchr(clip, '\n');
 
@@ -737,20 +902,20 @@ static void paste_clipboard(void)
         {
             int len = (int)(nl - clip);
 
-            int space_left = STORAGE_COLS - 1 - (int)strlen(buffer[row]);
-            if (len > space_left)
-                len = space_left;
+            ensure_buffer_rows((size_t)row);
+            size_t curr_len = strlen(buffer[row]);
+            ensure_line_capacity(row, curr_len + (size_t)len + 1);
 
-            memmove(buffer[row] + col + len, buffer[row] + col, strlen(buffer[row]) - col + 1);
-            memcpy(buffer[row] + col, clip, len);
+            memmove(buffer[row] + col + len, buffer[row] + col, curr_len - col + 1);
+            memcpy(buffer[row] + col, clip, (size_t)len);
+            buffer[row][curr_len + len] = '\0';
 
             clip = nl + 1;
 
             if (*clip)
             {
                 row++;
-                if (row >= MAX_LINES)
-                    break;
+                ensure_buffer_rows((size_t)row);
                 col = 0;
             }
             else
@@ -762,12 +927,13 @@ static void paste_clipboard(void)
         else
         {
             int len = (int)strlen(clip);
-            int space_left = STORAGE_COLS - 1 - (int)strlen(buffer[row]);
-            if (len > space_left)
-                len = space_left;
+            ensure_buffer_rows((size_t)row);
+            size_t curr_len = strlen(buffer[row]);
+            ensure_line_capacity(row, curr_len + (size_t)len + 1);
 
-            memmove(buffer[row] + col + len, buffer[row] + col, strlen(buffer[row]) - col + 1);
-            memcpy(buffer[row] + col, clip, len);
+            memmove(buffer[row] + col + len, buffer[row] + col, curr_len - col + 1);
+            memcpy(buffer[row] + col, clip, (size_t)len);
+            buffer[row][curr_len + len] = '\0';
             col += len;
             break;
         }
@@ -786,13 +952,56 @@ static void editor_open_file(const char *path)
     FILE *f = fopen(path, "rb");
     if (!f)
         return;
-    for (int i = 0; i < MAX_LINES; ++i)
-        buffer[i][0] = '\0';
-    unsigned char tmp[8192];
-    size_t r = fread(tmp, 1, sizeof(tmp), f);
-    fclose(f);
+
+    if (fseek(f, 0, SEEK_END) != 0)
+    {
+        fclose(f);
+        return;
+    }
+    long fsz = ftell(f);
+    if (fsz < 0)
+    {
+        fclose(f);
+        return;
+    }
+    if (fseek(f, 0, SEEK_SET) != 0)
+    {
+        fclose(f);
+        return;
+    }
+
+    size_t size = (size_t)fsz;
+    unsigned char *tmp = NULL;
+    if (size > 0)
+    {
+        tmp = malloc(size);
+        if (!tmp)
+        {
+            fclose(f);
+            return;
+        }
+        size_t r = fread(tmp, 1, size, f);
+        fclose(f);
+        if (r != size)
+        {
+            free(tmp);
+            return;
+        }
+    }
+    else
+    {
+        fclose(f);
+        for (size_t i = 0; i < num_lines; ++i)
+            buffer[i][0] = '\0';
+        cur_row = cur_col = 0;
+        modified = 0;
+        clear_status();
+        reset_selection();
+        return;
+    }
+
     int bin_hits = 0;
-    for (size_t i = 0; i < r; ++i)
+    for (size_t i = 0; i < size; ++i)
     {
         unsigned char c = tmp[i];
         if (c == 0)
@@ -802,40 +1011,57 @@ static void editor_open_file(const char *path)
     }
     if (bin_hits > 0)
     {
-        for (int i = 0; i < MAX_LINES; ++i)
+        for (size_t i = 0; i < num_lines; ++i)
             buffer[i][0] = '\0';
         welcome_active = 0;
         readonly_mode = 1;
         set_status(" Not a text file. Press ESC to exit. ");
         editor_redraw();
+        free(tmp);
         return;
     }
+
+    for (size_t i = 0; i < num_lines; ++i)
+        buffer[i][0] = '\0';
+
     int line = 0;
     int col = 0;
-    for (size_t i = 0; i < r && line < MAX_LINES; ++i)
+    for (size_t i = 0; i < size; ++i)
     {
         unsigned char c = tmp[i];
         if (c == '\r')
             continue;
         if (c == '\n')
         {
+            ensure_buffer_rows((size_t)line);
             buffer[line][col] = '\0';
             line++;
             col = 0;
+            if ((size_t)line >= num_lines)
+                ensure_buffer_rows((size_t)line);
         }
         else
         {
-            if (col < STORAGE_COLS - 1)
-                buffer[line][col++] = (char)c;
+            ensure_buffer_rows((size_t)line);
+            if ((size_t)col + 1 >= line_sizes[line])
+            {
+                ensure_line_capacity(line, (size_t)col + 2);
+            }
+            buffer[line][col++] = (char)c;
         }
     }
-    if (line < MAX_LINES && col > 0)
+    if (line < (int)num_lines && col > 0)
+    {
         buffer[line][col] = '\0';
+    }
+
+    free(tmp);
+
     modified = 0;
     int last_line = 0;
-    for (int i = 0; i < MAX_LINES; ++i)
+    for (size_t i = 0; i < num_lines; ++i)
         if (buffer[i][0] != '\0')
-            last_line = i;
+            last_line = (int)i;
     cur_row = last_line;
     cur_col = (int)strlen(buffer[last_line]);
     clear_status();
@@ -848,7 +1074,7 @@ static int editor_save_to_file(const char *path)
     FILE *f = fopen(path, "w");
     if (!f)
         return 0;
-    int last_line = MAX_LINES - 1;
+    int last_line = (int)num_lines - 1;
     while (last_line >= 0 && buffer[last_line][0] == '\0')
         last_line--;
     for (int i = 0; i <= last_line; ++i)
@@ -865,23 +1091,30 @@ static int editor_save_to_file(const char *path)
 
 static void prompt_filename_and_save(void)
 {
-    char namebuf[128];
+    char namebuf[MAX_FILE_NAME + 1];
     while (1)
     {
-        for (int i = 0; i < MAX_LINES; ++i)
+        for (size_t i = 0; i < num_lines; ++i)
         {
-            printf("\033[%d;1H", i + 1);
+            printf("\033[%u;1H", i + 1);
             printf("%s\033[0K", buffer[i]);
         }
         set_status(" Enter file name: ");
         editor_redraw();
         move_cursor_to_status_input();
+
         int pos = 0;
         int c;
         memset(namebuf, 0, sizeof(namebuf));
-        while ((c = getchar()) != '\n' && c != '\r' && c != EOF && pos < (int)sizeof(namebuf) - 1)
+
+        while (1)
         {
-            if (c == 8)
+            c = getchar();
+
+            if (c == '\n' || c == '\r' || c == EOF)
+                break;
+
+            if (c == 8 || c == 127)
             {
                 if (pos > 0)
                 {
@@ -892,21 +1125,21 @@ static void prompt_filename_and_save(void)
                 }
                 continue;
             }
-            namebuf[pos++] = (char)c;
-            putchar(c);
-            fflush(stdout);
+
+            if (pos >= MAX_FILE_NAME - 1)
+                continue;
+
+            if (isalnum(c) || c == '.')
+            {
+                namebuf[pos++] = (char)c;
+                putchar(c);
+                fflush(stdout);
+            }
         }
+
         namebuf[pos] = '\0';
-        int start = 0;
-        while (namebuf[start] && isspace((unsigned char)namebuf[start]))
-            start++;
-        int end = (int)strlen(namebuf) - 1;
-        while (end >= start && isspace((unsigned char)namebuf[end]))
-        {
-            namebuf[end] = '\0';
-            end--;
-        }
-        if (namebuf[start] == '\0')
+
+        if (pos == 0)
         {
             set_status(" File name cannot be empty. Press Enter to try again. ");
             editor_redraw();
@@ -914,16 +1147,15 @@ static void prompt_filename_and_save(void)
                 ;
             continue;
         }
-        else
-        {
-            strncpy(filename, namebuf + start, sizeof(filename) - 1);
-            filename[sizeof(filename) - 1] = '\0';
-            editor_save_to_file(filename);
-            clear_status();
-            reset_selection();
-            editor_redraw();
-            return;
-        }
+
+        strncpy(filename, namebuf, MAX_FILE_NAME);
+        filename[MAX_FILE_NAME] = '\0';
+
+        editor_save_to_file(filename);
+        clear_status();
+        reset_selection();
+        editor_redraw();
+        return;
     }
 }
 
@@ -949,7 +1181,7 @@ static void move_left_word_selection(void)
     else if (cur_row > 0)
     {
         cur_row--;
-        cur_col = strlen(buffer[cur_row]);
+        cur_col = (int)strlen(buffer[cur_row]);
         move_left_word_selection();
         return;
     }
@@ -1049,12 +1281,13 @@ static void move_down_word_selection(void)
 
 int main(int argc, char **argv)
 {
-    for (int i = 0; i < MAX_LINES; ++i)
-        buffer[i][0] = '\0';
+    editor_init();
+
     cur_row = 0;
     cur_col = 0;
     modified = 0;
     welcome_active = 1;
+
     if (argc >= 2)
     {
         strncpy(filename, argv[1], sizeof(filename) - 1);
@@ -1067,9 +1300,13 @@ int main(int argc, char **argv)
         ensure_cursor_visible();
     }
     else
+    {
         strncpy(filename, "NO NAME", sizeof(filename) - 1);
+    }
+
     ensure_cursor_visible();
     editor_redraw();
+
     int running = 1;
     while (running)
     {
@@ -1252,7 +1489,7 @@ int main(int argc, char **argv)
             else if (cur_row > 0)
             {
                 cur_row--;
-                cur_col = strlen(buffer[cur_row]);
+                cur_col = (int)strlen(buffer[cur_row]);
             }
 
             sel_end_row = cur_row;
@@ -1384,6 +1621,15 @@ int main(int argc, char **argv)
             editor_redraw();
         }
     }
+
     clear_screen_and_home();
+
+    for (size_t i = 0; i < num_lines; ++i)
+        free(buffer[i]);
+
+    free(buffer);
+    free(line_sizes);
+    free(clipboard);
+
     return 0;
 }

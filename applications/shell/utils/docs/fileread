@@ -1,0 +1,12 @@
+fileread - reads and displays the content of a text file
+
+Description:
+The 'fileread' command opens a specified file and prints its content to the terminal. It only works with text files; binary files are rejected. If no file is specified, or if the file cannot be read, an error message is shown.
+
+Usage:
+fileread <file_name>
+
+Examples:
+fileread notes.txt
+fileread # Error: Invalid name provided.
+fileread binary.dat # Error: Not a text file.

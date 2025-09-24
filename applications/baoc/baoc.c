@@ -5,7 +5,7 @@
 #include <ctype.h>
 #include <stddef.h>
 
-#define LOAD_BASE 0x100000
+#define LOAD_BASE 0x02000000
 #define MAX_FILE_SIZE (1024 * 64)
 #define MAX_IMAGE (MAX_FILE_SIZE * 6)
 #define MAX_CODE (1024 * 64)

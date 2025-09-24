@@ -40,7 +40,7 @@ int printf(const char *fmt, ...);
 int getchar(void);
 int ungetc(int c, FILE *stream);
 int fgetc(FILE *stream);
-void read_line(char *buf, int max_len);
+void read_line(char **buf_ptr);
 int scanf(const char *fmt, ...);
 int fscanf(FILE *stream, const char *fmt, ...);
 int sscanf(const char *str, const char *fmt, ...);

@@ -1,0 +1,13 @@
+filesearch - searches for a text pattern in a file
+
+Description:
+The 'filesearch' command scans a specified text file for occurrences of a given pattern and highlights them in the output. Each line containing a match is printed, with the matching text shown in green. The program only works with text files and will report an error if the file contains binary data. Errors are also reported if the file cannot be opened or read.
+
+Usage:
+filesearch <file_name> <pattern>
+
+Examples:
+filesearch notes.txt TODO # Output: Lines containing 'TODO' with matches highlighted
+filesearch log.txt error # Output: Lines containing 'error' with matches highlighted
+filesearch binary.dat pattern # Error: Not a text file
+filesearch missing.txt pattern # Error: Could not open file 'missing.txt'

@@ -43,5 +43,6 @@ ldiv_t ldiv(long numer, long denom);
 lldiv_t lldiv(long long numer, long long denom);
 void *bsearch(const void *key, const void *base, size_t nitems, size_t size, int (*compar)(const void *, const void *));
 void qsort(void *base, size_t nmemb, size_t size, int (*compar)(const void *, const void *));
+char *realpath(const char *path, char *resolved_path);
 
 #endif

@@ -1,0 +1,12 @@
+filewrite - writes text into a file
+
+Description:
+The 'filewrite' command writes the provided text into the specified file. If the file already exists, it must be a text file. A newline is added at the end of the written text. If no file name or text is provided, or if an error occurs during writing, an error message is shown.
+
+Usage:
+filewrite <file_name> <text>
+
+Examples:
+filewrite notes.txt "Hello World"
+filewrite # Error: Invalid name or text provided.
+filewrite binary.dat "Test" # Error: Existing file 'binary.dat' is not a text file.

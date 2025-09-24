@@ -165,3 +165,22 @@ void kfree(void *ptr)
 
     free_list_insert_and_coalesce(blk);
 }
+
+void get_heap_info(struct heap_info *info)
+{
+    if (!info)
+        return;
+
+    info->heap_start = heap_start;
+    info->heap_end = heap_end;
+    info->heap_max = heap_max;
+
+    unsigned int total_free = 0;
+    free_hdr_t *p = free_list;
+    while (p)
+    {
+        total_free += p->size;
+        p = p->next;
+    }
+    info->free_bytes = total_free;
+}

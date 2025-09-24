@@ -1,0 +1,10 @@
+meminfo - displays heap memory usage
+
+Description:
+The 'meminfo' command retrieves and prints information about the system heap. It shows the heap start and end addresses, the maximum heap size, the number of bytes actually used, the number of free bytes, and the available memory that can still be allocated. Values are displayed in a human-readable format using appropriate units (B, KB, MB, GB).
+
+Usage:
+meminfo
+
+Examples:
+meminfo

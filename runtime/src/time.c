@@ -1,9 +1,11 @@
 #include <time.h>
 #include <string.h>
+#include <stdio.h>
 
 #define SYS_RTC_NOW 5
+#define TIMEZONE_FILE_PATH "/config/timezone"
 
-#define TIMEZONE_OFFSET 2 // UTC+2
+static short timezone_offset = 0;
 
 static int is_leap(int y)
 {
@@ -119,11 +121,43 @@ struct tm *gmtime(const time_t *timer)
     return &gmtime_buf;
 }
 
+static int read_timezone_offset(void)
+{
+    FILE *f = fopen(TIMEZONE_FILE_PATH, "r");
+    if (!f)
+    {
+        printf("\033[31mError: Could not read timezone. Displaying UTC time...\033[0m\n");
+        return -1;
+    }
+
+    int offset;
+    int read = fscanf(f, "%d\n", &offset);
+    fclose(f);
+
+    if (read <= 0)
+    {
+        printf("\033[31mError: Could not read timezone. Displaying UTC time...\033[0m\n");
+        return -1;
+    }
+
+    if (offset < -12 || offset > 14)
+    {
+        printf("\033[31mError: Current timezone is invalid. Displaying UTC time...\033[0m\n");
+        return -1;
+    }
+
+    timezone_offset = offset;
+    return 0;
+}
+
 struct tm *localtime(const time_t *timer)
 {
     if (!timer)
         return NULL;
-    time_t t = *timer + TIMEZONE_OFFSET * 3600;
+
+    read_timezone_offset();
+
+    time_t t = *timer + timezone_offset * 3600;
     fill_tm_from_time(t, &localtime_buf);
     return &localtime_buf;
 }

@@ -338,6 +338,33 @@ static void handle_csi(const char *params, char final)
         }
         break;
     }
+    case 'S':
+    {
+        int n = (pcount >= 1 && pvals[0] > 0) ? pvals[0] : 1;
+
+        if (n <= 0)
+            break;
+        if (n >= 25)
+        {
+            for (int r = 0; r < 25; r++)
+                for (int c = 0; c < 80; c++)
+                    video[r * 80 + c] = ((unsigned short)cur_attr << 8) | ' ';
+
+            update_cursor(row, col);
+            break;
+        }
+
+        for (int r = 0; r < 25 - n; r++)
+            for (int c = 0; c < 80; c++)
+                video[r * 80 + c] = video[(r + n) * 80 + c];
+
+        for (int r = 25 - n; r < 25; r++)
+            for (int c = 0; c < 80; c++)
+                video[r * 80 + c] = ((unsigned short)cur_attr << 8) | ' ';
+
+        update_cursor(row, col);
+        break;
+    }
 
     default:
         break;

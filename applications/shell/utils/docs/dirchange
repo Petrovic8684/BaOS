@@ -1,0 +1,13 @@
+dirchange - changes the current working directory
+
+Description:
+The 'dirchange' command changes the current working directory to the path provided as an argument. If no path is given, or if the directory cannot be accessed, an error message is shown.
+
+Usage:
+dirchange <directory_path>
+
+Examples:
+dirchange /home/user
+dirchange ../Documents
+dirchange # Error: No directory path provided.
+dirchange /nonexistent # Error: could not change directory to '/nonexistent'.

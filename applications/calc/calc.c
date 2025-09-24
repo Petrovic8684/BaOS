@@ -6,8 +6,6 @@
 #include <stdbool.h>
 #include <float.h>
 
-#define INPUT_BUF 256
-
 typedef enum
 {
     CALC_OK = 0,
@@ -24,7 +22,7 @@ typedef struct
 static const char *p;
 static CalcStatus g_status;
 
-static double var_value[256];
+static double *var_value = NULL;
 
 static double parse_expr(void);
 static double parse_term(void);
@@ -249,59 +247,82 @@ static int approx_equal(double a, double b, double tol)
     return fabs(a - b) <= tol;
 }
 
-static int find_roots(const char *func, char var, double *roots, int max_roots)
+static int find_roots(const char *func, char var, double **roots_ptr, int *found_count)
 {
-    double seeds[] = {-1000.0, -100.0, -50.0, -10.0, -5.0, -2.0, -1.0, -0.5, -0.1, 0.0, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 50.0, 100.0, 1000.0};
+    double seeds[] = {-1000.0, -100.0, -50.0, -10.0, -5.0, -2.0, -1.0, -0.5, -0.1,
+                      0.0, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 50.0, 100.0, 1000.0};
     int nseeds = (int)(sizeof(seeds) / sizeof(seeds[0]));
 
-    for (int i = 0; i < max_roots; i++)
-        roots[i] = 0.0;
+    *roots_ptr = NULL;
+    *found_count = 0;
+    int capacity = 8;
+    *roots_ptr = malloc(capacity * sizeof(double));
+    if (!*roots_ptr)
+        return 0;
 
-    int found = 0;
-    for (int s = 0; s < nseeds && found < max_roots; s++)
+    for (int s = 0; s < nseeds; s++)
     {
         double seed = seeds[s];
-
         g_status = CALC_OK;
         double r = newton_raphson(func, var, seed, 200, 1e-9);
-
         if (g_status != CALC_OK)
             continue;
-
         if (!isfinite(r) || isnan(r))
             continue;
 
         bool unique = true;
-        for (int i = 0; i < found; i++)
-            if (approx_equal(r, roots[i], 1e-7))
+        for (int i = 0; i < *found_count; i++)
+        {
+            if (approx_equal(r, (*roots_ptr)[i], 1e-7))
             {
                 unique = false;
                 break;
             }
+        }
 
         if (unique)
         {
-            roots[found++] = r;
+            if (*found_count >= capacity)
+            {
+                capacity *= 2;
+                double *tmp = realloc(*roots_ptr, capacity * sizeof(double));
+                if (!tmp)
+                {
+                    free(*roots_ptr);
+                    *roots_ptr = NULL;
+                    *found_count = 0;
+                    return 0;
+                }
+                *roots_ptr = tmp;
+            }
+            (*roots_ptr)[(*found_count)++] = r;
         }
     }
 
-    return found;
+    return *found_count;
 }
 
-static bool solve_equation(const char *expr, char *output)
+static bool solve_equation(const char *expr, char **output_ptr)
 {
     const char *eq = strchr(expr, '=');
     if (!eq)
         return false;
 
-    char left[INPUT_BUF], right[INPUT_BUF];
     size_t left_len = (size_t)(eq - expr);
-    if (left_len >= sizeof(left))
-        left_len = sizeof(left) - 1;
+    size_t right_len = strlen(eq + 1);
+
+    char *left = malloc(left_len + 1);
+    char *right = malloc(right_len + 1);
+    if (!left || !right)
+    {
+        free(left);
+        free(right);
+        return false;
+    }
     strncpy(left, expr, left_len);
     left[left_len] = '\0';
-    strncpy(right, eq + 1, sizeof(right) - 1);
-    right[sizeof(right) - 1] = '\0';
+    strncpy(right, eq + 1, right_len);
+    right[right_len] = '\0';
 
     bool seen_var[256] = {0};
     int var_count = 0;
@@ -318,302 +339,227 @@ static bool solve_equation(const char *expr, char *output)
             }
         }
 
-    if (var_count == 0)
+    if (var_count != 1)
+    {
+        free(left);
+        free(right);
         return false;
+    }
 
-    if (var_count > 1)
+    size_t func_len = strlen(left) + strlen(right) + strlen("(%s)-(%s)") + 1;
+    char *func = malloc(func_len);
+    if (!func)
+    {
+        free(left);
+        free(right);
         return false;
-
-    char func[2 * INPUT_BUF];
-    if (snprintf(func, sizeof(func), "(%s)-(%s)", left, right) >= (int)sizeof(func))
+    }
+    int wrote = snprintf(func, func_len, "(%s)-(%s)", left, right);
+    if (wrote < 0 || (size_t)wrote >= func_len)
+    {
+        free(func);
+        free(left);
+        free(right);
         return false;
+    }
 
-    double roots[64];
-    int nroots = find_roots(func, var, roots, 64);
+    double *roots = NULL;
+    int nroots = 0;
+    find_roots(func, var, &roots, &nroots);
+    free(func);
+    free(left);
+    free(right);
+
     if (nroots == 0)
+    {
+        free(roots);
         return false;
+    }
 
-    size_t off = 0;
-    int ret = snprintf(output + off, INPUT_BUF - off, "%c=", var);
-    if (ret < 0)
+    size_t out_capacity = 64;
+    *output_ptr = malloc(out_capacity);
+    if (!*output_ptr)
+    {
+        free(roots);
         return false;
-    off += (size_t)ret;
+    }
+    size_t off = 0;
+    int n = snprintf(*output_ptr + off, out_capacity - off, "%c=", var);
+    if (n < 0)
+        n = 0;
+    off += (size_t)n;
 
     for (int i = 0; i < nroots; i++)
     {
-        char tmp[64];
-        int n = snprintf(tmp, sizeof(tmp), "%g", roots[i]);
+        char tmp[32];
+        n = snprintf(tmp, sizeof(tmp), "%g", roots[i]);
         if (n < 0)
             n = 0;
-        if (off + (size_t)n + 2 >= INPUT_BUF)
-            break;
+
+        if (off + (size_t)n + 2 >= out_capacity)
+        {
+            out_capacity = (off + n + 2) * 2;
+            char *tmp_ptr = realloc(*output_ptr, out_capacity);
+            if (!tmp_ptr)
+            {
+                free(roots);
+                free(*output_ptr);
+                *output_ptr = NULL;
+                return false;
+            }
+            *output_ptr = tmp_ptr;
+        }
+
         if (i > 0)
         {
-            output[off++] = ',';
-            output[off++] = ' ';
+            (*output_ptr)[off++] = ',';
+            (*output_ptr)[off++] = ' ';
         }
-        memcpy(output + off, tmp, (size_t)n);
+        memcpy(*output_ptr + off, tmp, (size_t)n);
         off += (size_t)n;
-        output[off] = '\0';
+        (*output_ptr)[off] = '\0';
     }
 
+    free(roots);
     return true;
-}
-
-static bool buf_has_esc(const char *buf, int len)
-{
-    for (int i = 0; i < len; i++)
-        if (buf[i] == 27)
-            return true;
-    return false;
-}
-
-static void set_scroll_region_big(void)
-{
-    printf("\033[3;9999r");
-    fflush(stdout);
-}
-
-static void reset_scroll_region(void)
-{
-    printf("\033[r");
-    fflush(stdout);
-}
-
-static int read_input(char *buf, int maxlen)
-{
-    int pos = 0;
-    int len = 0;
-    buf[0] = '\0';
-
-    while (1)
-    {
-        int c = getchar();
-
-        if (c == 3)
-        {
-            if (pos > 0)
-            {
-                pos--;
-                printf("\033[D");
-                fflush(stdout);
-            }
-            continue;
-        }
-        if (c == 4)
-        {
-            if (pos < len)
-            {
-                pos++;
-                printf("\033[C");
-                fflush(stdout);
-            }
-            continue;
-        }
-
-        if (c == 27)
-        {
-            buf[0] = '\0';
-            return 27;
-        }
-
-        if (c == '\r' || c == '\n')
-        {
-            if (len < maxlen - 1)
-            {
-                buf[len++] = '\n';
-                buf[len] = '\0';
-            }
-            putchar('\n');
-            fflush(stdout);
-            return 1;
-        }
-
-        if (c == 8)
-        {
-            if (pos > 0)
-            {
-                int old_len = len;
-                int del_pos = pos - 1;
-
-                for (int i = del_pos; i < len - 1; ++i)
-                    buf[i] = buf[i + 1];
-                len--;
-                buf[len] = '\0';
-                pos = del_pos;
-
-                printf("\033[D");
-
-                if (pos < len)
-                {
-                    fputs(buf + pos, stdout);
-                    putchar(' ');
-                    int move_back = (len - pos) + 1;
-                    if (move_back > 0)
-                        printf("\033[%dD", move_back);
-                }
-                else
-                {
-                    putchar(' ');
-                    printf("\033[D");
-                }
-
-                fflush(stdout);
-            }
-            continue;
-        }
-
-        if (c == 127)
-        {
-            if (pos < len)
-            {
-                for (int i = pos; i < len - 1; ++i)
-                    buf[i] = buf[i + 1];
-                len--;
-                buf[len] = '\0';
-
-                if (pos < len)
-                {
-                    fputs(buf + pos, stdout);
-                    putchar(' ');
-                    int move_back = (len - pos) + 1;
-                    if (move_back > 0)
-                        printf("\033[%dD", move_back);
-                }
-                else
-                {
-                    putchar(' ');
-                    printf("\033[%dD", 1);
-                }
-
-                fflush(stdout);
-            }
-            continue;
-        }
-
-        if (isalnum((unsigned char)c) || strchr("+-*/.%^()=", c))
-        {
-            if (len < maxlen - 1)
-            {
-                for (int i = len; i > pos; --i)
-                    buf[i] = buf[i - 1];
-                buf[pos] = (char)c;
-                len++;
-                buf[len] = '\0';
-
-                putchar(c);
-                if (pos < len - 1)
-                    fputs(buf + pos + 1, stdout);
-
-                int move_back = (len - pos - 1);
-                if (move_back > 0)
-                    printf("\033[%dD", move_back);
-
-                fflush(stdout);
-                pos++;
-            }
-            continue;
-        }
-    }
 }
 
 int main(int argc, char **argv)
 {
+    var_value = calloc(256, sizeof(double));
+    if (!var_value)
+        return 1;
+
     if (argc > 1)
     {
         for (int i = 1; i < argc; i++)
         {
-            char out[INPUT_BUF] = "";
+            char *out = NULL;
             bool has_letter = strpbrk(argv[i], "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") != NULL;
             bool has_eq = strchr(argv[i], '=') != NULL;
 
             if (has_letter && has_eq)
             {
-                if (!solve_equation(argv[i], out))
-                    strcpy(out, "Syntax error");
+                if (!solve_equation(argv[i], &out))
+                    out = strdup("Syntax error");
             }
             else if (!has_letter)
             {
                 CalcResult res = calc_evaluate(argv[i]);
                 if (res.status == CALC_OK)
-                    snprintf(out, sizeof(out), "%s = %g", argv[i], res.value);
+                {
+                    size_t len = strlen(argv[i]) + 32;
+                    out = malloc(len);
+                    snprintf(out, len, "%s = %g", argv[i], res.value);
+                }
                 else if (res.status == CALC_ERR_DIV0)
-                    snprintf(out, sizeof(out), "%s : Division by zero", argv[i]);
+                {
+                    size_t len = strlen(argv[i]) + 32;
+                    out = malloc(len);
+                    snprintf(out, len, "%s : Division by zero", argv[i]);
+                }
                 else
-                    snprintf(out, sizeof(out), "%s : Syntax error", argv[i]);
+                {
+                    size_t len = strlen(argv[i]) + 32;
+                    out = malloc(len);
+                    snprintf(out, len, "%s : Syntax error", argv[i]);
+                }
             }
             else
-                strcpy(out, "Syntax error");
+            {
+                out = strdup("Syntax error");
+            }
 
             printf("%s\n", out);
+            free(out);
         }
+        free(var_value);
         return 0;
     }
 
     printf("\033[2J\033[1;1H");
-    printf("\033[30;47m BaOS CALC utility : Press ESC to exit. \033[0K\033[0m\n\n");
-    set_scroll_region_big();
+    printf("\033[30;47m BaOS CALC utility : Type 'quit' to exit. \033[0K\033[0m\n\n");
+    printf("\033[3;9999r");
+    fflush(stdout);
 
-    char buf[INPUT_BUF];
-    char last_result[INPUT_BUF] = "";
+    char *last_result = NULL;
 
     while (1)
     {
         printf("\033[2;1H\033[J");
         printf("\033[5;1H");
 
-        if (last_result[0] != '\0')
+        if (last_result)
+        {
             printf("%s\n\n", last_result);
+            free(last_result);
+            last_result = NULL;
+        }
 
         printf("\033[3;1H\033[2K");
         printf("> ");
         fflush(stdout);
 
-        int r = read_input(buf, 78);
-
-        if (r == 27)
-        {
-            printf("\033[2J");
+        char *buf = NULL;
+        read_line(&buf);
+        if (!buf)
             break;
-        }
 
         size_t len = strlen(buf);
         if (len > 0 && buf[len - 1] == '\n')
             buf[len - 1] = '\0';
 
+        if (strcmp(buf, "quit") == 0)
+        {
+            free(buf);
+            printf("\033[2J");
+            break;
+        }
+
         if (buf[0] == '\0')
+        {
+            free(buf);
             continue;
+        }
 
         for (int i = 0; i < 256; i++)
             var_value[i] = 0.0;
 
-        last_result[0] = '\0';
         bool has_letter = strpbrk(buf, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") != NULL;
         bool has_eq = strchr(buf, '=') != NULL;
 
         if (has_letter && has_eq)
         {
-            if (!solve_equation(buf, last_result))
-                strcpy(last_result, "Syntax error");
+            if (!solve_equation(buf, &last_result))
+                last_result = strdup("Syntax error");
         }
         else if (!has_letter)
         {
             CalcResult res = calc_evaluate(buf);
+            size_t out_len = strlen(buf) + 64;
+            last_result = malloc(out_len);
             if (res.status == CALC_OK)
-                snprintf(last_result, sizeof(last_result), "%s = %g", buf, res.value);
+                snprintf(last_result, out_len, "%s = %g", buf, res.value);
             else if (res.status == CALC_ERR_DIV0)
-                snprintf(last_result, sizeof(last_result), "%s : Division by zero", buf);
+                snprintf(last_result, out_len, "%s : Division by zero", buf);
             else
-                snprintf(last_result, sizeof(last_result), "%s : Syntax error", buf);
+                snprintf(last_result, out_len, "%s : Syntax error", buf);
         }
         else
-            strcpy(last_result, "Syntax error");
+        {
+            last_result = strdup("Syntax error");
+        }
+
+        free(buf);
 
         printf("%s\n", last_result);
         fflush(stdout);
     }
 
-    reset_scroll_region();
+    printf("\033[r");
+    fflush(stdout);
 
+    free(last_result);
+    free(var_value);
     return 0;
 }

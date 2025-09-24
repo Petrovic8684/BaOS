@@ -1,5 +1,5 @@
-#ifndef INFO_H
-#define INFO_H
+#ifndef SYS_H
+#define SYS_H
 
 struct utsname
 {

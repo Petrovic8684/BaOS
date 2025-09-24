@@ -81,7 +81,17 @@ char *getcwd(char *buf, size_t size)
         return NULL;
 
     size_t len = strlen(p);
-    if (len + 1 > size)
+
+    if (buf == NULL)
+    {
+        buf = malloc(len + 1);
+        if (!buf)
+        {
+            free(p);
+            return NULL;
+        }
+    }
+    else if (len + 1 > size)
     {
         free(p);
         return NULL;

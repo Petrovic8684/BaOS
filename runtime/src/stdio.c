@@ -16,6 +16,11 @@
 
 #define MAX_OPEN_FILES 16
 
+#define TTY_ROWS 25
+#define TTY_COLS 80
+#define TTY_LAST_ROW (TTY_ROWS - 1)
+#define TTY_LAST_COL (TTY_COLS - 1)
+
 static inline void sys_write(const char *str)
 {
     asm volatile(
@@ -159,6 +164,8 @@ static int ansi_state = ANSI_NORMAL_ST;
 static char ansi_params[64];
 static int ansi_params_len = 0;
 
+void write(const char *str);
+
 static char *int_to_dec_str(unsigned int v, char *out_end)
 {
     char buf[16];
@@ -198,27 +205,71 @@ static void send_move_syscall(int r, int c)
         *p++ = *q;
     *p++ = 'H';
     *p = '\0';
-    sys_write(seq);
+    write(seq);
 }
 
-static void update_cursor(int new_row, int new_col)
+static void scroll_up(int n)
 {
-    if (new_row < 0)
-        new_row = 0;
-    if (new_row > 24)
-        new_row = 24;
-    if (new_col < 0)
-        new_col = 0;
-    if (new_col > 79)
-        new_col = 79;
+    if (n <= 0)
+        return;
 
-    tty_row = new_row;
-    tty_col = new_col;
+    char seq[16];
+    char *p = seq;
+    *p++ = 0x1B;
+    *p++ = '[';
+    char numbuf[12];
+    int_to_dec_str((unsigned int)n, numbuf);
+    for (char *q = numbuf; *q; q++)
+        *p++ = *q;
+    *p++ = 'S';
+    *p = '\0';
+
+    write(seq);
+
+    int r = sys_get_cursor_row();
+    int c = sys_get_cursor_col();
+    if (r < 0)
+        r = 0;
+    if (r > TTY_LAST_ROW)
+        r = TTY_LAST_ROW;
+    if (c < 0)
+        c = 0;
+    if (c > TTY_LAST_COL)
+        c = TTY_LAST_COL;
+
+    tty_row = r;
+    tty_col = c;
+
     send_move_syscall(tty_row + 1, tty_col + 1);
 }
 
-static int get_cursor_row(void) { return tty_row; }
-static int get_cursor_col(void) { return tty_col; }
+static void tty_wrap_char(unsigned char ch)
+{
+    if (ch == '\n')
+    {
+        tty_col = 0;
+        tty_row++;
+        if (tty_row > TTY_LAST_ROW)
+            tty_row = TTY_LAST_ROW;
+        return;
+    }
+    else if (ch == '\r')
+    {
+        tty_col = 0;
+        return;
+    }
+    else
+    {
+        tty_col++;
+        if (tty_col >= TTY_COLS)
+        {
+            tty_col = 0;
+            tty_row++;
+            if (tty_row > TTY_LAST_ROW)
+                tty_row = TTY_LAST_ROW;
+        }
+    }
+}
 
 static void tty_parse_after_write(const char *s)
 {
@@ -238,8 +289,8 @@ static void tty_parse_after_write(const char *s)
             {
                 tty_col = 0;
                 tty_row++;
-                if (tty_row > 24)
-                    tty_row = 24;
+                if (tty_row > TTY_LAST_ROW)
+                    tty_row = TTY_LAST_ROW;
             }
             else if (ch == '\r')
             {
@@ -248,14 +299,8 @@ static void tty_parse_after_write(const char *s)
             else if (ch == '\t')
             {
                 int spaces = 4 - (tty_col % 4);
-                tty_col += spaces;
-                if (tty_col > 79)
-                {
-                    tty_col = 0;
-                    tty_row++;
-                    if (tty_row > 24)
-                        tty_row = 24;
-                }
+                for (int i = 0; i < spaces; i++)
+                    tty_wrap_char(' ');
             }
             else if (ch == '\b')
             {
@@ -264,19 +309,12 @@ static void tty_parse_after_write(const char *s)
                 else if (tty_row > 0)
                 {
                     tty_row--;
-                    tty_col = 79;
+                    tty_col = TTY_LAST_COL;
                 }
             }
             else
             {
-                tty_col++;
-                if (tty_col >= 80)
-                {
-                    tty_col = 0;
-                    tty_row++;
-                    if (tty_row > 24)
-                        tty_row = 24;
-                }
+                tty_wrap_char(ch);
             }
             break;
 
@@ -317,10 +355,7 @@ static void tty_parse_after_write(const char *s)
                         val = val * 10 + (*sp - '0');
                         sp++;
                     }
-                    if (!seen)
-                        pvals[pcount++] = -1;
-                    else
-                        pvals[pcount++] = val;
+                    pvals[pcount++] = seen ? val : -1;
                     if (*sp == ';')
                         sp++;
                 }
@@ -340,16 +375,16 @@ static void tty_parse_after_write(const char *s)
                 {
                     int n = (pcount >= 1 && pvals[0] > 0) ? pvals[0] : 1;
                     tty_row += n;
-                    if (tty_row > 24)
-                        tty_row = 24;
+                    if (tty_row > TTY_LAST_ROW)
+                        tty_row = TTY_LAST_ROW;
                     break;
                 }
                 case 'C':
                 {
                     int n = (pcount >= 1 && pvals[0] > 0) ? pvals[0] : 1;
                     tty_col += n;
-                    if (tty_col > 79)
-                        tty_col = 79;
+                    if (tty_col > TTY_LAST_COL)
+                        tty_col = TTY_LAST_COL;
                     break;
                 }
                 case 'D':
@@ -369,12 +404,12 @@ static void tty_parse_after_write(const char *s)
                     tty_col = c - 1;
                     if (tty_row < 0)
                         tty_row = 0;
-                    if (tty_row > 24)
-                        tty_row = 24;
                     if (tty_col < 0)
                         tty_col = 0;
-                    if (tty_col > 79)
-                        tty_col = 79;
+                    if (tty_row > TTY_LAST_ROW)
+                        tty_row = TTY_LAST_ROW;
+                    if (tty_col > TTY_LAST_COL)
+                        tty_col = TTY_LAST_COL;
                     break;
                 }
                 case 'J':
@@ -388,22 +423,16 @@ static void tty_parse_after_write(const char *s)
                     break;
                 }
                 case 'K':
-                {
                     break;
-                }
                 case 'm':
                 {
                     if (pcount == 0)
-                    {
                         tty_attr = 0x07;
-                    }
                     else
                     {
                         for (int i = 0; i < pcount; i++)
                         {
-                            int p = pvals[i];
-                            if (p == -1)
-                                p = 0;
+                            int p = pvals[i] == -1 ? 0 : pvals[i];
                             if (p == 0)
                                 tty_attr = 0x07;
                             else if (p == 1)
@@ -425,8 +454,6 @@ static void tty_parse_after_write(const char *s)
                     }
                     break;
                 }
-                default:
-                    break;
                 }
 
                 ansi_state = ANSI_NORMAL_ST;
@@ -451,52 +478,86 @@ void write(const char *str)
 {
     if (!str)
         return;
+
     sys_write(str);
     tty_parse_after_write(str);
+
+    int real_row = sys_get_cursor_row();
+    int real_col = sys_get_cursor_col();
+
+    if (real_row < 0)
+        real_row = 0;
+    if (real_col < 0)
+        real_col = 0;
+    if (real_row > TTY_LAST_ROW)
+        real_row = TTY_LAST_ROW;
+    if (real_col > TTY_LAST_COL)
+        real_col = TTY_LAST_COL;
+
+    tty_row = real_row;
+    tty_col = real_col;
 }
 
-void write_char(char ch)
+static void update_cursor(int new_row, int new_col)
 {
-    char tmp[2] = {ch, 0};
-    write(tmp);
+    if (new_col < 0)
+        new_col = 0;
+
+    if (new_col >= TTY_COLS)
+    {
+        new_row += new_col / TTY_COLS;
+        new_col = new_col % TTY_COLS;
+    }
+
+    if (new_row < 0)
+        new_row = 0;
+
+    if (new_row > TTY_LAST_ROW)
+        new_row = TTY_LAST_ROW;
+
+    if (new_col < 0)
+        new_col = 0;
+    if (new_col > TTY_LAST_COL)
+        new_col = TTY_LAST_COL;
+
+    tty_row = new_row;
+    tty_col = new_col;
+    send_move_syscall(tty_row + 1, tty_col + 1);
 }
 
-void write_dec(unsigned int v)
+static void redraw_buffer(const char *buf, int len, int start_row, int start_col)
 {
-    char buf[12];
-    int i = 0;
-    if (v == 0)
-    {
-        buf[i++] = '0';
-    }
-    else
-    {
-        char rev[12];
-        int j = 0;
-        while (v > 0 && j < (int)sizeof(rev))
-        {
-            rev[j++] = '0' + (v % 10);
-            v /= 10;
-        }
-        while (j-- > 0)
-            buf[i++] = rev[j];
-    }
-    buf[i] = '\0';
-    write(buf);
-}
+    send_move_syscall(start_row + 1, start_col + 1);
 
-void write_hex(unsigned int val)
-{
-    char buf[11];
-    buf[0] = '0';
-    buf[1] = 'x';
-    for (int i = 0; i < 8; i++)
+    if (len > 0)
     {
-        unsigned char nibble = (val >> ((7 - i) * 4)) & 0xF;
-        buf[2 + i] = (nibble < 10) ? ('0' + nibble) : ('A' + (nibble - 10));
+        char *tmp = (char *)malloc(len + 1);
+        if (!tmp)
+            return;
+        memcpy(tmp, buf, len);
+        tmp[len] = '\0';
+
+        write(tmp);
+        free(tmp);
     }
-    buf[10] = '\0';
-    write(buf);
+
+    int after_row = sys_get_cursor_row();
+    int after_col = sys_get_cursor_col();
+    if (after_row < 0)
+        after_row = 0;
+    if (after_col < 0)
+        after_col = 0;
+    if (after_row > TTY_LAST_ROW)
+        after_row = TTY_LAST_ROW;
+    if (after_col > TTY_LAST_COL)
+        after_col = TTY_LAST_COL;
+
+    send_move_syscall(after_row + 1, after_col + 1);
+
+    write("\x1B[K");
+
+    tty_row = after_row;
+    tty_col = after_col;
 }
 
 static FILE _file_table[MAX_OPEN_FILES];
@@ -865,37 +926,35 @@ int fgetc(FILE *stream)
     return ch;
 }
 
-static void redraw_buffer(const char *buf, int len, int start_row, int start_col)
+static void ensure_space_and_scroll(int *start_row, int start_col, int cur_len, int old_len)
 {
-    send_move_syscall(start_row + 1, start_col + 1);
-
-    if (len > 0)
+    int old_rows = (start_col + old_len) / TTY_COLS;
+    int new_rows = (start_col + cur_len) / TTY_COLS;
+    if (new_rows <= old_rows)
+        return;
+    int rows_used = new_rows;
+    int bottom_needed = *start_row + rows_used;
+    if (bottom_needed > TTY_LAST_ROW)
     {
-        char *tmp = (char *)malloc(len + 1);
-        if (!tmp)
-            return;
-
-        memcpy(tmp, buf, len);
-        tmp[len] = '\0';
-        write(tmp);
-        free(tmp);
+        int scroll_lines = bottom_needed - TTY_LAST_ROW;
+        scroll_up(scroll_lines);
+        *start_row -= scroll_lines;
+        if (*start_row < 0)
+            *start_row = 0;
     }
-
-    send_move_syscall(start_row + 1, start_col + len + 1);
-    sys_write(" ");
-    update_cursor(start_row, start_col + len);
 }
 
-void read_line(char *buf, int max_len)
+void read_line(char **buf_ptr)
 {
-    int len = 0;
-    int cursor = 0;
+    size_t bufsize = 64;
+    size_t len = 0;
+    size_t cursor = 0;
+    char *buf = malloc(bufsize);
+    if (!buf)
+        return;
 
-    tty_row = sys_get_cursor_row();
-    tty_col = sys_get_cursor_col();
-
-    int row = tty_row;
-    int col = tty_col;
+    int start_row = sys_get_cursor_row();
+    int start_col = sys_get_cursor_col();
 
     while (1)
     {
@@ -903,8 +962,20 @@ void read_line(char *buf, int max_len)
 
         if (c == '\n' || c == '\r')
         {
+            if (len + 1 > bufsize)
+            {
+                char *tmp = realloc(buf, len + 1);
+                if (!tmp)
+                {
+                    free(buf);
+                    return;
+                }
+                buf = tmp;
+                bufsize = len + 1;
+            }
             buf[len] = 0;
-            update_cursor(row, col + len);
+            ensure_space_and_scroll(&start_row, start_col, (int)len, (int)len);
+            update_cursor(start_row, start_col + (int)len);
             write("\n");
             break;
         }
@@ -913,187 +984,156 @@ void read_line(char *buf, int max_len)
         {
             if (cursor > 0)
                 cursor--;
-            update_cursor(row, col + cursor);
+            update_cursor(start_row, start_col + cursor);
             continue;
         }
         if (c == 4)
         {
             if (cursor < len)
                 cursor++;
-            update_cursor(row, col + cursor);
+            update_cursor(start_row, start_col + cursor);
             continue;
         }
 
-        if (c == 8)
+        if (c == 8 && cursor > 0)
         {
-            if (cursor > 0)
+            int old_len = (int)len;
+            for (int j = (int)cursor - 1; j < (int)len - 1; j++)
+                buf[j] = buf[j + 1];
+            len--;
+            cursor--;
+            buf[len] = 0;
+            ensure_space_and_scroll(&start_row, start_col, (int)len, old_len);
+            redraw_buffer(buf, (int)len, start_row, start_col);
+            if (old_len > (int)len)
             {
-                int old_len = len;
-                for (int j = cursor - 1; j < len - 1; j++)
-                    buf[j] = buf[j + 1];
-                len--;
-                cursor--;
-                buf[len] = 0;
-                redraw_buffer(buf, len, row, col);
-                if (old_len > len)
-                {
-                    update_cursor(row, col + len);
-                    for (int i = 0; i < old_len - len; i++)
-                        write(" ");
-                }
-                update_cursor(row, col + cursor);
+                update_cursor(start_row, start_col + (int)len);
+                write("\x1B[J");
             }
+            update_cursor(start_row, start_col + cursor);
             continue;
         }
 
-        if (c == 127)
+        if (c == 127 && cursor < len)
         {
-            if (cursor < len)
+            int old_len = (int)len;
+            for (int j = (int)cursor; j < (int)len - 1; j++)
+                buf[j] = buf[j + 1];
+            len--;
+            buf[len] = 0;
+            ensure_space_and_scroll(&start_row, start_col, (int)len, old_len);
+            redraw_buffer(buf, (int)len, start_row, start_col);
+            if (old_len > (int)len)
             {
-                int old_len = len;
-                for (int j = cursor; j < len - 1; j++)
-                    buf[j] = buf[j + 1];
-                len--;
-                buf[len] = 0;
-                redraw_buffer(buf, len, row, col);
-                if (old_len > len)
-                {
-                    update_cursor(row, col + len);
-                    for (int i = 0; i < old_len - len; i++)
-                        write(" ");
-                }
-                update_cursor(row, col + cursor);
+                update_cursor(start_row, start_col + (int)len);
+                write("\x1B[J");
             }
+            update_cursor(start_row, start_col + cursor);
             continue;
         }
 
-        if (c == 128)
+        if (c >= 128 && c <= 131)
         {
-            if (cursor > 0)
+            int old_len = (int)len;
+            if (c == 128 && cursor > 0)
             {
-                int old_len = len;
-                int tail = len - cursor;
+                int tail = (int)len - (int)cursor;
                 for (int k = 0; k < tail; k++)
                     buf[k] = buf[k + cursor];
                 len = tail;
                 cursor = 0;
-                buf[len] = 0;
-                redraw_buffer(buf, len, row, col);
-                if (old_len > len)
-                {
-                    update_cursor(row, col + len);
-                    for (int i = 0; i < old_len - len; i++)
-                        write(" ");
-                }
-                update_cursor(row, col + cursor);
             }
-            continue;
-        }
-
-        if (c == 129)
-        {
-            if (cursor > 0)
+            else if (c == 129 && cursor > 0)
             {
-                int old_len = len;
-                int i = cursor;
+                int i = (int)cursor;
                 while (i > 0 && buf[i - 1] == ' ')
                     i--;
                 while (i > 0 && buf[i - 1] != ' ')
                     i--;
-                int del_count = cursor - i;
+                int del_count = (int)cursor - i;
                 if (del_count > 0)
                 {
-                    for (int k = i; k < len - del_count; k++)
+                    for (int k = i; k < (int)len - del_count; k++)
                         buf[k] = buf[k + del_count];
                     len -= del_count;
                     cursor = i;
-                    buf[len] = 0;
-                    redraw_buffer(buf, len, row, col);
-                    if (old_len > len)
-                    {
-                        update_cursor(row, col + len);
-                        for (int t = 0; t < old_len - len; t++)
-                            write(" ");
-                    }
-                    update_cursor(row, col + cursor);
                 }
             }
-            continue;
-        }
-
-        if (c == 130)
-        {
-            if (cursor < len)
+            else if (c == 130 && cursor < len)
             {
-                int old_len = len;
                 len = cursor;
-                buf[len] = 0;
-                redraw_buffer(buf, len, row, col);
-                if (old_len > len)
-                {
-                    update_cursor(row, col + len);
-                    for (int i = 0; i < old_len - len; i++)
-                        write(" ");
-                }
-                update_cursor(row, col + cursor);
             }
-            continue;
-        }
-
-        if (c == 131)
-        {
-            if (cursor < len)
+            else if (c == 131 && cursor < len)
             {
-                int old_len = len;
-                int j = cursor;
-                while (j < len && buf[j] == ' ')
+                int j = (int)cursor;
+                while (j < (int)len && buf[j] == ' ')
                     j++;
-                while (j < len && buf[j] != ' ')
+                while (j < (int)len && buf[j] != ' ')
                     j++;
-                int del_count = j - cursor;
+                int del_count = j - (int)cursor;
                 if (del_count > 0)
                 {
-                    for (int k = cursor; k < len - del_count; k++)
+                    for (int k = (int)cursor; k < (int)len - del_count; k++)
                         buf[k] = buf[k + del_count];
                     len -= del_count;
-                    buf[len] = 0;
-                    redraw_buffer(buf, len, row, col);
-                    if (old_len > len)
-                    {
-                        update_cursor(row, col + len);
-                        for (int t = 0; t < old_len - len; t++)
-                            write(" ");
-                    }
-                    update_cursor(row, col + cursor);
                 }
             }
+
+            buf[len] = 0;
+            ensure_space_and_scroll(&start_row, start_col, (int)len, old_len);
+            redraw_buffer(buf, (int)len, start_row, start_col);
+            if (old_len > (int)len)
+            {
+                update_cursor(start_row, start_col + (int)len);
+                write("\x1B[J");
+            }
+            update_cursor(start_row, start_col + cursor);
             continue;
         }
 
         if (c < 32 || c > 126)
             continue;
 
-        if (len < max_len - 1)
+        if (len + 1 >= bufsize)
         {
-            for (int j = len; j > cursor; j--)
-                buf[j] = buf[j - 1];
-
-            buf[cursor] = c;
-            len++;
-            cursor++;
-
-            buf[len] = 0;
-            redraw_buffer(buf, len, row, col);
-            update_cursor(row, col + cursor);
+            bufsize *= 2;
+            char *tmp = realloc(buf, bufsize);
+            if (!tmp)
+            {
+                free(buf);
+                return;
+            }
+            buf = tmp;
         }
+
+        int old_len = (int)len;
+        for (int j = (int)len; j > (int)cursor; j--)
+            buf[j] = buf[j - 1];
+        buf[cursor] = c;
+        len++;
+        cursor++;
+        buf[len] = 0;
+
+        ensure_space_and_scroll(&start_row, start_col, (int)len, old_len);
+        redraw_buffer(buf, (int)len, start_row, start_col);
+        update_cursor(start_row, start_col + cursor);
     }
+
+    *buf_ptr = buf;
 }
 
 int scanf(const char *fmt, ...)
 {
+    char *line = NULL;
+    read_line(&line);
+    if (!line)
+        return 0;
+
     va_list args;
     va_start(args, fmt);
     int matched = 0;
+
+    char *cursor = line;
 
     for (const char *p = fmt; *p; p++)
     {
@@ -1102,48 +1142,62 @@ int scanf(const char *fmt, ...)
             p++;
             if (*p == 'd')
             {
-                int sign = 1, val = 0;
-                char c;
-                do
+                int val;
+                int n = 0;
+                if (sscanf(cursor, "%d%n", &val, &n) == 1)
                 {
-                    c = getchar();
-                } while (c == ' ' || c == '\n' || c == '\t');
-                if (c == '-')
-                {
-                    sign = -1;
-                    c = getchar();
+                    int *iptr = va_arg(args, int *);
+                    *iptr = val;
+                    matched++;
+                    cursor += n;
                 }
-                while (c >= '0' && c <= '9')
+                else
                 {
-                    val = val * 10 + (c - '0');
-                    c = getchar();
+                    break;
                 }
-                int *iptr = va_arg(args, int *);
-                *iptr = val * sign;
-                matched++;
             }
             else if (*p == 'c')
             {
                 char *cptr = va_arg(args, char *);
-                *cptr = getchar();
-                matched++;
+                if (*cursor)
+                {
+                    *cptr = *cursor;
+                    matched++;
+                    cursor++;
+                }
+                else
+                {
+                    break;
+                }
             }
             else if (*p == 's')
             {
                 char *sptr = va_arg(args, char *);
-                read_line(sptr, 512);
-                matched++;
+                int n = 0;
+                if (sscanf(cursor, "%s%n", sptr, &n) == 1)
+                {
+                    matched++;
+                    cursor += n;
+                }
+                else
+                {
+                    break;
+                }
             }
         }
         else
         {
-            char c = getchar();
-            if (c != *p)
+            if (*cursor != *p)
                 break;
+            cursor++;
         }
+
+        while (*cursor == ' ' || *cursor == '\t')
+            cursor++;
     }
 
     va_end(args);
+    free(line);
     return matched;
 }
 
@@ -1354,22 +1408,31 @@ FILE *fopen(const char *pathname, const char *mode)
     {
         f->mode = 0;
         int size = fs_read_file_size(f->name);
-        if (size > 0)
+        if (size >= 0)
         {
-            f->buf = (unsigned char *)malloc(size);
-            if (!f->buf)
+            if (size > 0)
             {
-                free_file_slot(f);
-                return NULL;
+                f->buf = (unsigned char *)malloc(size);
+                if (!f->buf)
+                {
+                    free_file_slot(f);
+                    return NULL;
+                }
+                unsigned int got = 0;
+                if (fs_read_file(f->name, f->buf, size, &got) != 0)
+                {
+                    free_file_slot(f);
+                    return NULL;
+                }
+                f->buf_pos = 0;
+                f->buf_end = got;
             }
-            unsigned int got = 0;
-            if (fs_read_file(f->name, f->buf, size, &got) != 0)
+            else
             {
-                free_file_slot(f);
-                return NULL;
+                f->buf = NULL;
+                f->buf_pos = 0;
+                f->buf_end = 0;
             }
-            f->buf_pos = 0;
-            f->buf_end = got;
         }
         else
         {
@@ -1380,8 +1443,13 @@ FILE *fopen(const char *pathname, const char *mode)
     else if (mode[0] == 'w')
     {
         f->mode = 1;
-        fs_delete_file(f->name);
-        fs_make_file(f->name);
+        int del_rc = fs_delete_file(f->name);
+        int rc = fs_make_file(f->name);
+        if (rc != 0)
+        {
+            free_file_slot(f);
+            return NULL;
+        }
     }
     else if (mode[0] == 'a')
     {
@@ -1396,13 +1464,22 @@ FILE *fopen(const char *pathname, const char *mode)
                 return NULL;
             }
             unsigned int got = 0;
-            fs_read_file(f->name, f->buf, size, &got);
+            if (fs_read_file(f->name, f->buf, size, &got) != 0)
+            {
+                free_file_slot(f);
+                return NULL;
+            }
             f->buf_pos = got;
             f->buf_end = got;
         }
         else
         {
-            fs_make_file(f->name);
+            int rc = fs_make_file(f->name);
+            if (rc != 0)
+            {
+                free_file_slot(f);
+                return NULL;
+            }
             f->buf_pos = 0;
             f->buf_end = 0;
         }
@@ -1548,17 +1625,25 @@ int rename(const char *oldpath, const char *newpath)
     }
 
     int ch;
+    int write_err = 0;
     while ((ch = fgetc(oldf)) != EOF)
         if (fputc(ch, newf) == EOF)
         {
-            fclose(oldf);
-            fclose(newf);
-            return -1;
+            write_err = 1;
+            break;
         }
 
-    fflush(newf);
-    fclose(oldf);
-    fclose(newf);
+    if (!write_err && fflush(newf) == EOF)
+        write_err = 1;
+
+    int cerr_new = fclose(newf);
+    int cerr_old = fclose(oldf);
+
+    if (write_err || cerr_new != 0 || cerr_old != 0)
+    {
+        remove(newpath);
+        return -1;
+    }
 
     int del = fs_delete_file(oldpath);
     if (del != 0)

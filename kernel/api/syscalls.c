@@ -7,7 +7,7 @@
 #include "../helpers/string/string.h"
 #include "../helpers/memory/memory.h"
 #include "../loader/loader.h"
-#include "../info/uname.h"
+#include "../info/sys/sys.h"
 #include "../system/acpi/acpi.h"
 
 #define SYS_EXIT 0
@@ -15,7 +15,7 @@
 #define SYS_READ 3
 #define SYS_POWER_OFF 4
 #define SYS_RTC_NOW 5
-#define SYS_UNAME 6
+#define SYS_SYS_INFO 6
 #define SYS_FS_WHERE 8
 #define SYS_FS_LIST_DIR 9
 #define SYS_FS_CHANGE_DIR 10
@@ -30,6 +30,7 @@
 #define SYS_GET_CURSOR_COL 19
 #define SYS_REBOOT 20
 #define SYS_SET_USER_PAGES 21
+#define SYS_HEAP_INFO 22
 
 extern void (*loader_post_return_callback)(void);
 
@@ -83,7 +84,7 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
         return now;
     }
 
-    case SYS_UNAME:
+    case SYS_SYS_INFO:
     {
         struct utsname *buf = (struct utsname *)arg;
         mem_copy(buf, &uname_info, sizeof(struct utsname));
@@ -276,6 +277,14 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
         mem_copy((unsigned char *)&kargs, (const unsigned char *)arg, sizeof(kargs));
         set_user_pages(kargs.virt_start, kargs.size);
 
+        return 0;
+    }
+
+    case SYS_HEAP_INFO:
+    {
+        struct heap_info info;
+        get_heap_info(&info);
+        mem_copy((void *)arg, &info, sizeof(info));
         return 0;
     }
 

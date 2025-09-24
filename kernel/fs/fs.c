@@ -475,7 +475,7 @@ int fs_make_dir(const char *name)
     if (!fs_initialized)
         return FS_ERR_NOT_INIT;
 
-    if (str_count(name) >= MAX_NAME && !(str_count(name) > MAX_NAME && contains_slash(name)))
+    if (!contains_slash(name) && str_count(name) >= MAX_NAME)
         return FS_ERR_NAME_LONG;
 
     char final_name[MAX_NAME];
@@ -552,7 +552,7 @@ int fs_make_file(const char *name)
     if (!fs_initialized)
         return FS_ERR_NOT_INIT;
 
-    if (str_count(name) >= MAX_NAME && !(str_count(name) > MAX_NAME && contains_slash(name)))
+    if (!contains_slash(name) && str_count(name) >= MAX_NAME)
         return FS_ERR_NAME_LONG;
 
     char final_name[MAX_NAME];

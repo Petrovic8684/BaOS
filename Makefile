@@ -19,7 +19,7 @@ KERNEL_SRCS = \
 	kernel/paging/heap/heap.c \
 	kernel/loader/loader.c \
 	kernel/api/syscalls.c \
-	kernel/info/uname.c \
+	kernel/info/sys/sys.c \
 	kernel/system/pic/pic.c \
 	kernel/system/idt/idt.c \
 	kernel/system/idt/isr/isr_handlers.c \
@@ -42,29 +42,34 @@ KERNEL_ASM_SRCS = \
 	
 
 SHELL_SRCS   = applications/shell/shell.c
-SHELL_DEPS 	 = applications/shell/utils/common/fs_common.c
 SHELL_BIN    = applications/shell/shell.bin
 
-UTILS_SRCS   =  applications/shell/utils/changedir.c \
-			 	applications/shell/utils/clear.c \
-				applications/shell/utils/copy.c \
+UTILS_SRCS   =  applications/shell/utils/dirchange.c \
+				applications/shell/utils/dirdelete.c \
+				applications/shell/utils/dirmake.c \
+				applications/shell/utils/dirlist.c \
+				applications/shell/utils/filecopy.c \
+				applications/shell/utils/filedelete.c \
+				applications/shell/utils/filemake.c \
+				applications/shell/utils/filemove.c \
+				applications/shell/utils/fileread.c \
+				applications/shell/utils/filewrite.c \
+				applications/shell/utils/fileinfo.c \
+				applications/shell/utils/filedump.c \
+				applications/shell/utils/filecount.c \
+				applications/shell/utils/filesearch.c \
+				applications/shell/utils/filediff.c \
+				applications/shell/utils/where.c \
 				applications/shell/utils/date.c \
-				applications/shell/utils/deletedir.c \
-				applications/shell/utils/deletefile.c \
 				applications/shell/utils/echo.c \
-				applications/shell/utils/help.c \
-				applications/shell/utils/list.c \
-				applications/shell/utils/makedir.c \
-				applications/shell/utils/makefile.c \
-				applications/shell/utils/move.c \
-				applications/shell/utils/uname.c \
-				applications/shell/utils/readfile.c \
+			 	applications/shell/utils/clear.c \
+				applications/shell/utils/sysinfo.c \
+				applications/shell/utils/meminfo.c \
 				applications/shell/utils/shutdown.c \
 				applications/shell/utils/restart.c \
-				applications/shell/utils/where.c \
-				applications/shell/utils/writefile.c \
+				applications/shell/utils/help.c \
 				applications/shell/utils/whatis.c \
-				applications/shell/utils/fileinfo.c \
+				applications/shell/utils/banner.c \
 
 UTILS_BIN    = $(UTILS_SRCS:.c=.bin)
 UTILS_OBJS	 = $(UTILS_SRCS:.c=.o)
@@ -76,9 +81,6 @@ FILLING_SRC  = applications/filling/filling.c
 FILLING_BIN  = applications/filling/filling.bin
 
 COMPILER_BIN = applications/baoc/baoc.bin
-
-TEST_SRC	 = applications/test.c
-TEST_BIN	 = applications/test.bin
 
 USER_OBJS    = applications/*/*.o
 
@@ -108,7 +110,8 @@ RUNTIME_SRC_LIST = \
 	runtime/src/sys_utsname.c \
 	runtime/src/time.c \
 	runtime/src/unistd.c \
-	runtime/src/math.c
+	runtime/src/math.c \
+	runtime/src/libgen.c
 
 RUNTIME_SRC_OBJS = $(RUNTIME_SRC_LIST:.c=.o)
 RUNTIME_INCLUDE  = -Iruntime/include
@@ -152,14 +155,11 @@ $(LIBC_SYM): $(RUNTIME_BIN)
 %.o: %.c
 	$(CC) -ffreestanding -m32 -nostdlib -fno-pie $(RUNTIME_INCLUDE) -c $< -o $@
 
-%.bin: %.o $(SHELL_DEPS:.c=.o) $(CRT0_OBJ) $(RUNTIME_LIB)
-	$(LD) -m elf_i386 -T kernel/loader/user.ld --gc-sections -o $@ $^
-
 %.bin: %.o $(CRT0_OBJ) $(RUNTIME_LIB)
 	$(LD) -m elf_i386 -T kernel/loader/user.ld --gc-sections -o $@ $^
 
 # ---------------- Disk image -----------------
-$(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMPILER_BIN) $(TEST_BIN) $(UTILS_BIN) \
+$(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMPILER_BIN) $(UTILS_BIN) \
        $(RUNTIME_BIN) $(CRT0_BIN) $(LIBC_SYM)
 	$(DD) if=/dev/zero of=$(IMG) bs=1M count=$(IMG_SIZE)
 	$(DD) if=$(BOOT_BIN) of=$(IMG) conv=notrunc
@@ -177,9 +177,13 @@ $(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMP
 	$(PY) tools/mkfs_inject.py $(IMG) $(RUNTIME_BIN) /lib
 	$(PY) tools/mkfs_inject.py $(IMG) $(LIBC_SYM) /lib
 
-	for prog in $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMPILER_BIN) $(TEST_BIN); do \
+	for prog in $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMPILER_BIN); do \
 		$(PY) tools/mkfs_inject.py $(IMG) $$prog /programs; \
 	done
+	
+	$(PY) tools/mkfs_inject.py $(IMG) kernel/drivers/rtc/timezone /config;
+
+	$(PY) tools/mkfs_inject.py $(IMG) applications/test.c /programs;
 
 	for prog in $(UTILS_BIN); do \
 		$(PY) tools/mkfs_inject.py $(IMG) $$prog /programs/utils; \
@@ -189,11 +193,12 @@ $(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMP
 		$(PY) tools/mkfs_inject.py $(IMG) $$doc /docs; \
 	done
 
+
 # ---------------- Run & Clean ----------------
 run: $(IMG)
 	$(QEMU) -m 3G -drive format=raw,file=$(IMG),if=ide
 
 clean:
 	$(RM) $(BOOT_BIN) $(KERNEL_OBJS) $(KERNEL_BIN) $(IMG) \
-	      $(SHELL_BIN) $(SHELL_DEPS:.c=.o) $(CALC_BIN) $(FILLING_BIN) $(COMPILER_BIN) $(TEST_BIN) $(UTILS_BIN) $(UTILS_OBJS) $(LIBC_SYM) \
+	      $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMPILER_BIN) $(UTILS_BIN) $(UTILS_OBJS) $(LIBC_SYM) \
 	      $(RUNTIME_SRC_OBJS) $(CRT0_OBJ) $(CRT0_BIN) $(RUNTIME_BIN) $(RUNTIME_LIB) $(USER_OBJS)

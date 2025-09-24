@@ -19,6 +19,7 @@ struct tm
 #define CLOCKS_PER_SEC 1000000L
 
 time_t time(time_t *t);
+int set_timezone_offset(short offset_hours);
 struct tm *gmtime(const time_t *timer);
 struct tm *localtime(const time_t *timer);
 time_t mktime(struct tm *tm);
