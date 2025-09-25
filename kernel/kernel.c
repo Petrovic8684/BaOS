@@ -2,6 +2,7 @@
 #include "./system/idt/idt.h"
 #include "./drivers/drivers.h"
 #include "./drivers/pit/pit.h"
+#include "./drivers/speaker/melodies/melodies.h"
 #include "./paging/paging.h"
 #include "./paging/heap/heap.h"
 #include "./system/gdt/gdt.h"
@@ -28,6 +29,7 @@ __attribute__((section(".text"), used, noreturn)) void kernel_main(void)
     pit_sleep(LOG_DELAY);
 
     fs_init();
+    play_startup_melody();
 
     load_shell();
 

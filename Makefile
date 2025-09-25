@@ -32,9 +32,11 @@ KERNEL_SRCS = \
 	kernel/drivers/display/display.c \
 	kernel/drivers/rtc/rtc.c \
 	kernel/drivers/disk/ata.c \
+	kernel/drivers/speaker/speaker.c \
+	kernel/drivers/speaker/melodies/melodies.c \
 	kernel/helpers/ports/ports.c \
 	kernel/helpers/string/string.c \
-	kernel/helpers/memory/memory.c
+	kernel/helpers/memory/memory.c \
 
 KERNEL_ASM_SRCS = \
 	kernel/system/idt/idt_flush.asm \
@@ -111,7 +113,8 @@ RUNTIME_SRC_LIST = \
 	runtime/src/time.c \
 	runtime/src/unistd.c \
 	runtime/src/math.c \
-	runtime/src/libgen.c
+	runtime/src/libgen.c \
+	runtime/src/baos_sound.c \
 
 RUNTIME_SRC_OBJS = $(RUNTIME_SRC_LIST:.c=.o)
 RUNTIME_INCLUDE  = -Iruntime/include
@@ -189,7 +192,10 @@ $(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(UTIL
 
 # ---------------- Run & Clean ----------------
 run: $(IMG)
-	$(QEMU) -m 3G -drive format=raw,file=$(IMG),if=ide
+	$(QEMU) -m 3G -drive format=raw,file=$(IMG),if=ide \
+		-audiodev dsound,id=snd0 \
+		-machine pcspk-audiodev=snd0 \
+		-device intel-hda \
 
 clean:
 	$(RM) $(BOOT_BIN) $(KERNEL_OBJS) $(KERNEL_BIN) $(IMG) \

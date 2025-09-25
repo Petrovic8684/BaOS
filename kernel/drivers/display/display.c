@@ -1,4 +1,5 @@
 #include "display.h"
+#include "../speaker/speaker.h"
 #include "../../helpers/ports/ports.h"
 
 static volatile unsigned short *video = (volatile unsigned short *)0xB8000;
@@ -388,10 +389,14 @@ void write(const char *str)
                 ansi_params_len = 0;
                 ansi_params[0] = '\0';
             }
-            else
+            else if (ch == 0x07)
             {
-                vga_put_char((char)ch);
+                __asm__ volatile("sti");
+                speaker_beep(440, 100);
+                __asm__ volatile("cli");
             }
+            else
+                vga_put_char((char)ch);
             break;
         case ANSI_ESC:
             if (ch == '[')

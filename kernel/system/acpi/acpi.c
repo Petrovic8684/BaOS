@@ -1,6 +1,7 @@
 #include "acpi.h"
 #include "../../helpers/ports/ports.h"
 #include "../../drivers/display/display.h"
+#include "../../drivers/speaker/melodies/melodies.h"
 #include "../../paging/paging.h"
 
 #define KERNEL_PHYS_TO_VIRT(addr) ((void *)((unsigned long)(addr)))
@@ -202,6 +203,8 @@ static void enable_acpi_if_needed(acpi_fadt_t *fadt)
 void power_off(void)
 {
     write("Shutting down...\n");
+    play_shutdown_melody();
+
     ensure_phys_range_mapped(0xE0000u, 0x20000u);
 
     acpi_rsdp_t *rsdp = find_rsdp();
@@ -284,7 +287,7 @@ void power_off(void)
     for (volatile unsigned long i = 0; i < 1000000UL; ++i)
         __asm__ volatile("nop");
 
-    write("\nACPI/emu poweroff failed — halting.\n");
+    write("\n\033[31mError: ACPI poweroff failed. Halting...\033[0m\n");
     for (;;)
         __asm__ volatile("hlt");
 }
@@ -321,6 +324,8 @@ static int acpi_reset_via_fadt(acpi_fadt_t *fadt)
 void reboot(void)
 {
     write("Rebooting...\n");
+    play_restart_melody();
+
     __asm__ volatile("cli");
 
     acpi_rsdp_t *rsdp = find_rsdp();
@@ -380,7 +385,7 @@ void reboot(void)
     for (volatile unsigned int i = 0; i < 1000000; ++i)
         __asm__ volatile("nop");
 
-    write("Reboot failed — forcing triple fault.\n");
+    write("ACPI Reboot failed. Forcing triple fault.\n");
     struct
     {
         unsigned short limit;

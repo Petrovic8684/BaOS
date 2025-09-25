@@ -2,7 +2,6 @@
 #include "../../helpers/ports/ports.h"
 #include "../../drivers/display/display.h"
 
-#define PIT_FREQ_HZ 1193182u
 #define PIT_CMD_PORT 0x43
 #define PIT_CH0_PORT 0x40
 #define PIC1_COMMAND 0x20
@@ -15,6 +14,8 @@ static unsigned int pit_hz = 100;
 static unsigned int ms_per_tick_q = 0;
 static unsigned int ms_per_tick_r = 0;
 static volatile unsigned int pit_ms_rem = 0;
+
+static pit_tick_callback_t pit_tick_cb = 0;
 
 static inline unsigned int save_and_cli(void)
 {
@@ -50,6 +51,10 @@ void pit_irq_handler(int irq)
         pit_ms++;
         pit_ms_rem -= PIT_FREQ_HZ;
     }
+
+    if (pit_tick_cb)
+        pit_tick_cb(pit_ticks);
+
     outb(PIC1_COMMAND, 0x20);
 }
 
@@ -59,7 +64,7 @@ void pit_init(unsigned int hz)
 
     if (hz < 20 || hz >= 1000)
     {
-        write("\033[32mFreq must be 20<hz<1000. Setting to hz=100...\n\033[0m");
+        write("\033[31mFreq must be 20<hz<1000. Setting to hz=100...\n\033[0m");
         hz = 100;
     }
 
@@ -128,4 +133,14 @@ void pit_sleep(unsigned int ms)
     unsigned long long end = pit_get_ticks() + (unsigned long long)ticks_needed;
     while (pit_get_ticks() < end)
         __asm__ volatile("hlt");
+}
+
+void pit_register_tick_callback(pit_tick_callback_t cb)
+{
+    pit_tick_cb = cb;
+}
+
+unsigned int pit_get_hz(void)
+{
+    return pit_hz;
 }

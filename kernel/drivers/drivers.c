@@ -2,6 +2,7 @@
 #include "./keyboard/keyboard.h"
 #include "./rtc/rtc.h"
 #include "./pit/pit.h"
+#include "./speaker/speaker.h"
 
 void drivers_init(int delay)
 {
@@ -10,5 +11,7 @@ void drivers_init(int delay)
     keyboard_init();
     pit_sleep(delay);
     rtc_init();
+    pit_sleep(delay);
+    speaker_init();
     pit_sleep(delay);
 }

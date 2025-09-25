@@ -1,5 +1,6 @@
 #include "../drivers/display/display.h"
 #include "../drivers/keyboard/keyboard.h"
+#include "../drivers/speaker/speaker.h"
 #include "../drivers/rtc/rtc.h"
 #include "../drivers/pit/pit.h"
 #include "../fs/fs.h"
@@ -34,6 +35,7 @@
 #define SYS_HEAP_INFO 22
 #define SYS_SLEEP 23
 #define SYS_UPTIME 24
+#define SYS_BEEP 25
 
 extern void (*loader_post_return_callback)(void);
 
@@ -317,6 +319,31 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
         s += rem / 1000;
 
         return s;
+    }
+
+    case SYS_BEEP:
+    {
+        struct
+        {
+            unsigned int hz;
+            unsigned int ms;
+        } kargs;
+
+        mem_copy(&kargs, (const void *)arg, sizeof(kargs));
+
+        if (kargs.hz == 0)
+            return 0;
+
+        if (kargs.hz < 20)
+            kargs.hz = 20;
+        else if (kargs.hz > 20000)
+            kargs.hz = 20000;
+
+        __asm__ volatile("sti");
+        speaker_beep(kargs.hz, kargs.ms);
+        __asm__ volatile("cli");
+
+        return 0;
     }
 
     default:
