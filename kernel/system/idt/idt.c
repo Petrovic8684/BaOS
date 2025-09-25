@@ -2,6 +2,7 @@
 #include "isr/isr_handlers.h"
 #include "../../drivers/keyboard/keyboard.h"
 #include "../../drivers/rtc/rtc.h"
+#include "../../drivers/pit/pit.h"
 #include "../../drivers/disk/ata.h"
 #include "../../drivers/display/display.h"
 
@@ -200,10 +201,13 @@ void idt_init(void)
     register_isr_handler(30, isr30_handler);
     register_isr_handler(31, isr31_handler);
 
+    register_irq_handler(0x20, pit_irq_handler);
     register_irq_handler(0x21, keyboard_irq_handler);
     register_irq_handler(0x28, rtc_irq_handler);
     register_irq_handler(0x2E, ata_irq_handler);
     register_irq_handler(0x2F, ata_irq_handler);
 
-    write("\033[32mIDT initialized.\n\033[0m");
+    __asm__ volatile("sti");
+
+    write("\033[32mIDT initialized.\033[0m\n\n");
 }

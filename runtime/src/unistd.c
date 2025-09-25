@@ -5,11 +5,12 @@
 #define SYS_FS_WHERE 8
 #define SYS_FS_CHANGE_DIR 10
 #define SYS_FS_DELETE_DIR 12
+#define SYS_SLEEP 23
 
 static unsigned int fs_where_len(void)
 {
     unsigned int len;
-    asm volatile(
+    __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "movl $0, %%ebx\n\t"
         "int $0x80\n\t"
@@ -30,7 +31,7 @@ static char *fs_where(void)
     if (!buf)
         return NULL;
 
-    asm volatile(
+    __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "movl %[ptr], %%ebx\n\t"
         "int $0x80\n\t"
@@ -44,7 +45,7 @@ static char *fs_where(void)
 static inline int fs_change_dir(const char *name)
 {
     unsigned int ret;
-    asm volatile(
+    __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "movl %[n], %%ebx\n\t"
         "int $0x80\n\t"
@@ -58,7 +59,7 @@ static inline int fs_change_dir(const char *name)
 static inline int fs_delete_dir(const char *name)
 {
     unsigned int ret;
-    asm volatile(
+    __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "movl %[n], %%ebx\n\t"
         "int $0x80\n\t"
@@ -67,6 +68,17 @@ static inline int fs_delete_dir(const char *name)
         : [num] "i"(SYS_FS_DELETE_DIR), [n] "r"(name)
         : "eax", "ebx", "memory");
     return (int)ret;
+}
+
+static inline void sys_sleep(unsigned int ms)
+{
+    __asm__ volatile(
+        "movl %[num], %%eax\n\t"
+        "movl %[arg], %%ebx\n\t"
+        "int $0x80\n\t"
+        :
+        : [num] "i"(SYS_SLEEP), [arg] "r"(ms)
+        : "eax", "ebx", "memory");
 }
 
 int chdir(const char *path)
@@ -110,4 +122,17 @@ int rmdir(const char *path)
         return 0;
 
     return -1;
+}
+
+unsigned int sleep(unsigned int seconds)
+{
+    sys_sleep(seconds * 1000);
+    return 0;
+}
+
+int usleep(useconds_t usec)
+{
+    unsigned int ms = (usec + 999) / 1000;
+    sys_sleep(ms);
+    return 0;
 }

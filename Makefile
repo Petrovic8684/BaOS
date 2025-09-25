@@ -27,13 +27,13 @@ KERNEL_SRCS = \
 	kernel/system/gdt/gdt.c \
 	kernel/system/tss/tss.c \
 	kernel/system/acpi/acpi.c \
+	kernel/drivers/pit/pit.c \
 	kernel/drivers/keyboard/keyboard.c \
 	kernel/drivers/display/display.c \
 	kernel/drivers/rtc/rtc.c \
 	kernel/drivers/disk/ata.c \
 	kernel/helpers/ports/ports.c \
 	kernel/helpers/string/string.c \
-	kernel/helpers/bcd/bcd.c \
 	kernel/helpers/memory/memory.c
 
 KERNEL_ASM_SRCS = \
@@ -68,9 +68,11 @@ UTILS_SRCS   =  applications/shell/utils/dirchange.c \
 				applications/shell/utils/meminfo.c \
 				applications/shell/utils/shutdown.c \
 				applications/shell/utils/restart.c \
+				applications/shell/utils/uptime.c \
 				applications/shell/utils/help.c \
 				applications/shell/utils/whatis.c \
 				applications/shell/utils/banner.c \
+				applications/shell/test.c \
 
 UTILS_BIN    = $(UTILS_SRCS:.c=.bin)
 UTILS_OBJS	 = $(UTILS_SRCS:.c=.o)
@@ -105,6 +107,7 @@ RUNTIME_SRC_LIST = \
 	runtime/src/dirent.c \
 	runtime/src/sys_stat.c \
 	runtime/src/sys_utsname.c \
+	runtime/src/sys_info.c \
 	runtime/src/time.c \
 	runtime/src/unistd.c \
 	runtime/src/math.c \

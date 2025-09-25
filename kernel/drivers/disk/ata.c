@@ -1,4 +1,6 @@
 #include "ata.h"
+#include "../display/display.h"
+#include "../pit/pit.h"
 #include "../../helpers/ports/ports.h"
 
 static ATA_Driver *fs_drv = 0;
@@ -125,8 +127,17 @@ static int ata_identify(ATA_Driver *drv)
 
 int ata_init(ATA_Driver *drv, unsigned short tf_port, unsigned short dcr_port, unsigned char sbits)
 {
+    write("Initializing ATA driver...\033[0m\n");
+
     if (!drv)
-        return -1;
+    {
+        write("\033[31mError: ATA driver initialization failed (drv pointer is NULL). Halting...\033[0m\n\n");
+        __asm__ volatile(
+            "cli\n\t"
+            "hlt\n\t");
+        while (1)
+            ;
+    }
 
     drv->tf = tf_port;
     drv->dcr = dcr_port;
@@ -137,11 +148,26 @@ int ata_init(ATA_Driver *drv, unsigned short tf_port, unsigned short dcr_port, u
     drv->error = 0;
 
     if (srst_ata_st(dcr_port, tf_port) != 0)
-        return -1;
+    {
+        write("\033[31mError: ATA driver initialization failed (soft reset failed). Halting...\033[0m\n\n");
+        __asm__ volatile(
+            "cli\n\t"
+            "hlt\n\t");
+        while (1)
+            ;
+    }
 
     if (ata_identify(drv) != 0)
-        return -1;
+    {
+        write("\033[31mError: ATA driver initialization failed (no device present or not responding). Halting...\033[0m\n\n");
+        __asm__ volatile(
+            "cli\n\t"
+            "hlt\n\t");
+        while (1)
+            ;
+    }
 
+    write("\033[32mATA driver initialized.\033[0m\n");
     return 0;
 }
 
@@ -168,9 +194,8 @@ static volatile ata_xfer_t cur_xfer;
 static inline void pic_send_eoi(int irq)
 {
     if (irq >= 8)
-    {
         outb(0xA0, 0x20);
-    }
+
     outb(0x20, 0x20);
 }
 
@@ -224,20 +249,32 @@ void ata_irq_handler(int irq)
 
 static int wait_for_irq_completion(unsigned int timeout_ms)
 {
-    unsigned int t = 0;
-    while (!cur_xfer.completed && t < timeout_ms)
-    {
-        asm volatile("sti; hlt; cli");
+    unsigned int flags;
+    __asm__ volatile(
+        "pushf\n\t"
+        "pop %0"
+        : "=r"(flags)
+        :
+        : "memory");
 
-        for (volatile int i = 0; i < 1000; i++)
-            ;
-        t++;
-    }
+    int was_enabled = (flags & (1 << 9)) != 0;
+    if (!was_enabled)
+        __asm__ volatile("sti");
+
+    unsigned long long start = pit_get_ms();
+    unsigned long long end_ms = start + (unsigned long long)timeout_ms;
+
+    while (!cur_xfer.completed && pit_get_ms() < end_ms)
+        __asm__ volatile("hlt");
+
+    if (!was_enabled)
+        __asm__ volatile("cli");
 
     if (!cur_xfer.completed)
         return -1;
     if (cur_xfer.error)
         return -2;
+
     return 0;
 }
 
@@ -276,6 +313,10 @@ static int pio28_read(unsigned int *lba, unsigned char *buf, unsigned char secto
     int r = wait_for_irq_completion(5000);
     if (r != 0)
     {
+        unsigned char s = inb(port + 7);
+        write("ATA timeout or error, status=0x");
+        write_hex(s);
+
         cur_xfer.in_progress = 0;
         return -4;
     }
@@ -333,6 +374,10 @@ static int pio28_write(unsigned int *lba, unsigned char *buf, unsigned char sect
         int r = wait_for_irq_completion(5000);
         if (r != 0)
         {
+            unsigned char s = inb(port + 7);
+            write("ATA timeout or error, status=0x");
+            write_hex(s);
+
             cur_xfer.in_progress = 0;
             return -5;
         }

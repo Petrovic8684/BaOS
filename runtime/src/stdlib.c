@@ -36,7 +36,7 @@ static unsigned int heap_max = 0;
 
 void exit(int code)
 {
-    asm volatile(
+    __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "movl %[c], %%ebx\n\t"
         "int $0x80\n\t"
@@ -48,7 +48,7 @@ void exit(int code)
 static unsigned int fs_where_len(void)
 {
     unsigned int len;
-    asm volatile(
+    __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "movl $0, %%ebx\n\t"
         "int $0x80\n\t"
@@ -69,7 +69,7 @@ static char *fs_where(void)
     if (!buf)
         return NULL;
 
-    asm volatile(
+    __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "movl %[ptr], %%ebx\n\t"
         "int $0x80\n\t"
@@ -339,7 +339,7 @@ static void sys_set_user_pages(unsigned int virt_start, unsigned int size)
     args.virt_start = virt_start;
     args.size = size;
 
-    asm volatile(
+    __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "movl %[arg], %%ebx\n\t"
         "int $0x80\n\t"

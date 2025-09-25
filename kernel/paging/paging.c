@@ -473,5 +473,5 @@ void paging_init(void)
         unsigned long long mb = total_mapped / (1024ULL * 1024ULL);
         write_dec(mb);
     }
-    write(" MB).\n\033[0m");
+    write(" MB).\033[0m\n\n");
 }

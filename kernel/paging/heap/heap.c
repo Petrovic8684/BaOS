@@ -97,11 +97,7 @@ void heap_init(void)
 
     free_list = ((void *)0);
 
-    write("\033[32mHeap initialized (start=");
-    write_hex(heap_start);
-    write(", max=");
-    write_hex(heap_max);
-    write(")\n\033[0m");
+    write("\033[32mHeap initialized.\033[0m\n\n");
 }
 
 void *kmalloc(unsigned int size)

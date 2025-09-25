@@ -27,13 +27,13 @@ void gdt_init(void)
     kernel_gdtr.base = (unsigned int)&kernel_gdt;
     kernel_gdtr.limit = (unsigned short)(sizeof(kernel_gdt) - 1);
 
-    asm volatile("lgdt (%0)" ::"r"(&kernel_gdtr));
+    __asm__ volatile("lgdt (%0)" ::"r"(&kernel_gdtr));
 
-    asm volatile(
+    __asm__ volatile(
         "ljmp $0x08, $1f\n"
         "1:\n\t");
 
-    asm volatile(
+    __asm__ volatile(
         "mov $0x10, %%ax\n\t"
         "mov %%ax, %%ds\n\t"
         "mov %%ax, %%es\n\t"
@@ -41,5 +41,5 @@ void gdt_init(void)
         "mov %%ax, %%gs\n\t"
         "mov %%ax, %%ss\n\t" ::: "ax");
 
-    write("\033[32mGDT loaded.\n\033[0m");
+    write("\033[32mGDT loaded.\033[0m\n\n");
 }

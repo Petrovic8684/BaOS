@@ -26,39 +26,39 @@ static unsigned int last_user_region_size = 0;
 
 static void jump_to_user(unsigned int entry, unsigned int stack)
 {
-    asm volatile("cli\n\t"
-                 "mov $0x23, %%ax\n\t"
-                 "mov %%ax, %%ds\n\t"
-                 "mov %%ax, %%es\n\t"
-                 "mov %%ax, %%fs\n\t"
-                 "mov %%ax, %%gs\n\t"
-                 "pushl $0x23\n\t"
-                 "pushl %[stack]\n\t"
-                 "pushf\n\t"
-                 "pushl $0x1B\n\t"
-                 "pushl %[entry]\n\t"
-                 "iret\n\t"
-                 :
-                 : [entry] "r"(entry), [stack] "r"(stack)
-                 : "ax");
+    __asm__ volatile("cli\n\t"
+                     "mov $0x23, %%ax\n\t"
+                     "mov %%ax, %%ds\n\t"
+                     "mov %%ax, %%es\n\t"
+                     "mov %%ax, %%fs\n\t"
+                     "mov %%ax, %%gs\n\t"
+                     "pushl $0x23\n\t"
+                     "pushl %[stack]\n\t"
+                     "pushf\n\t"
+                     "pushl $0x1B\n\t"
+                     "pushl %[entry]\n\t"
+                     "iret\n\t"
+                     :
+                     : [entry] "r"(entry), [stack] "r"(stack)
+                     : "ax");
 }
 
 __attribute__((naked)) void return_to_loader(void)
 {
-    asm volatile(".intel_syntax noprefix\n\t"
-                 "mov ax, 0x10\n\t"
-                 "mov ds, ax\n\t"
-                 "mov es, ax\n\t"
-                 "mov eax, dword ptr [loader_return_eip]\n\t"
-                 "test eax, eax\n\t"
-                 "jz 1f\n\t"
-                 "mov esp, dword ptr [loader_saved_esp]\n\t"
-                 "mov ebp, dword ptr [loader_saved_ebp]\n\t"
-                 "jmp eax\n\t"
-                 "1:\n\t"
-                 "cli\n\t"
-                 "hlt\n\t"
-                 ".att_syntax\n\t");
+    __asm__ volatile(".intel_syntax noprefix\n\t"
+                     "mov ax, 0x10\n\t"
+                     "mov ds, ax\n\t"
+                     "mov es, ax\n\t"
+                     "mov eax, dword ptr [loader_return_eip]\n\t"
+                     "test eax, eax\n\t"
+                     "jz 1f\n\t"
+                     "mov esp, dword ptr [loader_saved_esp]\n\t"
+                     "mov ebp, dword ptr [loader_saved_ebp]\n\t"
+                     "jmp eax\n\t"
+                     "1:\n\t"
+                     "cli\n\t"
+                     "hlt\n\t"
+                     ".att_syntax\n\t");
 }
 
 static void cleanup_previous_user_space(void)
@@ -242,8 +242,8 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
     ((unsigned int *)final_stack)[1] = argv_array_addr;
 
     loader_return_eip = (unsigned int)&&user_return;
-    asm volatile("mov %%esp, %0" : "=r"(loader_saved_esp));
-    asm volatile("mov %%ebp, %0" : "=r"(loader_saved_ebp));
+    __asm__ volatile("mov %%esp, %0" : "=r"(loader_saved_esp));
+    __asm__ volatile("mov %%ebp, %0" : "=r"(loader_saved_ebp));
 
     unsigned int pte_entry = get_pte(ehdr->e_entry);
     if ((pte_entry & PAGE_PRESENT) && (pte_entry & PAGE_USER))

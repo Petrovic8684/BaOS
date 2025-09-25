@@ -10,7 +10,7 @@
 static unsigned int fs_where_len(void)
 {
     unsigned int len;
-    asm volatile(
+    __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "movl $0, %%ebx\n\t"
         "int $0x80\n\t"
@@ -31,7 +31,7 @@ static char *fs_where(void)
     if (!buf)
         return NULL;
 
-    asm volatile(
+    __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "movl %[ptr], %%ebx\n\t"
         "int $0x80\n\t"
@@ -45,7 +45,7 @@ static char *fs_where(void)
 static unsigned int fs_list_dir_len(void)
 {
     unsigned int len;
-    asm volatile(
+    __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "movl $0, %%ebx\n\t"
         "int $0x80\n\t"
@@ -66,7 +66,7 @@ static char *fs_list_dir(void)
     if (!buf)
         return NULL;
 
-    asm volatile(
+    __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "movl %[ptr], %%ebx\n\t"
         "int $0x80\n\t"
@@ -81,7 +81,7 @@ static char *fs_list_dir(void)
 static inline int fs_change_dir(const char *name)
 {
     unsigned int ret;
-    asm volatile(
+    __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "movl %[n], %%ebx\n\t"
         "int $0x80\n\t"

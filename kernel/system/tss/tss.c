@@ -30,7 +30,7 @@ void tss_init(void)
     set_tss_descriptor(5, (unsigned int)&kernel_tss,
                        sizeof(kernel_tss) - 1, 0x89, 0x00);
 
-    asm volatile("ltr %%ax" ::"a"(0x28));
+    __asm__ volatile("ltr %%ax" ::"a"(0x28));
 
-    write("\033[32mTSS loaded.\n\033[0m");
+    write("\033[32mTSS loaded.\033[0m\n\n");
 }

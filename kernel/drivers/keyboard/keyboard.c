@@ -260,19 +260,25 @@ unsigned char read(void)
     unsigned char out;
     while (1)
     {
-        asm volatile("cli");
+        __asm__ volatile("cli");
         if (kb_pop(&out))
         {
-            asm volatile("sti");
+            __asm__ volatile("sti");
             return (unsigned char)out;
         }
-        asm volatile("sti; hlt");
+        __asm__ volatile(
+            "sti\n\t"
+            "hlt\n\t");
     }
 }
 
 void keyboard_init(void)
 {
+    write("Initializing keyboard driver...\n");
+
     unsigned char mask = inb(PIC1_DATA);
     mask &= ~(1 << 1);
     outb(PIC1_DATA, mask);
+
+    write("\033[32mKeyboard driver initialized.\033[0m\n\n");
 }

@@ -1,5 +1,6 @@
 #include "fs.h"
 #include "../drivers/display/display.h"
+#include "../drivers/pit/pit.h"
 #include "../drivers/disk/ata.h"
 #include "../helpers/string/string.h"
 #include "../helpers/memory/memory.h"
@@ -14,6 +15,8 @@
 #define FILE_TABLE_START_LBA (DIR_TABLE_START_LBA + DIR_TABLE_SECTORS)
 #define FILE_TABLE_SECTORS (MAX_FILES)
 #define DATA_START_LBA (FILE_TABLE_START_LBA + FILE_TABLE_SECTORS)
+
+#define START_DELAY 2000
 
 static int fs_initialized = 0;
 
@@ -391,23 +394,12 @@ void fs_init(void)
     write("Initializing file system...\n");
     if (ata_init(drv, 0x1F0, 0x3F6, 0) != 0)
     {
-        write("\033[31mError: ATA init failed.\033[0m\n");
-
         fs_initialized = 0;
         ata_set_fs_drv(((void *)0));
         return;
     }
 
     ata_set_fs_drv(drv);
-    write("\033[32mATA initialized.\033[0m\n");
-
-    if (!drv->exists)
-    {
-        write("\033[31mError: No ata device found.\033[0m\n");
-
-        fs_initialized = 0;
-        return;
-    }
 
     write("Loading super...\n");
     if (load_super() == FS_OK)
@@ -415,12 +407,14 @@ void fs_init(void)
         fs_current_dir_lba = fs_super.root_dir_lba;
         fs_initialized = 1;
 
-        write("\033[32mUsing existing file system on disk.\033[0m\n");
+        write("\033[32mUsing existing file system on disk.\033[0m\n\n");
+        pit_sleep(START_DELAY);
+        clear();
+
         return;
     }
 
     write("\033[32mNo valid super found. Formatting a new file system.\033[0m\n");
-
     mem_set(&fs_super, 0, sizeof(FS_SuperOnDisk));
 
     fs_super.magic = FS_MAGIC;
@@ -446,10 +440,15 @@ void fs_init(void)
     write("Writing root directory...\n");
     if (write_dir_lba(root_lba, &root) != FS_OK)
     {
-        write("\033[31mError: Failed to write root directory.\033[0m\n");
+        write("\033[31mError: Failed to write root directory. Halting...\033[0m\n\n");
 
         fs_initialized = 0;
-        return;
+
+        __asm__ volatile(
+            "cli\n\t"
+            "hlt\n\t");
+        while (1)
+            ;
     }
 
     set_dir_bitmap(root_idx, 1);
@@ -458,16 +457,24 @@ void fs_init(void)
     write("Storing super...\n");
     if (store_super() != FS_OK)
     {
-        write("\033[31mError: Failed to write or verify super.\033[0m\n");
+        write("\033[31mError: Failed to write or verify super. Halting...\033[0m\n\n");
 
         fs_initialized = 0;
-        return;
+
+        __asm__ volatile(
+            "cli\n\t"
+            "hlt\n\t");
+        while (1)
+            ;
     }
 
     fs_current_dir_lba = root_lba;
     fs_initialized = 1;
 
-    write("\033[32mCreated a new file system.\033[0m\n");
+    write("\033[32mCreated a new file system.\033[0m\n\n");
+
+    pit_sleep(START_DELAY);
+    clear();
 }
 
 int fs_make_dir(const char *name)

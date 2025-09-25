@@ -4,7 +4,7 @@
 
 int uname(struct utsname *buf)
 {
-  asm volatile(
+  __asm__ volatile(
       "movl %[num], %%eax\n\t"
       "movl %[arg], %%ebx\n\t"
       "int $0x80\n\t"

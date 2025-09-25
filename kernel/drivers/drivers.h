@@ -1,6 +1,6 @@
 #ifndef DRIVERS_H
 #define DRIVERS_H
 
-void drivers_init(void);
+void drivers_init(int delay);
 
 #endif

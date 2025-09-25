@@ -1,6 +1,7 @@
 #include "../drivers/display/display.h"
 #include "../drivers/keyboard/keyboard.h"
 #include "../drivers/rtc/rtc.h"
+#include "../drivers/pit/pit.h"
 #include "../fs/fs.h"
 #include "../paging/paging.h"
 #include "../paging/heap/heap.h"
@@ -31,6 +32,8 @@
 #define SYS_REBOOT 20
 #define SYS_SET_USER_PAGES 21
 #define SYS_HEAP_INFO 22
+#define SYS_SLEEP 23
+#define SYS_UPTIME 24
 
 extern void (*loader_post_return_callback)(void);
 
@@ -288,6 +291,34 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
         return 0;
     }
 
+    case SYS_SLEEP:
+    {
+        unsigned int ms = arg;
+        if (ms == 0)
+            return 0;
+
+        __asm__ volatile("sti");
+        pit_sleep(ms);
+        __asm__ volatile("cli");
+
+        return 0;
+    }
+
+    case SYS_UPTIME:
+    {
+        unsigned long long ms = pit_get_ms();
+
+        unsigned long high = (unsigned long)(ms >> 32);
+        unsigned long low = (unsigned long)(ms & 0xFFFFFFFF);
+
+        unsigned long s = high * (4294967296UL / 1000);
+        unsigned long rem = high * (4294967296UL % 1000);
+        rem = rem + low;
+        s += rem / 1000;
+
+        return s;
+    }
+
     default:
         write("\033[31mError: Unknown syscall.\n\033[0m");
         return 0;
@@ -296,17 +327,17 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
 
 __attribute__((naked)) void syscall_interrupt_handler()
 {
-    asm volatile(".intel_syntax noprefix\n\t"
-                 "cli\n\t"
-                 "push ebp\n\t"
-                 "mov ebp, esp\n\t"
-                 "push ebx\n\t"
-                 "push eax\n\t"
-                 "call handle_syscall\n\t"
-                 "add esp, 8\n\t"
-                 "mov ebx, eax\n\t"
-                 "pop ebp\n\t"
-                 "sti\n\t"
-                 "iret\n\t"
-                 ".att_syntax\n\t");
+    __asm__ volatile(".intel_syntax noprefix\n\t"
+                     "cli\n\t"
+                     "push ebp\n\t"
+                     "mov ebp, esp\n\t"
+                     "push ebx\n\t"
+                     "push eax\n\t"
+                     "call handle_syscall\n\t"
+                     "add esp, 8\n\t"
+                     "mov ebx, eax\n\t"
+                     "pop ebp\n\t"
+                     "sti\n\t"
+                     "iret\n\t"
+                     ".att_syntax\n\t");
 }

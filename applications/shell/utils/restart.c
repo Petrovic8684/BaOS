@@ -2,7 +2,7 @@
 
 int main(void)
 {
-    asm volatile(
+    __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "int $0x80\n\t"
         :

@@ -1,0 +1,10 @@
+uptime - displays time elapsed since system startup
+
+Description:
+The 'uptime' command retrieves and displays the amount of time that has elapsed since the system was started. It shows the duration in a human-readable format, breaking it down into years, months, days, hours, minutes, and seconds as appropriate.
+
+Usage:
+uptime
+
+Examples:
+uptime

@@ -29,7 +29,8 @@ int main(void)
         "\033[1;33mshutdown\033[0m    - Shutdown the system\n"
         "  \033[1;33mrestart\033[0m   - Restart the system       "
         "\033[1;33mwhatis\033[0m      - Show detailed command info\n"
-        "  \033[1;33mfilediff\033[0m  - Compare file contents\n\n");
+        "  \033[1;33mfilediff\033[0m  - Compare file contents    "
+        "\033[1;33muptime\033[0m      - Show time since boot\n\n");
 
     printf("To see what any command does, type '\033[1;33mwhatis\033[0m' followed by the command name without any arguments.\n");
 

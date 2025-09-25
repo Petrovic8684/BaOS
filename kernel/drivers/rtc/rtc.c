@@ -1,5 +1,5 @@
 #include "rtc.h"
-#include "../../helpers/bcd/bcd.h"
+#include "../display/display.h"
 #include "../../helpers/ports/ports.h"
 
 #define CMOS_ADDRESS 0x70
@@ -30,6 +30,11 @@ static void read_time_once(unsigned char *rsec, unsigned char *rmin, unsigned ch
     *rday = cmos_read(0x07);
     *rmon = cmos_read(0x08);
     *ryear = cmos_read(0x09);
+}
+
+static unsigned char bcd_to_bin(unsigned char val)
+{
+    return (val & 0x0F) + ((val >> 4) * 10);
 }
 
 void rtc_irq_handler(int irq)
@@ -80,11 +85,15 @@ void rtc_irq_handler(int irq)
 
 void rtc_init(void)
 {
+    write("Initializing RTC driver...\n");
+
     unsigned char prev = cmos_read(RTC_REG_B);
     cmos_write(RTC_REG_B, prev | 0x10);
 
     unsigned char prevA = cmos_read(RTC_REG_A);
     cmos_write(RTC_REG_A, (prevA & 0xF0) | 0x06);
+
+    write("\033[32mRTC driver initialized.\033[0m\n\n");
 }
 
 static long days_from_civil(int y, unsigned m, unsigned d)

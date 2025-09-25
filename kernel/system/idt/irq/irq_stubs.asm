@@ -12,7 +12,6 @@ irq%1:
     call irq_common_handler
     add esp, 4
     popad
-    sti
     iretd
 %endmacro
 

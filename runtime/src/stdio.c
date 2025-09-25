@@ -23,7 +23,7 @@
 
 static inline void sys_write(const char *str)
 {
-    asm volatile(
+    __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "movl %[s], %%ebx\n\t"
         "int $0x80\n\t"
@@ -35,7 +35,7 @@ static inline void sys_write(const char *str)
 static inline unsigned char sys_read(void)
 {
     unsigned int ret;
-    asm volatile(
+    __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "int $0x80\n\t"
         "movl %%ebx, %[res]\n\t"
@@ -48,7 +48,7 @@ static inline unsigned char sys_read(void)
 static inline int fs_make_file(const char *name)
 {
     unsigned int ret;
-    asm volatile(
+    __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "movl %[n], %%ebx\n\t"
         "int $0x80\n\t"
@@ -62,7 +62,7 @@ static inline int fs_make_file(const char *name)
 static inline int fs_delete_file(const char *name)
 {
     unsigned int ret;
-    asm volatile(
+    __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "movl %[n], %%ebx\n\t"
         "int $0x80\n\t"
@@ -83,7 +83,7 @@ static inline int fs_write_file(const char *name, const unsigned char *data, uns
     } args = {name, data, size};
 
     unsigned int ret;
-    asm volatile(
+    __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "movl %[a], %%ebx\n\t"
         "int $0x80\n\t"
@@ -105,7 +105,7 @@ static inline int fs_read_file(const char *name, unsigned char *out_buf, unsigne
     } args = {name, out_buf, buf_size, out_size};
 
     unsigned int ret;
-    asm volatile(
+    __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "movl %[a], %%ebx\n\t"
         "int $0x80\n\t"
@@ -126,7 +126,7 @@ static inline int fs_read_file_size(const char *name)
 static inline int sys_get_cursor_row(void)
 {
     unsigned int ret;
-    asm volatile(
+    __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "int $0x80\n\t"
         "movl %%ebx, %[res]\n\t"
@@ -139,7 +139,7 @@ static inline int sys_get_cursor_row(void)
 static inline int sys_get_cursor_col(void)
 {
     unsigned int ret;
-    asm volatile(
+    __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "int $0x80\n\t"
         "movl %%ebx, %[res]\n\t"

@@ -8,7 +8,7 @@
 static inline int fs_make_dir(const char *name)
 {
     unsigned int ret;
-    asm volatile(
+    __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "movl %[n], %%ebx\n\t"
         "int $0x80\n\t"

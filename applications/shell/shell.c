@@ -104,7 +104,7 @@ static void run(const char *name, const char *args)
 
     argv[argc] = NULL;
 
-    asm volatile(
+    __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "movl %[args], %%ebx\n\t"
         "movl %[prog], %%ecx\n\t"

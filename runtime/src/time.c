@@ -100,7 +100,7 @@ static time_t time_from_tm(const struct tm *tm)
 time_t time(time_t *t)
 {
     time_t secs;
-    asm volatile(
+    __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "int $0x80\n\t"
         "movl %%ebx, %[secs]\n\t"
