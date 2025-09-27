@@ -1,6 +1,7 @@
 #include "idt.h"
 #include "isr/isr_handlers.h"
 #include "../../drivers/keyboard/keyboard.h"
+#include "../../drivers/mouse/mouse.h"
 #include "../../drivers/rtc/rtc.h"
 #include "../../drivers/pit/pit.h"
 #include "../../drivers/disk/ata.h"
@@ -204,6 +205,7 @@ void idt_init(void)
     register_irq_handler(0x20, pit_irq_handler);
     register_irq_handler(0x21, keyboard_irq_handler);
     register_irq_handler(0x28, rtc_irq_handler);
+    register_irq_handler(0x2C, mouse_irq_handler);
     register_irq_handler(0x2E, ata_irq_handler);
     register_irq_handler(0x2F, ata_irq_handler);
 

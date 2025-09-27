@@ -316,6 +316,7 @@ static int pio28_read(unsigned int *lba, unsigned char *buf, unsigned char secto
         unsigned char s = inb(port + 7);
         write("ATA timeout or error, status=0x");
         write_hex(s);
+        write("\n");
 
         cur_xfer.in_progress = 0;
         return -4;
@@ -377,6 +378,7 @@ static int pio28_write(unsigned int *lba, unsigned char *buf, unsigned char sect
             unsigned char s = inb(port + 7);
             write("ATA timeout or error, status=0x");
             write_hex(s);
+            write("\n");
 
             cur_xfer.in_progress = 0;
             return -5;

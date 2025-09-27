@@ -1,6 +1,7 @@
 #include "../drivers/display/display.h"
 #include "../drivers/keyboard/keyboard.h"
 #include "../drivers/speaker/speaker.h"
+#include "../drivers/mouse/mouse.h"
 #include "../drivers/rtc/rtc.h"
 #include "../drivers/pit/pit.h"
 #include "../fs/fs.h"
@@ -36,6 +37,10 @@
 #define SYS_SLEEP 23
 #define SYS_UPTIME 24
 #define SYS_BEEP 25
+#define SYS_MOUSE_READ 30
+#define SYS_MOUSE_PEEK 31
+#define SYS_MOUSE_GETPOS 32
+#define SYS_MOUSE_HAS_WHEEL 33
 
 extern void (*loader_post_return_callback)(void);
 
@@ -344,6 +349,41 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
         __asm__ volatile("cli");
 
         return 0;
+    }
+
+    case SYS_MOUSE_READ:
+    {
+        mouse_event_t *user_ev = (mouse_event_t *)arg;
+        if (!user_ev)
+            return 0;
+
+        return mouse_read_event(user_ev);
+    }
+
+    case SYS_MOUSE_PEEK:
+    {
+        mouse_event_t *user_ev = (mouse_event_t *)arg;
+        return mouse_peek_event(user_ev);
+    }
+
+    case SYS_MOUSE_GETPOS:
+    {
+        int *user_coords = (int *)arg;
+        if (!user_coords)
+            return 0;
+
+        int x = 0, y = 0;
+        mouse_get_position(&x, &y);
+
+        mem_copy((void *)user_coords, (const void *)&x, sizeof(int));
+        mem_copy((void *)(user_coords + 1), (const void *)&y, sizeof(int));
+
+        return 0;
+    }
+
+    case SYS_MOUSE_HAS_WHEEL:
+    {
+        return mouse_has_wheel();
     }
 
     default:

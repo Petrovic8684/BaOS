@@ -1,4 +1,4 @@
-#include "./melodies.h"
+#include "melodies.h"
 #include "../speaker.h"
 
 void play_startup_melody(void)

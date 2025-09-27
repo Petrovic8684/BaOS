@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <ctype.h>
 
 #define SYS_WRITE 1
 #define SYS_READ 3
@@ -673,31 +674,85 @@ int vfprintf(FILE *stream, const char *fmt, va_list args)
         if (*p == '%' && *(p + 1))
         {
             p++;
+
             int long_flag = 0;
+            int precision = -1;
+            int width = -1;
+
+            if (*p == '*')
+            {
+                width = va_arg(args, int);
+                p++;
+            }
+            else
+            {
+                int seen = 0;
+                int w = 0;
+                while (isdigit((unsigned char)*p))
+                {
+                    seen = 1;
+                    w = w * 10 + (*p - '0');
+                    p++;
+                }
+                if (seen)
+                    width = w;
+            }
+            if (*p == '.')
+            {
+                p++;
+                if (*p == '*')
+                {
+                    precision = va_arg(args, int);
+                    p++;
+                }
+                else
+                {
+                    int seen = 0;
+                    int pr = 0;
+                    while (isdigit((unsigned char)*p))
+                    {
+                        seen = 1;
+                        pr = pr * 10 + (*p - '0');
+                        p++;
+                    }
+                    precision = seen ? pr : 0;
+                }
+            }
+
             if (*p == 'l')
             {
                 long_flag = 1;
                 p++;
             }
 
-            if (*p == 's')
+            char spec = *p;
+
+            if (spec == 's')
             {
+                int len = -1;
+                if (precision >= 0)
+                    len = precision;
+
                 const char *s = va_arg(args, const char *);
-                while (*s)
+                if (!s)
+                    s = "(null)";
+                int i = 0;
+                while (s[i] && (len < 0 || i < len))
                 {
-                    if (fputc((unsigned char)*s++, stream) == EOF)
+                    if (fputc((unsigned char)s[i], stream) == EOF)
                         return -1;
                     total++;
+                    i++;
                 }
             }
-            else if (*p == 'c')
+            else if (spec == 'c')
             {
                 char ch = (char)va_arg(args, int);
                 if (fputc(ch, stream) == EOF)
                     return -1;
                 total++;
             }
-            else if (*p == 'd')
+            else if (spec == 'd')
             {
                 long val = long_flag ? va_arg(args, long) : va_arg(args, int);
                 int neg = 0;
@@ -729,7 +784,7 @@ int vfprintf(FILE *stream, const char *fmt, va_list args)
                     total++;
                 }
             }
-            else if (*p == 'u')
+            else if (spec == 'u')
             {
                 unsigned long val = long_flag ? va_arg(args, unsigned long) : va_arg(args, unsigned int);
                 int i = 0;
@@ -750,11 +805,11 @@ int vfprintf(FILE *stream, const char *fmt, va_list args)
                     total++;
                 }
             }
-            else if (*p == 'x' || *p == 'X')
+            else if (spec == 'x' || spec == 'X')
             {
                 unsigned long val = long_flag ? va_arg(args, unsigned long) : va_arg(args, unsigned int);
                 int i = 0;
-                const char *digits = (*p == 'X') ? "0123456789ABCDEF" : "0123456789abcdef";
+                const char *digits = (spec == 'X') ? "0123456789ABCDEF" : "0123456789abcdef";
                 if (val == 0)
                 {
                     fputc('0', stream);
@@ -772,7 +827,7 @@ int vfprintf(FILE *stream, const char *fmt, va_list args)
                     total++;
                 }
             }
-            else if (*p == 'p')
+            else if (spec == 'p')
             {
                 void *ptr = va_arg(args, void *);
                 unsigned long val = (unsigned long)ptr;
@@ -797,7 +852,7 @@ int vfprintf(FILE *stream, const char *fmt, va_list args)
                     total++;
                 }
             }
-            else if (*p == 'f' || *p == 'g')
+            else if (spec == 'f' || spec == 'g')
             {
                 double val = va_arg(args, double);
                 if (val < 0)
@@ -840,7 +895,7 @@ int vfprintf(FILE *stream, const char *fmt, va_list args)
                     frac_part -= digit;
                 }
             }
-            else if (*p == '%')
+            else if (spec == '%')
             {
                 fputc('%', stream);
                 total++;
@@ -848,13 +903,14 @@ int vfprintf(FILE *stream, const char *fmt, va_list args)
             else
             {
                 fputc('%', stream);
-                fputc(*p, stream);
+                fputc(spec, stream);
                 total += 2;
             }
         }
         else
         {
-            fputc(*p, stream);
+            if (fputc(*p, stream) == EOF)
+                return -1;
             total++;
         }
     }

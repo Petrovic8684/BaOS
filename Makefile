@@ -33,6 +33,8 @@ KERNEL_SRCS = \
 	kernel/drivers/rtc/rtc.c \
 	kernel/drivers/disk/ata.c \
 	kernel/drivers/speaker/speaker.c \
+	kernel/drivers/serial/serial.c \
+	kernel/drivers/mouse/mouse.c \
 	kernel/drivers/speaker/melodies/melodies.c \
 	kernel/helpers/ports/ports.c \
 	kernel/helpers/string/string.c \
@@ -74,7 +76,7 @@ UTILS_SRCS   =  applications/shell/utils/dirchange.c \
 				applications/shell/utils/help.c \
 				applications/shell/utils/whatis.c \
 				applications/shell/utils/banner.c \
-				applications/shell/test.c \
+				applications/shell/utils/mouse.c \
 
 UTILS_BIN    = $(UTILS_SRCS:.c=.bin)
 UTILS_OBJS	 = $(UTILS_SRCS:.c=.o)
@@ -115,6 +117,7 @@ RUNTIME_SRC_LIST = \
 	runtime/src/math.c \
 	runtime/src/libgen.c \
 	runtime/src/baos_sound.c \
+	runtime/src/baos_mouse.c \
 
 RUNTIME_SRC_OBJS = $(RUNTIME_SRC_LIST:.c=.o)
 RUNTIME_INCLUDE  = -Iruntime/include
@@ -192,7 +195,7 @@ $(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(UTIL
 
 # ---------------- Run & Clean ----------------
 run: $(IMG)
-	$(QEMU) -m 3G -drive format=raw,file=$(IMG),if=ide \
+	$(QEMU) -m 3G -drive format=raw,file=$(IMG),if=ide -serial stdio \
 		-audiodev dsound,id=snd0 \
 		-machine pcspk-audiodev=snd0 \
 		-device intel-hda \
