@@ -5,12 +5,14 @@
 #include <ctype.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <stdbool.h>
+#include <errno.h>
 
 int main(int argc, char *argv[])
 {
     if (argc != 3)
     {
-        printf("\033[31mError: Invalid source or destination provided.\033[0m\n");
+        printf("\033[1;33mUsage:\033[0m filemove <source file> <destination file or directory>.\n");
         return 1;
     }
 
@@ -20,7 +22,7 @@ int main(int argc, char *argv[])
     char *src_abs = realpath(src, NULL);
     if (!src_abs)
     {
-        printf("\033[31mError: Could not resolve source path '%s'.\033[0m\n", src);
+        printf("\033[31mError: Could not resolve source path '%s'. %s.\033[0m\n", src, strerror(errno));
         return 1;
     }
 
@@ -31,7 +33,7 @@ int main(int argc, char *argv[])
         char *src_copy = strdup(src_abs);
         if (!src_copy)
         {
-            printf("\033[31mError: Memory allocation failed.\033[0m\n");
+            printf("\033[31mError: Memory allocation failed. %s.\033[0m\n", strerror(errno));
             free(src_abs);
             return 1;
         }
@@ -40,7 +42,7 @@ int main(int argc, char *argv[])
         final_dest = malloc(len);
         if (!final_dest)
         {
-            printf("\033[31mError: Memory allocation failed.\033[0m\n");
+            printf("\033[31mError: Memory allocation failed. %s.\033[0m\n", strerror(errno));
             free(src_abs);
             free(src_copy);
             return 1;
@@ -53,7 +55,7 @@ int main(int argc, char *argv[])
         final_dest = strdup(dest);
         if (!final_dest)
         {
-            printf("\033[31mError: Memory allocation failed.\033[0m\n");
+            printf("\033[31mError: Memory allocation failed. %s.\033[0m\n", strerror(errno));
             free(src_abs);
             return 1;
         }
@@ -62,7 +64,7 @@ int main(int argc, char *argv[])
     char *dest_copy = strdup(final_dest);
     if (!dest_copy)
     {
-        printf("\033[31mError: Memory allocation failed.\033[0m\n");
+        printf("\033[31mError: Memory allocation failed. %s.\033[0m\n", strerror(errno));
         free(src_abs);
         free(final_dest);
         return 1;
@@ -77,20 +79,35 @@ int main(int argc, char *argv[])
         free(dest_copy);
         return 1;
     }
+
+    bool all_dots = true;
     for (size_t i = 0; i < strlen(dest_base); i++)
+    {
         if (!isalnum((unsigned char)dest_base[i]) && (unsigned char)dest_base[i] != '.')
         {
-            printf("\033[31mError: Name must contain only letters and digits.\033[0m\n");
+            printf("\033[31mError: Name must contain only letters, digits and dots, and cannot consist of dots only.\033[0m\n");
             free(src_abs);
             free(final_dest);
             free(dest_copy);
             return 1;
         }
+        if (dest_base[i] != '.')
+            all_dots = false;
+    }
+
+    if (all_dots)
+    {
+        printf("\033[31mError: Name must contain only letters, digits and dots, and cannot consist of dots only.\033[0m\n");
+        free(src_abs);
+        free(final_dest);
+        free(dest_copy);
+        return 1;
+    }
 
     FILE *f_src = fopen(src_abs, "rb");
     if (!f_src)
     {
-        printf("\033[31mError: Could not open source file '%s'.\033[0m\n", src_abs);
+        printf("\033[31mError: Could not open source file '%s'. %s.\033[0m\n", src_abs, strerror(errno));
         free(src_abs);
         free(final_dest);
         free(dest_copy);
@@ -110,7 +127,7 @@ int main(int argc, char *argv[])
 
     if (fseek(f_src, 0, SEEK_END) != 0)
     {
-        printf("\033[31mError: fseek failed on source file.\033[0m\n");
+        printf("\033[31mError: fseek failed on source file. %s.\033[0m\n", strerror(errno));
         fclose(f_src);
         free(src_abs);
         free(final_dest);
@@ -121,7 +138,7 @@ int main(int argc, char *argv[])
     long sz = ftell(f_src);
     if (sz < 0)
     {
-        printf("\033[31mError: ftell failed on source file.\033[0m\n");
+        printf("\033[31mError: ftell failed on source file. %s.\033[0m\n", strerror(errno));
         fclose(f_src);
         free(src_abs);
         free(final_dest);
@@ -131,7 +148,7 @@ int main(int argc, char *argv[])
 
     if (fseek(f_src, 0, SEEK_SET) != 0)
     {
-        printf("\033[31mError: fseek failed on source file.\033[0m\n");
+        printf("\033[31mError: fseek failed on source file. %s\033[0m\n", strerror(errno));
         fclose(f_src);
         free(src_abs);
         free(final_dest);
@@ -146,7 +163,7 @@ int main(int argc, char *argv[])
         buffer = malloc(size);
         if (!buffer)
         {
-            printf("\033[31mError: Memory allocation failed.\033[0m\n");
+            printf("\033[31mError: Memory allocation failed. %s.\033[0m\n", strerror(errno));
             fclose(f_src);
             free(src_abs);
             free(final_dest);
@@ -155,7 +172,7 @@ int main(int argc, char *argv[])
         }
         if (fread(buffer, 1, size, f_src) != size)
         {
-            printf("\033[31mError: Failed to read entire source file.\033[0m\n");
+            printf("\033[31mError: Failed to read entire source file. %s.\033[0m\n", strerror(errno));
             fclose(f_src);
             free(buffer);
             free(src_abs);
@@ -170,7 +187,7 @@ int main(int argc, char *argv[])
     FILE *f_dest = fopen(final_dest, "wb");
     if (!f_dest)
     {
-        printf("\033[31mError: Could not open destination file '%s'.\033[0m\n", final_dest);
+        printf("\033[31mError: Could not open destination file '%s'. %s.\033[0m\n", final_dest, strerror(errno));
         free(buffer);
         free(src_abs);
         free(final_dest);
@@ -180,7 +197,7 @@ int main(int argc, char *argv[])
 
     if (size > 0 && fwrite(buffer, 1, size, f_dest) != size)
     {
-        printf("\033[31mError: Failed to write to destination file.\033[0m\n");
+        printf("\033[31mError: Failed to write to destination file. %s.\033[0m\n", strerror(errno));
         fclose(f_dest);
         free(buffer);
         free(src_abs);
@@ -193,7 +210,7 @@ int main(int argc, char *argv[])
 
     if (remove(src_abs) != 0)
     {
-        printf("\033[31mError: Failed to delete source file '%s'.\033[0m\n", src_abs);
+        printf("\033[31mError: Failed to delete source file '%s'. %s.\033[0m\n", src_abs, strerror(errno));
         free(buffer);
         free(src_abs);
         free(final_dest);
@@ -201,7 +218,14 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    printf("\033[32mSuccessfully moved '%s' (%u bytes) to '%s'.\033[0m\n", src_abs, size, final_dest);
+    char *final_dest_abs = realpath(final_dest, NULL);
+    if (!final_dest_abs)
+        final_dest_abs = final_dest;
+
+    printf("\033[32mSuccessfully moved '%s' (%u bytes) to '%s'.\033[0m\n", src_abs, size, final_dest_abs);
+
+    if (final_dest_abs != final_dest)
+        free(final_dest_abs);
 
     free(buffer);
     free(src_abs);

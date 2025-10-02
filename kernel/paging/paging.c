@@ -1,3 +1,5 @@
+
+
 #include "paging.h"
 #include "../drivers/display/display.h"
 
@@ -111,15 +113,18 @@ static int addr_is_usable(unsigned long long addr)
     return 0;
 }
 
-static void split_4mb_pde(unsigned int pd_index)
+static int split_4mb_pde(unsigned int pd_index)
 {
     unsigned int pde = page_directory[pd_index];
     if (!(pde & PAGE_PRESENT) || !(pde & PAGE_SIZE_4MB))
-        return;
+        return -1;
 
     unsigned int phys_base = pde & 0xFFC00000u;
 
     unsigned int new_pt_phys = alloc_page_table_phys();
+    if (new_pt_phys == 0)
+        return -1;
+
     unsigned int *new_table = (unsigned int *)new_pt_phys;
 
     unsigned int i;
@@ -130,6 +135,7 @@ static void split_4mb_pde(unsigned int pd_index)
     }
 
     page_directory[pd_index] = (new_pt_phys & 0xFFFFF000u) | PAGE_PRESENT | PAGE_RW;
+    return 1;
 }
 
 static void map_page(unsigned int virt, unsigned int phys, unsigned int flags)
@@ -159,7 +165,7 @@ static void map_page(unsigned int virt, unsigned int phys, unsigned int flags)
     __asm__ volatile("invlpg (%0)" ::"r"(virt) : "memory");
 }
 
-void set_user_pages(unsigned int virt_start, unsigned int size)
+int set_user_pages(unsigned int virt_start, unsigned int size)
 {
     unsigned int addr;
     unsigned int end = virt_start + size;
@@ -175,6 +181,9 @@ void set_user_pages(unsigned int virt_start, unsigned int size)
         if (!(pde & PAGE_PRESENT))
         {
             unsigned int new_pt_phys = alloc_page_table_phys();
+            if (new_pt_phys == 0)
+                return -12;
+
             page_directory[pd_index] = (new_pt_phys & 0xFFFFF000) | PAGE_PRESENT | PAGE_RW | PAGE_USER;
             table = (unsigned int *)new_pt_phys;
             table_phys = new_pt_phys;
@@ -185,7 +194,8 @@ void set_user_pages(unsigned int virt_start, unsigned int size)
 
             if (pde & PAGE_SIZE_4MB)
             {
-                split_4mb_pde(pd_index);
+                if (split_4mb_pde(pd_index) <= 0)
+                    return -12;
                 pde = page_directory[pd_index];
                 table_phys = pde & 0xFFFFF000;
             }
@@ -193,6 +203,8 @@ void set_user_pages(unsigned int virt_start, unsigned int size)
             if (table_phys == ((unsigned int)first_page_table & 0xFFFFF000))
             {
                 unsigned int new_pt_phys = alloc_page_table_phys();
+                if (new_pt_phys == 0)
+                    return -12;
 
                 unsigned int *old_table = (unsigned int *)table_phys;
                 unsigned int *new_table = (unsigned int *)new_pt_phys;
@@ -222,6 +234,8 @@ void set_user_pages(unsigned int virt_start, unsigned int size)
         table[pt_index] = (addr & 0xFFFFF000) | PAGE_PRESENT | PAGE_RW | PAGE_USER;
         __asm__ volatile("invlpg (%0)" ::"r"(addr) : "memory");
     }
+
+    return 0;
 }
 
 void ensure_phys_range_mapped(unsigned int phys_start, unsigned int size)
@@ -371,7 +385,7 @@ static unsigned int get_cr2(void)
 
 void paging_init(void)
 {
-    write("About to enable paging...\n");
+    write("Enabling paging...\n");
 
     unsigned long long total_detected = 0;
     unsigned long long total_mapped = 0;

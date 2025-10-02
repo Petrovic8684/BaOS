@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <libgen.h>
+#include <errno.h>
 
 static int is_likely_text(const unsigned char *buf, unsigned int len)
 {
@@ -23,7 +24,7 @@ int main(int argc, char *argv[])
 {
     if (argc < 2)
     {
-        printf("\033[31mError: No file name provided.\033[0m\n");
+        printf("\033[1;33mUsage:\033[0m fileinfo <file>.\n");
         return 1;
     }
 
@@ -31,13 +32,13 @@ int main(int argc, char *argv[])
     FILE *f = fopen(fname, "rb");
     if (!f)
     {
-        printf("\033[31mError: Could not open file '%s'.\033[0m\n", fname);
+        printf("\033[31mError: Could not open file '%s'. %s.\033[0m\n", fname, strerror(errno));
         return 1;
     }
 
     if (fseek(f, 0, SEEK_END) != 0)
     {
-        printf("\033[31mError: File seek failed.\033[0m\n");
+        printf("\033[31mError: File seek failed. %s.\033[0m\n", strerror(errno));
         fclose(f);
         return 1;
     }
@@ -45,14 +46,14 @@ int main(int argc, char *argv[])
     long sz = ftell(f);
     if (sz < 0)
     {
-        printf("\033[31mError: File tell failed.\033[0m\n");
+        printf("\033[31mError: File tell failed. %s.\033[0m\n", strerror(errno));
         fclose(f);
         return 1;
     }
 
     if (fseek(f, 0, SEEK_SET) != 0)
     {
-        printf("\033[31mError: File seek failed.\033[0m\n");
+        printf("\033[31mError: File seek failed. %s.\033[0m\n", strerror(errno));
         fclose(f);
         return 1;
     }
@@ -62,7 +63,7 @@ int main(int argc, char *argv[])
     char *location = realpath(fname, NULL);
     if (!location)
     {
-        printf("\033[31mError: Could not resolve absolute path for '%s'.\033[0m\n", fname);
+        printf("\033[31mError: Could not resolve absolute path for '%s'. %s.\033[0m\n", fname, strerror(errno));
         fclose(f);
         return 1;
     }
@@ -70,7 +71,7 @@ int main(int argc, char *argv[])
     char *loc_copy = strdup(location);
     if (!loc_copy)
     {
-        printf("\033[31mError: Memory allocation failed.\033[0m\n");
+        printf("\033[31mError: Memory allocation failed. %s.\033[0m\n", strerror(errno));
         fclose(f);
         free(location);
         return 1;
@@ -97,7 +98,7 @@ int main(int argc, char *argv[])
     unsigned char *buf = (unsigned char *)malloc(to_read);
     if (!buf)
     {
-        printf("\033[31mError: Memory allocation failed.\033[0m\n");
+        printf("\033[31mError: Memory allocation failed. %s.\033[0m\n", strerror(errno));
         fclose(f);
         free(loc_copy);
         free(location);

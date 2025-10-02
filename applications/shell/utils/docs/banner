@@ -4,10 +4,13 @@ Description:
 The 'banner' command displays the provided text as large ASCII art letters. It supports uppercase and lowercase letters, digits, and a selection of common symbols. The output is adjusted to fit an 80×25 terminal screen. If the text exceeds the available space, it will be truncated with a warning. If no text is provided, an error message is shown.
 
 Usage:
-banner <text>
+banner [-color=<color>] <text>
+
+Available colors:
+gray/grey, red, green, yellow, blue, magenta, cyan, lightgray/lightgrey, lightred, lightgreen, lightyellow, lightblue, lightmagenta, lightcyan, white
 
 Examples:
 banner Hello World
-banner 123!@#
+banner -color=lightblue 123
 banner # Error: Invalid text provided.
-banner ThisIsAVeryLongTextThatExceedsTheScreenWidth # Warning: output truncated.
+banner ThisIsAVeryLongTextThatExceedsTheScreenWidth # Warning: Output truncated.

@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <dirent.h>
 #include <string.h>
+#include <errno.h>
 
 int main(int argc, char *argv[])
 {
@@ -9,7 +10,7 @@ int main(int argc, char *argv[])
     DIR *d = opendir(dir_path);
     if (!d)
     {
-        printf("\033[31mError: Could not open directory '%s' for listing.\033[0m\n", dir_path);
+        printf("\033[31mError: Could not open directory '%s' for listing. %s.\033[0m\n", dir_path, strerror(errno));
         return 1;
     }
 

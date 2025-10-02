@@ -4,7 +4,7 @@ int main(int argc, char *argv[])
 {
     if (argc <= 1)
     {
-        printf("\033[31mError: Invalid text provided.\033[0m\n");
+        printf("\033[1;33mUsage:\033[0m echo <text>.\n");
         return 1;
     }
 

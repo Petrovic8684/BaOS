@@ -1,11 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
 
 int main(int argc, char *argv[])
 {
     if (argc < 3)
     {
-        printf("\033[31mError: Invalid source or target provided.\033[0m\n");
+        printf("\033[1;33mUsage:\033[0m filediff <first file> <second file>.\n");
         return 1;
     }
 
@@ -15,21 +16,21 @@ int main(int argc, char *argv[])
     FILE *f1 = fopen(file1, "rb");
     if (!f1)
     {
-        printf("\033[31mError: Could not open file '%s'.\033[0m\n", file1);
+        printf("\033[31mError: Could not open file '%s'. %s.\033[0m\n", file1, strerror(errno));
         return 1;
     }
 
     FILE *f2 = fopen(file2, "rb");
     if (!f2)
     {
-        printf("\033[31mError: Could not open file '%s'.\033[0m\n", file2);
+        printf("\033[31mError: Could not open file '%s'. %s.\033[0m\n", file2, strerror(errno));
         fclose(f1);
         return 1;
     }
 
     if (fseek(f1, 0, SEEK_END) != 0 || fseek(f2, 0, SEEK_END) != 0)
     {
-        printf("\033[31mError: Could not seek files.\033[0m\n");
+        printf("\033[31mError: Could not seek files. %s.\033[0m\n", strerror(errno));
         fclose(f1);
         fclose(f2);
         return 1;
@@ -39,7 +40,7 @@ int main(int argc, char *argv[])
     long sz2 = ftell(f2);
     if (sz1 < 0 || sz2 < 0)
     {
-        printf("\033[31mError: Could not tell file sizes.\033[0m\n");
+        printf("\033[31mError: Could not tell file sizes. %s.\033[0m\n", strerror(errno));
         fclose(f1);
         fclose(f2);
         return 1;
@@ -73,7 +74,7 @@ int main(int argc, char *argv[])
     unsigned char *buf2 = (unsigned char *)malloc((size_t)sz2);
     if (!buf1 || !buf2)
     {
-        printf("\033[31mError: Memory allocation failed.\033[0m\n");
+        printf("\033[31mError: Memory allocation failed. %s.\033[0m\n", strerror(errno));
         free(buf1);
         free(buf2);
         fclose(f1);
@@ -88,7 +89,7 @@ int main(int argc, char *argv[])
 
     if (n1 != (size_t)sz1 || n2 != (size_t)sz2)
     {
-        printf("\033[31mError: Could not read entire files.\033[0m\n");
+        printf("\033[31mError: Could not read entire files. %s.\033[0m\n", strerror(errno));
         free(buf1);
         free(buf2);
         return 1;

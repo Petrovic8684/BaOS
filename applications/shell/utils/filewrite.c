@@ -2,36 +2,51 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdlib.h>
+#include <stdbool.h>
+#include <libgen.h>
+#include <errno.h>
 
 int main(int argc, char *argv[])
 {
     if (argc < 3)
     {
-        printf("\033[31mError: Invalid name or text provided.\033[0m\n");
+        printf("\033[1;33mUsage:\033[0m filewrite <file> <text>.\n");
         return 1;
     }
 
     const char *name = argv[1];
+    char *name_base = basename(name);
 
-    if (strlen(name) > 16)
+    if (strlen(name_base) > 16)
     {
         printf("\033[31mError: Name exceeds maximum length of 16 characters.\033[0m\n");
         return 1;
     }
 
-    for (size_t i = 0; i < strlen(name); i++)
-        if (!isalnum((unsigned char)name[i]) && (unsigned char)name[i] != '.')
+    bool all_dots = true;
+    for (size_t i = 0; i < strlen(name_base); i++)
+    {
+        if (!isalnum((unsigned char)name_base[i]) && (unsigned char)name_base[i] != '.')
         {
-            printf("\033[31mError: Name must contain only letters and digits.\033[0m\n");
+            printf("\033[31mError: Name must contain only letters, digits and dots, and cannot consist of dots only.\033[0m\n");
             return 1;
         }
+        if (name_base[i] != '.')
+            all_dots = false;
+    }
+
+    if (all_dots)
+    {
+        printf("\033[31mError: Name must contain only letters, digits and dots, and cannot consist of dots only.\033[0m\n");
+        return 1;
+    }
 
     FILE *f_check = fopen(name, "rb");
     if (f_check)
     {
         if (fseek(f_check, 0, SEEK_END) != 0)
         {
-            printf("\033[31mError: Could not seek file '%s'.\033[0m\n", name);
+            printf("\033[31mError: Could not seek file '%s'. %s.\033[0m\n", name, strerror(errno));
             fclose(f_check);
             return 1;
         }
@@ -39,7 +54,7 @@ int main(int argc, char *argv[])
         long fsize = ftell(f_check);
         if (fsize < 0)
         {
-            printf("\033[31mError: Could not determine file size for '%s'.\033[0m\n", name);
+            printf("\033[31mError: Could not determine file size for '%s'. %s.\033[0m\n", name, strerror(errno));
             fclose(f_check);
             return 1;
         }
@@ -51,7 +66,7 @@ int main(int argc, char *argv[])
             buffer = malloc((size_t)fsize);
             if (!buffer)
             {
-                printf("\033[31mError: Memory allocation failed.\033[0m\n");
+                printf("\033[31mError: Memory allocation failed. %s.\033[0m\n", strerror(errno));
                 fclose(f_check);
                 return 1;
             }
@@ -62,7 +77,7 @@ int main(int argc, char *argv[])
 
         if (n != (size_t)fsize)
         {
-            printf("\033[31mError: Could not read entire file '%s'.\033[0m\n", name);
+            printf("\033[31mError: Could not read entire file '%s'. %s.\033[0m\n", name, strerror(errno));
             free(buffer);
             return 1;
         }
@@ -89,7 +104,7 @@ int main(int argc, char *argv[])
     FILE *f = fopen(name, "w");
     if (!f)
     {
-        printf("\033[31mError: Could not open file '%s' for writing.\033[0m\n", name);
+        printf("\033[31mError: Could not open file '%s' for writing. %s.\033[0m\n", name, strerror(errno));
         return 1;
     }
 
@@ -104,7 +119,7 @@ int main(int argc, char *argv[])
 
     if (fflush(f) == EOF || fclose(f) != 0)
     {
-        printf("\033[31mError: I/O error occurred while writing to file '%s'.\033[0m\n", name);
+        printf("\033[31mError: I/O error occurred while writing to file '%s'. %s.\033[0m\n", name, strerror(errno));
         return 1;
     }
 

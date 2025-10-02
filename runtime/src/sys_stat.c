@@ -2,12 +2,13 @@
 #include <dirent.h>
 #include <string.h>
 #include <stdio.h>
+#include <errno.h>
 
 #define SYS_FS_MAKE_DIR 11
 
 static inline int fs_make_dir(const char *name)
 {
-    unsigned int ret;
+    int ret;
     __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "movl %[n], %%ebx\n\t"
@@ -16,7 +17,8 @@ static inline int fs_make_dir(const char *name)
         : [res] "=r"(ret)
         : [num] "i"(SYS_FS_MAKE_DIR), [n] "r"(name)
         : "eax", "ebx", "memory");
-    return (int)ret;
+
+    return map_fs_error(ret);
 }
 
 int mkdir(const char *path, mode_t mode)
@@ -29,7 +31,10 @@ int mkdir(const char *path, mode_t mode)
 int stat(const char *path, struct stat *buf)
 {
     if (!path || !buf)
+    {
+        errno = EINVAL;
         return -1;
+    }
 
     buf->st_mode = 0;
     buf->st_size = 0;
@@ -57,5 +62,6 @@ int stat(const char *path, struct stat *buf)
         return 0;
     }
 
+    errno = ENOENT;
     return -1;
 }

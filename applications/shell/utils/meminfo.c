@@ -42,19 +42,19 @@ int main(void)
 
     printf("\033[1;33m--- HEAP INFO ---\033[0m\n\n");
 
-    printf("\033[1;33mStart:\033[0m      0x%x\n", hi.heap_start);
-    printf("\033[1;33mEnd:\033[0m        0x%x\n", hi.heap_end);
-    printf("\033[1;33mMax:\033[0m        0x%x\n\n", hi.heap_max);
+    printf("\033[1;33mStart:\033[0m  0x%x\n", hi.heap_start);
+    printf("\033[1;33mEnd:\033[0m    0x%x\n", hi.heap_end);
+    printf("\033[1;33mMax:\033[0m    0x%x\n\n", hi.heap_max);
 
-    printf("\033[1;33mActually used:\033[0m          ");
+    printf("\033[1;33mActually used:\033[0m  ");
     print_human(used);
     printf("\n");
 
-    printf("\033[1;33mCurrently free:\033[0m         ");
+    printf("\033[1;33mCurrently free:\033[0m ");
     print_human(hi.free_bytes);
     printf("\n");
 
-    printf("\033[1;33mAvailable to allocate:\033[0m  ");
+    printf("\033[1;33mAvailable:\033[0m      ");
     print_human(remaining);
     printf("\n");
 

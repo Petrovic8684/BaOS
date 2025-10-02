@@ -6,6 +6,7 @@
 #include "../paging/paging.h"
 #include "../paging/heap/heap.h"
 #include "../system/tss/tss.h"
+#include "../info/sys/sys.h"
 
 #define PT_LOAD 1
 #define USER_STACK_TOP 0x02100000
@@ -154,7 +155,7 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
         if (seg_end > map_max)
             map_max = seg_end;
 
-        set_user_pages(phdr[i].p_vaddr, phdr[i].p_memsz);
+        (void)set_user_pages(phdr[i].p_vaddr, phdr[i].p_memsz);
 
         unsigned char *dest = (unsigned char *)(phdr[i].p_vaddr);
         unsigned char *src = buf + phdr[i].p_offset;
@@ -181,7 +182,7 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
         last_user_region_size = 0;
     }
 
-    set_user_pages(USER_STACK_BOTTOM, USER_STACK_PAGES * PAGE_SIZE);
+    (void)set_user_pages(USER_STACK_BOTTOM, USER_STACK_PAGES * PAGE_SIZE);
 
     char *string_ptrs[MAX_ARGC];
     char kernel_buf[MAX_ARGV_LEN];
@@ -288,6 +289,26 @@ void load_next_program(void)
     next_prog_argv = 0;
 
     load_user_program(prog, argv, 0);
+}
+
+static void welcome_callback(void)
+{
+    write("      Welcome to BaOS - the Bourne again Operating System!\n      Type '\033[1;32mhelp\033[0m' to see a list of available commands.\n\n      ");
+    write(uname_info.version);
+    write(".\n\n");
+
+    load_shell();
+}
+
+void load_welcome(void)
+{
+    write("\n");
+    loader_post_return_callback = welcome_callback;
+    if (load_user_program("/programs/utils/banner", (const char *[]){"banner", " BaOS", "-color=lightgreen", ((void *)0)}, 1) == 0)
+        return;
+
+    clear();
+    write("\n\033[1;33mWarning: Could not load welcome program.\033[0m\n");
 }
 
 void load_shell(void)

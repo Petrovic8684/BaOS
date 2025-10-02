@@ -2,6 +2,7 @@
 #include <stddef.h>
 #include <string.h>
 #include <stdlib.h>
+#include <errno.h>
 
 #define SYS_FS_WHERE 8
 #define SYS_FS_LIST_DIR 9
@@ -9,16 +10,23 @@
 
 static unsigned int fs_where_len(void)
 {
-    unsigned int len;
+    int ret;
     __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "movl $0, %%ebx\n\t"
         "int $0x80\n\t"
         "movl %%eax, %[res]"
-        : [res] "=r"(len)
+        : [res] "=r"(ret)
         : [num] "i"(SYS_FS_WHERE)
         : "eax", "ebx", "memory");
-    return len;
+
+    if (ret < 0)
+    {
+        errno = -ret;
+        return 0;
+    }
+
+    return (unsigned int)ret;
 }
 
 static char *fs_where(void)
@@ -29,15 +37,27 @@ static char *fs_where(void)
 
     char *buf = malloc(len);
     if (!buf)
+    {
+        errno = ENOMEM;
         return NULL;
+    }
 
+    int ret;
     __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "movl %[ptr], %%ebx\n\t"
         "int $0x80\n\t"
-        :
+        "movl %%eax, %[res]"
+        : [res] "=r"(ret)
         : [num] "i"(SYS_FS_WHERE), [ptr] "r"(buf)
         : "eax", "ebx", "memory");
+
+    if (ret < 0)
+    {
+        free(buf);
+        errno = -ret;
+        return NULL;
+    }
 
     return buf;
 }
@@ -53,6 +73,7 @@ static unsigned int fs_list_dir_len(void)
         : [res] "=r"(len)
         : [num] "i"(SYS_FS_LIST_DIR)
         : "eax", "ebx", "memory");
+
     return len;
 }
 
@@ -64,32 +85,48 @@ static char *fs_list_dir(void)
 
     char *buf = malloc(len);
     if (!buf)
+    {
+        errno = ENOMEM;
         return NULL;
+    }
 
+    int ret;
     __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "movl %[ptr], %%ebx\n\t"
         "int $0x80\n\t"
-        :
+        "movl %%eax, %[res]"
+        : [res] "=r"(ret)
         : [num] "i"(SYS_FS_LIST_DIR),
           [ptr] "r"(buf)
         : "eax", "ebx", "memory");
+
+    if (ret < 0)
+    {
+        map_fs_error(ret);
+        free(buf);
+        return NULL;
+    }
 
     return buf;
 }
 
 static inline int fs_change_dir(const char *name)
 {
-    unsigned int ret;
+    int ret;
     __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "movl %[n], %%ebx\n\t"
         "int $0x80\n\t"
-        "movl %%ebx, %[res]\n\t"
+        "movl %%eax, %[res]"
         : [res] "=r"(ret)
         : [num] "i"(SYS_FS_CHANGE_DIR), [n] "r"(name)
         : "eax", "ebx", "memory");
-    return (int)ret;
+
+    if (ret < 0)
+        return map_fs_error(ret);
+
+    return 0;
 }
 
 struct DIR
@@ -174,16 +211,14 @@ DIR *opendir(const char *name)
 {
     int idx = find_free_stream();
     if (idx < 0)
+    {
+        errno = EMFILE;
         return NULL;
+    }
 
     struct DIR *d = &dir_streams[idx];
+    memset(d, 0, sizeof(*d));
     d->in_use = 1;
-    d->count = 0;
-    d->pos = 0;
-    d->dent.d_ino = 0;
-    d->dent.d_name[0] = '\0';
-    for (unsigned int i = 0; i < DIRENT_MAX_ENTRIES; i++)
-        d->types[i] = DT_UNKNOWN;
 
     char *orig_p = fs_where();
     if (!orig_p)
@@ -203,21 +238,26 @@ DIR *opendir(const char *name)
     }
 
     char *listing = fs_list_dir();
-    parse_list_into_dir(d, listing);
+    if (listing)
+    {
+        parse_list_into_dir(d, listing);
+        free(listing);
+    }
 
-    if (changed && orig_p)
+    if (changed)
         fs_change_dir(orig_p);
 
     free(orig_p);
-    free(listing);
-
     return (DIR *)d;
 }
 
 struct dirent *readdir(DIR *dirp)
 {
     if (!dirp)
+    {
+        errno = EINVAL;
         return NULL;
+    }
 
     struct DIR *d = (struct DIR *)dirp;
     if (!d->in_use)
@@ -242,7 +282,10 @@ struct dirent *readdir(DIR *dirp)
 int closedir(DIR *dirp)
 {
     if (!dirp)
+    {
+        errno = EINVAL;
         return -1;
+    }
 
     struct DIR *d = (struct DIR *)dirp;
     if (!d->in_use)
@@ -262,7 +305,10 @@ int closedir(DIR *dirp)
 void rewinddir(DIR *dirp)
 {
     if (!dirp)
+    {
+        errno = EINVAL;
         return;
+    }
     struct DIR *d = (struct DIR *)dirp;
     if (!d->in_use)
         return;
@@ -272,7 +318,10 @@ void rewinddir(DIR *dirp)
 long telldir(DIR *dirp)
 {
     if (!dirp)
+    {
+        errno = EINVAL;
         return -1;
+    }
     struct DIR *d = (struct DIR *)dirp;
     if (!d->in_use)
         return -1;
@@ -282,7 +331,10 @@ long telldir(DIR *dirp)
 void seekdir(DIR *dirp, long loc)
 {
     if (!dirp)
+    {
+        errno = EINVAL;
         return;
+    }
     struct DIR *d = (struct DIR *)dirp;
     if (!d->in_use)
         return;

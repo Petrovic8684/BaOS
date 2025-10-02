@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include <stdarg.h>
 #include <stdlib.h>
+#include <errno.h>
 
 #define MAX_COLS 80
 #define WELCOME_LINES 2
@@ -38,14 +39,14 @@ void editor_init(void)
     buffer = malloc(num_lines * sizeof(char *));
     if (!buffer)
     {
-        printf("\033[31mError: Out of memory.\033[0m\n");
+        printf("\033[31mError: Out of memory. %s.\033[0m\n", strerror(errno));
         exit(1);
     }
 
     line_sizes = malloc(num_lines * sizeof(size_t));
     if (!line_sizes)
     {
-        printf("\033[31mError: Out of memory.\033[0m\n");
+        printf("\033[31mError: Out of memory. %s.\033[0m\n", strerror(errno));
         exit(1);
     }
 
@@ -55,7 +56,7 @@ void editor_init(void)
         buffer[i] = calloc(line_sizes[i], 1);
         if (!buffer[i])
         {
-            printf("\033[31mError: Out of memory.\033[0m\n");
+            printf("\033[31mError: Out of memory. %s.\033[0m\n", strerror(errno));
             exit(1);
         }
         buffer[i][0] = '\0';
@@ -65,7 +66,7 @@ void editor_init(void)
     clipboard = calloc(clipboard_size, 1);
     if (!clipboard)
     {
-        printf("\033[31mError: Out of memory.\033[0m\n");
+        printf("\033[31mError: Out of memory. %s.\033[0m\n", strerror(errno));
         exit(1);
     }
     clipboard[0] = '\0';
@@ -88,7 +89,7 @@ void ensure_line_capacity(int row, size_t needed)
     char *p = realloc(buffer[row], new_size);
     if (!p)
     {
-        printf("\033[31mError: Out of memory.\033[0m\n");
+        printf("\033[31mError: Out of memory. %s.\033[0m\n", strerror(errno));
         exit(1);
     }
     if (new_size > line_sizes[row])
@@ -111,7 +112,7 @@ void ensure_buffer_rows(size_t row)
     size_t *nsz = realloc(line_sizes, new_num * sizeof(size_t));
     if (!nbuf || !nsz)
     {
-        printf("\033[31mError: Out of memory.\033[0m\n");
+        printf("\033[31mError: Out of memory. %s.\033[0m\n", strerror(errno));
         exit(1);
     }
     buffer = nbuf;
@@ -123,7 +124,7 @@ void ensure_buffer_rows(size_t row)
         buffer[i] = calloc(line_sizes[i], 1);
         if (!buffer[i])
         {
-            printf("\033[31mError: Out of memory.\033[0m\n");
+            printf("\033[31mError: Out of memory. %s.\033[0m\n", strerror(errno));
             exit(1);
         }
         buffer[i][0] = '\0';
@@ -153,7 +154,7 @@ void clipboard_append_text(const char *text, size_t tlen)
         char *p = realloc(clipboard, new_size);
         if (!p)
         {
-            printf("\033[31mError: Out of memory.\033[0m\n");
+            printf("\033[31mError: Out of memory. %s.\033[0m\n", strerror(errno));
             exit(1);
         }
         clipboard = p;
@@ -523,7 +524,7 @@ static void editor_redraw(void)
                     char *tmp = malloc((size_t)len + 1);
                     if (!tmp)
                     {
-                        printf("\033[31mError: Out of memory.\033[0m\n");
+                        printf("\033[31mError: Out of memory. %s.\033[0m\n", strerror(errno));
                         exit(1);
                     }
                     strncpy(tmp, buffer[i] + start, len);
@@ -595,7 +596,7 @@ static void shift_lines_down(int from)
     buffer[from] = calloc(line_sizes[from], 1);
     if (!buffer[from])
     {
-        printf("\033[31mError: Out of memory.\033[0m\n");
+        printf("\033[31mError: Out of memory. %s.\033[0m\n", strerror(errno));
         exit(1);
     }
     buffer[from][0] = '\0';
@@ -618,7 +619,7 @@ static void shift_lines_up(int from)
     buffer[num_lines - 1] = calloc(line_sizes[num_lines - 1], 1);
     if (!buffer[num_lines - 1])
     {
-        printf("\033[31mError: Out of memory.\033[0m\n");
+        printf("\033[31mError: Out of memory. %s.\033[0m\n", strerror(errno));
         exit(1);
     }
     buffer[num_lines - 1][0] = '\0';

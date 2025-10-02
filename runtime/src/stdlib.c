@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <math.h>
 #include <limits.h>
+#include <errno.h>
 
 #define SYS_EXIT 0
 #define SYS_FS_WHERE 8
@@ -47,16 +48,23 @@ void exit(int code)
 
 static unsigned int fs_where_len(void)
 {
-    unsigned int len;
+    int ret;
     __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "movl $0, %%ebx\n\t"
         "int $0x80\n\t"
         "movl %%eax, %[res]"
-        : [res] "=r"(len)
+        : [res] "=r"(ret)
         : [num] "i"(SYS_FS_WHERE)
         : "eax", "ebx", "memory");
-    return len;
+
+    if (ret < 0)
+    {
+        errno = -ret;
+        return 0;
+    }
+
+    return (unsigned int)ret;
 }
 
 static char *fs_where(void)
@@ -67,17 +75,58 @@ static char *fs_where(void)
 
     char *buf = malloc(len);
     if (!buf)
+    {
+        errno = ENOMEM;
         return NULL;
+    }
 
+    int ret;
     __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "movl %[ptr], %%ebx\n\t"
         "int $0x80\n\t"
-        :
+        "movl %%eax, %[res]"
+        : [res] "=r"(ret)
         : [num] "i"(SYS_FS_WHERE), [ptr] "r"(buf)
         : "eax", "ebx", "memory");
 
+    if (ret < 0)
+    {
+        free(buf);
+        errno = -ret;
+        return NULL;
+    }
+
     return buf;
+}
+
+static int sys_set_user_pages(unsigned int virt_start, unsigned int size)
+{
+    struct map_args
+    {
+        unsigned int virt_start;
+        unsigned int size;
+    } args;
+    args.virt_start = virt_start;
+    args.size = size;
+
+    int ret;
+    __asm__ volatile(
+        "movl %[num], %%eax\n\t"
+        "movl %[arg], %%ebx\n\t"
+        "int $0x80\n\t"
+        "movl %%eax, %[res]"
+        : [res] "=r"(ret)
+        : [num] "i"(SYS_SET_USER_PAGES), [arg] "r"(&args)
+        : "eax", "ebx", "memory");
+
+    if (ret < 0)
+    {
+        errno = -ret;
+        return -1;
+    }
+
+    return 0;
 }
 
 void abort(void)
@@ -215,6 +264,7 @@ unsigned long strtoul(const char *nptr, char **endptr, int base)
         if (acc > (ULONG_MAX - digit) / base)
         {
             acc = ULONG_MAX;
+            errno = ERANGE;
             while (isdigit((unsigned char)*s) || isalpha((unsigned char)*s))
                 s++;
             break;
@@ -322,30 +372,17 @@ long strtol(const char *nptr, char **endptr, int base)
         return 0;
 
     if (acc == (unsigned long)LONG_MAX + 1UL && neg)
+    {
+        errno = ERANGE;
         return LONG_MIN;
+    }
     if (acc > (unsigned long)LONG_MAX && !neg)
+    {
+        errno = ERANGE;
         return LONG_MAX;
+    }
 
     return neg ? -(long)acc : (long)acc;
-}
-
-static void sys_set_user_pages(unsigned int virt_start, unsigned int size)
-{
-    struct map_args
-    {
-        unsigned int virt_start;
-        unsigned int size;
-    } args;
-    args.virt_start = virt_start;
-    args.size = size;
-
-    __asm__ volatile(
-        "movl %[num], %%eax\n\t"
-        "movl %[arg], %%ebx\n\t"
-        "int $0x80\n\t"
-        :
-        : [num] "i"(SYS_SET_USER_PAGES), [arg] "r"(&args)
-        : "eax", "ebx", "memory");
 }
 
 static void *heap_expand(unsigned int bytes)
@@ -356,12 +393,16 @@ static void *heap_expand(unsigned int bytes)
     unsigned int need_end = ALIGN_UP(heap_end + bytes, PAGE_SIZE_LOCAL);
 
     if (need_end > heap_max)
+    {
+        errno = ENOMEM;
         return NULL;
+    }
 
     unsigned int map_start = heap_end;
     unsigned int map_size = need_end - heap_end;
 
-    sys_set_user_pages(map_start, map_size);
+    if (sys_set_user_pages(map_start, map_size) != 0)
+        return NULL;
 
     void *old = (void *)heap_end;
     heap_end = need_end;
@@ -518,7 +559,10 @@ void *calloc(unsigned int nmemb, unsigned int size)
         return malloc(0);
 
     if (size != 0 && nmemb > (unsigned int)(~0u) / size)
+    {
+        errno = ENOMEM;
         return NULL;
+    }
 
     unsigned int total = nmemb * size;
     void *p = malloc(total);
@@ -686,7 +730,10 @@ void qsort(void *base, size_t nmemb, size_t size,
 char *realpath(const char *path, char *resolved_path)
 {
     if (!path)
+    {
+        errno = EINVAL;
         return NULL;
+    }
 
     char *cwd = NULL;
     if (path[0] != '/')

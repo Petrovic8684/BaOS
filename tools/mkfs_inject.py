@@ -1,4 +1,4 @@
-import sys, os, struct, math, re
+import sys, os, struct, re
 
 MAX_NAME = 16
 MAX_DIRS_PER_DIR = 8
@@ -9,7 +9,7 @@ FS_MAGIC = 0x46535953  # 'FSYS'
 MAX_DIRS  = 64
 MAX_FILES = 128
 
-SUPERBLOCK_LBA       = 2048
+SUPERBLOCK_LBA       = 4096
 DIR_TABLE_START_LBA  = SUPERBLOCK_LBA + 1
 DIR_TABLE_SECTORS    = MAX_DIRS
 FILE_TABLE_START_LBA = DIR_TABLE_START_LBA + DIR_TABLE_SECTORS
@@ -204,7 +204,7 @@ def sanitize_target_folder(raw):
     s = re.sub(r'^(/*)[A-Za-z]:', '/', s)
     s = re.sub(r'^//+', '/', s)
 
-    candidates = ['/lib', '/programs', '/config', '/docs']
+    candidates = ['/programs', '/config', '/docs']
     for cand in candidates:
         idx = s.lower().rfind(cand)
         if idx != -1:

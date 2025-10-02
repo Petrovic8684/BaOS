@@ -18,6 +18,6 @@ void paging_init(void);
 unsigned int get_pte(unsigned int virt);
 void unmap_all_user_pages(void);
 void ensure_phys_range_mapped(unsigned int phys_start, unsigned int size);
-void set_user_pages(unsigned int virt_start, unsigned int size);
+int set_user_pages(unsigned int virt_start, unsigned int size);
 
 #endif

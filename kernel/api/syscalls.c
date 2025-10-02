@@ -105,25 +105,31 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
     case SYS_FS_WHERE:
     {
         char *user_buf = (char *)arg;
+        int err;
+        char *path = fs_where(&err);
+        if (!path)
+            return -err;
 
-        char *path = fs_where();
         unsigned int len = str_count(path) + 1;
-
         if (!user_buf)
+        {
+            kfree(path);
             return len;
+        }
 
         mem_copy(user_buf, path, len);
         kfree(path);
-
-        return 0;
+        return FS_OK;
     }
 
     case SYS_FS_LIST_DIR:
     {
         char *user_buf = (char *)arg;
-        char *contents = fs_list_dir();
+        int err = 0;
+        char *contents = fs_list_dir(&err);
+
         if (!contents)
-            return -1;
+            return -err;
 
         unsigned int len = str_count(contents) + 1;
 
@@ -135,7 +141,7 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
 
         mem_copy(user_buf, contents, len);
         kfree(contents);
-        return 0;
+        return FS_OK;
     }
 
     case SYS_FS_CHANGE_DIR:
@@ -276,7 +282,7 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
     case SYS_SET_USER_PAGES:
     {
         if (arg == 0)
-            return 0;
+            return -14;
 
         struct
         {
@@ -285,9 +291,9 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
         } kargs;
 
         mem_copy((unsigned char *)&kargs, (const unsigned char *)arg, sizeof(kargs));
-        set_user_pages(kargs.virt_start, kargs.size);
+        int ret = set_user_pages(kargs.virt_start, kargs.size);
 
-        return 0;
+        return ret;
     }
 
     case SYS_HEAP_INFO:

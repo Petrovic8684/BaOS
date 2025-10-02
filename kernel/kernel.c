@@ -31,6 +31,7 @@ __attribute__((section(".text"), used, noreturn)) void kernel_main(void)
     fs_init();
     play_startup_melody();
 
+    load_welcome();
     load_shell();
 
     while (1)

@@ -9,7 +9,7 @@
 
 #define FS_MAGIC 0x46535953u // 'FSYS'
 
-#define SUPERBLOCK_LBA 2048u
+#define SUPERBLOCK_LBA 4096u
 #define DIR_TABLE_START_LBA (SUPERBLOCK_LBA + 1u)
 #define DIR_TABLE_SECTORS (MAX_DIRS)
 #define FILE_TABLE_START_LBA (DIR_TABLE_START_LBA + DIR_TABLE_SECTORS)
@@ -22,6 +22,15 @@ static int fs_initialized = 0;
 
 static unsigned int fs_current_dir_lba = 0;
 static FS_SuperOnDisk fs_super;
+
+unsigned int find_free_data_lba(void)
+{
+    for (unsigned int i = 0; i < MAX_FILES; i++)
+        if (fs_super.file_bitmap[i] == 0)
+            return DATA_START_LBA + i;
+
+    return 0;
+}
 
 static int read_sector(unsigned int lba, void *buf)
 {
@@ -630,25 +639,21 @@ int fs_make_file(const char *name)
     return FS_OK;
 }
 
-char *fs_list_dir(void)
+char *fs_list_dir(int *err)
 {
     if (!fs_initialized)
     {
-        char *err = kmalloc(32);
-        if (!err)
-            return ((void *)0);
-        str_copy_fixed(err, "Error: File system not initialized.\n", 32);
-        return err;
+        if (err)
+            *err = FS_ERR_NOT_INIT;
+        return ((void *)0);
     }
 
     FS_Dir cur;
     if (read_dir_lba(fs_current_dir_lba, &cur) != FS_OK)
     {
-        char *err = kmalloc(24);
-        if (!err)
-            return ((void *)0);
-        str_copy_fixed(err, "Error: I/O error.\n", 24);
-        return err;
+        if (err)
+            *err = FS_ERR_IO;
+        return ((void *)0);
     }
 
     unsigned int est_size = 0;
@@ -664,13 +669,18 @@ char *fs_list_dir(void)
         if (read_file_lba(cur.files_lba[i], &tmp) == FS_OK)
             est_size += str_count(tmp.name) + 1;
     }
+
     if (est_size == 0)
         est_size = 20;
-    est_size += 2;
+    est_size += 1;
 
     char *output = kmalloc(est_size);
     if (!output)
+    {
+        if (err)
+            *err = FS_ERR_NO_SPACE;
         return ((void *)0);
+    }
 
     int pos = 0;
     int printed = 0;
@@ -703,11 +713,20 @@ char *fs_list_dir(void)
     }
 
     if (!printed)
+    {
         str_copy_fixed(output, "(empty directory)\n", est_size);
+        pos = str_count(output);
+    }
     else
-        output[pos++] = '\n';
+    {
+        if (pos < est_size - 1)
+            output[pos++] = '\n';
+    }
 
     output[pos] = '\0';
+
+    if (err)
+        *err = FS_OK;
     return output;
 }
 
@@ -729,15 +748,13 @@ int fs_change_dir(const char *name)
     return FS_OK;
 }
 
-char *fs_where(void)
+char *fs_where(int *err)
 {
     if (!fs_initialized)
     {
-        char *err = kmalloc(32);
-        if (!err)
-            return ((void *)0);
-        str_copy_fixed(err, "Error: File system not initialized.\n", 32);
-        return err;
+        if (err)
+            *err = FS_ERR_NOT_INIT;
+        return ((void *)0);
     }
 
     unsigned int path_lbas[MAX_DIRS];
@@ -751,11 +768,9 @@ char *fs_where(void)
 
         if (read_dir_lba(lba, &cur) != FS_OK)
         {
-            char *err = kmalloc(24);
-            if (!err)
-                return ((void *)0);
-            str_copy_fixed(err, "Error: I/O error.\n", 24);
-            return err;
+            if (err)
+                *err = FS_ERR_IO;
+            return ((void *)0);
         }
 
         if (lba == cur.parent_lba)
@@ -772,11 +787,14 @@ char *fs_where(void)
             continue;
         est_size += str_count(tmp.name) + 1;
     }
-    est_size += 1;
 
-    char *path = kmalloc(est_size);
+    char *path = kmalloc(est_size + 1);
     if (!path)
+    {
+        if (err)
+            *err = FS_ERR_NO_SPACE;
         return ((void *)0);
+    }
 
     int pos = 0;
     path[pos++] = '/';
@@ -788,11 +806,9 @@ char *fs_where(void)
         if (read_dir_lba(path_lbas[i], &tmp) != FS_OK)
         {
             kfree(path);
-            char *err = kmalloc(24);
-            if (!err)
-                return ((void *)0);
-            str_copy_fixed(err, "Error: I/O error.\n", 24);
-            return err;
+            if (err)
+                *err = FS_ERR_IO;
+            return ((void *)0);
         }
 
         for (int j = 0; tmp.name[j]; j++)
@@ -804,6 +820,8 @@ char *fs_where(void)
         path[pos] = '\0';
     }
 
+    if (err)
+        *err = FS_OK;
     return path;
 }
 
@@ -966,7 +984,7 @@ int fs_write_file(const char *name, const unsigned char *data, unsigned int size
                 return FS_ERR_IO;
 
             if (f.data_lba == 0)
-                f.data_lba = DATA_START_LBA + (unsigned int)file_idx;
+                f.data_lba = find_free_data_lba();
 
             unsigned int written = 0;
             unsigned int sector_lba = f.data_lba + (f.size / 512u);

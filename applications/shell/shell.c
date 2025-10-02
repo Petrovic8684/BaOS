@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <errno.h>
 
 #define SYS_LOAD_USER_PROGRAM 17
 
@@ -22,7 +23,7 @@ static void run(const char *name, const char *args)
         char *tmp = strdup(args);
         if (!tmp)
         {
-            printf("\033[31mError: Memory allocation failed.\033[0m\n\n");
+            printf("\033[31mError: Memory allocation failed. %s.\033[0m\n\n", strerror(errno));
             return;
         }
         char *t = strtok(tmp, " ");
@@ -59,7 +60,7 @@ static void run(const char *name, const char *args)
     char *block = malloc(total_size);
     if (!block)
     {
-        printf("\033[31mError: Memory allocation failed.\033[0m\n\n");
+        printf("\033[31mError: Memory allocation failed. %s.\033[0m\n\n", strerror(errno));
         return;
     }
 
@@ -77,7 +78,7 @@ static void run(const char *name, const char *args)
         if (!p)
         {
             free(block);
-            printf("\033[31mError: Failed to duplicate arguments.\033[0m\n\n");
+            printf("\033[31mError: Failed to duplicate arguments. %s.\033[0m\n\n", strerror(errno));
             return;
         }
 
@@ -135,9 +136,10 @@ void process_command(char *cmd)
     char *args = (saved != '\0') ? p + 1 : NULL;
 
     const char *paths[] = {".", "/programs", "/programs/utils"};
+    size_t paths_n = sizeof(paths) / sizeof(paths[0]);
     bool launched = false;
 
-    for (int pidx = 0; pidx < 3 && !launched; ++pidx)
+    for (int pidx = 0; pidx < paths_n && !launched; ++pidx)
     {
         DIR *d = opendir(paths[pidx]);
         if (!d)
@@ -180,7 +182,7 @@ void main(void)
             cwd = strdup("?");
 
         char *base = basename(cwd);
-        printf("BaOS %s> ", base);
+        printf("$ %s> ", base);
 
         free(base);
         free(cwd);

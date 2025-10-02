@@ -26,7 +26,7 @@ dap:
     dw 0x1000      ; buffer segment 
     dq 1           ; starting LBA
 
-mov cx, 125     ; total sectors to read
+mov cx, 127     ; total sectors to read
 
 ; -------------------------
 ; Load kernel from disk into memory (16-bit real mode)

@@ -115,6 +115,7 @@ RUNTIME_SRC_LIST = \
 	runtime/src/time.c \
 	runtime/src/unistd.c \
 	runtime/src/math.c \
+	runtime/src/errno.c \
 	runtime/src/libgen.c \
 	runtime/src/baos_sound.c \
 	runtime/src/baos_mouse.c \
@@ -167,17 +168,6 @@ $(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(UTIL
 	$(DD) if=/dev/zero of=$(IMG) bs=1M count=$(IMG_SIZE)
 	$(DD) if=$(BOOT_BIN) of=$(IMG) conv=notrunc
 	$(DD) if=$(KERNEL_BIN) of=$(IMG) seek=1 conv=notrunc
-
-	for h in runtime/include/*.h; do \
-		$(PY) tools/mkfs_inject.py $(IMG) $$h /lib/include; \
-	done
-
-	for h in runtime/include/sys/*.h; do \
-		$(PY) tools/mkfs_inject.py $(IMG) $$h /lib/include/sys; \
-	done
-
-	$(PY) tools/mkfs_inject.py $(IMG) $(CRT0_BIN) /lib
-	$(PY) tools/mkfs_inject.py $(IMG) $(RUNTIME_BIN) /lib
 
 	for prog in $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN); do \
 		$(PY) tools/mkfs_inject.py $(IMG) $$prog /programs; \

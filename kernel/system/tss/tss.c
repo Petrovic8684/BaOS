@@ -19,7 +19,7 @@ static void set_tss_descriptor(int idx, unsigned int base, unsigned int limit, u
 
 void tss_init(void)
 {
-    write("Setting up kernel TSS...\n");
+    write("Initializing TSS...\n");
 
     for (int i = 0; i < (int)(sizeof(kernel_tss) / 4); ++i)
         ((unsigned int *)&kernel_tss)[i] = 0;
@@ -32,5 +32,5 @@ void tss_init(void)
 
     __asm__ volatile("ltr %%ax" ::"a"(0x28));
 
-    write("\033[32mTSS loaded.\033[0m\n\n");
+    write("\033[32mTSS initialized.\033[0m\n\n");
 }

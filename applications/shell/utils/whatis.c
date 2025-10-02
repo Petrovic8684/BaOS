@@ -1,12 +1,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 
 int main(int argc, char *argv[])
 {
     if (argc != 2 || argv[1][0] == '\0')
     {
-        printf("\033[31mError: No program name provided.\033[0m\n");
+        printf("\033[1;33mUsage:\033[0m whatis <command>.\n");
         return 1;
     }
 
@@ -16,7 +17,7 @@ int main(int argc, char *argv[])
     char *path = malloc(path_len);
     if (!path)
     {
-        printf("\033[31mError: Memory allocation failed.\033[0m\n");
+        printf("\033[31mError: Memory allocation failed. %s.\033[0m\n", strerror(errno));
         return 1;
     }
 
@@ -32,7 +33,7 @@ int main(int argc, char *argv[])
 
     if (fseek(f, 0, SEEK_END) != 0)
     {
-        printf("\033[31mError: Failed to seek file.\033[0m\n");
+        printf("\033[31mError: Failed to seek file. %s.\033[0m\n", strerror(errno));
         fclose(f);
         return 1;
     }
@@ -40,7 +41,7 @@ int main(int argc, char *argv[])
     long fsize = ftell(f);
     if (fsize < 0)
     {
-        printf("\033[31mError: Failed to get file size.\033[0m\n");
+        printf("\033[31mError: Failed to get file size. %s.\033[0m\n", strerror(errno));
         fclose(f);
         return 1;
     }
@@ -49,7 +50,7 @@ int main(int argc, char *argv[])
     unsigned char *buffer = malloc((size_t)fsize);
     if (!buffer)
     {
-        printf("\033[31mError: Memory allocation failed.\033[0m\n");
+        printf("\033[31mError: Memory allocation failed. %s.\033[0m\n", strerror(errno));
         fclose(f);
         return 1;
     }
@@ -57,7 +58,7 @@ int main(int argc, char *argv[])
     size_t n = fread(buffer, 1, (size_t)fsize, f);
     if (n != (size_t)fsize)
     {
-        printf("\033[31mError: I/O error occurred while reading docs for '%s'.\033[0m\n", name);
+        printf("\033[31mError: I/O error occurred while reading docs for '%s'. %s.\033[0m\n", name, strerror(errno));
         free(buffer);
         fclose(f);
         return 1;
@@ -67,7 +68,7 @@ int main(int argc, char *argv[])
     size_t w = fwrite(buffer, 1, (size_t)fsize, stdout);
     if (w != (size_t)fsize)
     {
-        printf("\n\033[31mError: I/O error occurred while writing docs for '%s'.\033[0m\n", name);
+        printf("\n\033[31mError: I/O error occurred while writing docs for '%s'. %s.\033[0m\n", name, strerror(errno));
         free(buffer);
         fclose(f);
         return 1;

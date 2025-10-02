@@ -46,6 +46,7 @@ extern void (*loader_post_return_callback)(void);
 void reset_loader_context(void);
 void set_next_program(const char **argv);
 void load_next_program(void);
+void load_welcome(void);
 void load_shell(void);
 __attribute__((naked)) void return_to_loader(void);
 

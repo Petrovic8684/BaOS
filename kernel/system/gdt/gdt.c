@@ -16,7 +16,7 @@ void set_gdt_entry(int idx, unsigned int base, unsigned int limit, unsigned char
 
 void gdt_init(void)
 {
-    write("Setting up kernel GDT...\n");
+    write("Initializing GDT...\n");
 
     set_gdt_entry(0, 0, 0, 0, 0);
     set_gdt_entry(1, 0x00000000, 0x000FFFFF, 0x9A, 0xCF);
@@ -41,5 +41,5 @@ void gdt_init(void)
         "mov %%ax, %%gs\n\t"
         "mov %%ax, %%ss\n\t" ::: "ax");
 
-    write("\033[32mGDT loaded.\033[0m\n\n");
+    write("\033[32mGDT initialized.\033[0m\n\n");
 }

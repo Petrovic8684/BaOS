@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <errno.h>
 
 #define SYS_WRITE 1
 #define SYS_READ 3
@@ -57,6 +58,10 @@ static inline int fs_make_file(const char *name)
         : [res] "=r"(ret)
         : [num] "i"(SYS_FS_MAKE_FILE), [n] "r"(name)
         : "eax", "ebx", "memory");
+
+    if ((int)ret < 0)
+        return map_fs_error((int)ret);
+
     return (int)ret;
 }
 
@@ -71,6 +76,10 @@ static inline int fs_delete_file(const char *name)
         : [res] "=r"(ret)
         : [num] "i"(SYS_FS_DELETE_FILE), [n] "r"(name)
         : "eax", "ebx", "memory");
+
+    if ((int)ret < 0)
+        return map_fs_error((int)ret);
+
     return (int)ret;
 }
 
@@ -92,6 +101,10 @@ static inline int fs_write_file(const char *name, const unsigned char *data, uns
         : [res] "=r"(ret)
         : [num] "i"(SYS_FS_WRITE_FILE), [a] "r"(&args)
         : "eax", "ebx", "memory");
+
+    if ((int)ret < 0)
+        return map_fs_error((int)ret);
+
     return (int)ret;
 }
 
@@ -114,6 +127,10 @@ static inline int fs_read_file(const char *name, unsigned char *out_buf, unsigne
         : [res] "=r"(ret)
         : [num] "i"(SYS_FS_READ_FILE), [a] "r"(&args)
         : "eax", "ebx", "memory");
+
+    if ((int)ret < 0)
+        return map_fs_error((int)ret);
+
     return (int)ret;
 }
 
@@ -121,7 +138,9 @@ static inline int fs_read_file_size(const char *name)
 {
     unsigned int out = 0;
     int rc = fs_read_file(name, NULL, 0, &out);
-    return (rc == 0) ? (int)out : -1;
+    if (rc < 0)
+        return -1;
+    return (int)out;
 }
 
 static inline int sys_get_cursor_row(void)
@@ -166,47 +185,27 @@ static char ansi_params[64];
 static int ansi_params_len = 0;
 
 void write(const char *str);
-
-static char *int_to_dec_str(unsigned int v, char *out_end)
-{
-    char buf[16];
-    int i = 0;
-    if (v == 0)
-    {
-        buf[i++] = '0';
-    }
-    else
-    {
-        while (v > 0 && i < (int)sizeof(buf))
-        {
-            buf[i++] = '0' + (v % 10);
-            v /= 10;
-        }
-    }
-    char *p = out_end;
-    while (i-- > 0)
-        *p++ = buf[i];
-    *p = '\0';
-    return out_end;
-}
+int snprintf(char *str, size_t size, const char *format, ...);
 
 static void send_move_syscall(int r, int c)
 {
     char seq[32];
-    char *p = seq;
-    *p++ = 0x1B;
-    *p++ = '[';
-    char numbuf[12];
-    int_to_dec_str((unsigned int)r, numbuf);
-    for (char *q = numbuf; *q; q++)
-        *p++ = *q;
-    *p++ = ';';
-    int_to_dec_str((unsigned int)c, numbuf);
-    for (char *q = numbuf; *q; q++)
-        *p++ = *q;
-    *p++ = 'H';
-    *p = '\0';
-    write(seq);
+    int n = snprintf(seq, sizeof(seq), "\x1B[%u;%uH", (unsigned int)r, (unsigned int)c);
+    if (n > 0 && n < (int)sizeof(seq))
+        write(seq);
+}
+
+static void clamp_cursor(int *row, int *col)
+{
+    if (*row < 0)
+        *row = 0;
+    else if (*row > TTY_LAST_ROW)
+        *row = TTY_LAST_ROW;
+
+    if (*col < 0)
+        *col = 0;
+    else if (*col > TTY_LAST_COL)
+        *col = TTY_LAST_COL;
 }
 
 static void scroll_up(int n)
@@ -215,28 +214,14 @@ static void scroll_up(int n)
         return;
 
     char seq[16];
-    char *p = seq;
-    *p++ = 0x1B;
-    *p++ = '[';
-    char numbuf[12];
-    int_to_dec_str((unsigned int)n, numbuf);
-    for (char *q = numbuf; *q; q++)
-        *p++ = *q;
-    *p++ = 'S';
-    *p = '\0';
-
-    write(seq);
+    int len = snprintf(seq, sizeof(seq), "\x1B[%uS", (unsigned int)n);
+    if (len > 0 && len < (int)sizeof(seq))
+        write(seq);
 
     int r = sys_get_cursor_row();
     int c = sys_get_cursor_col();
-    if (r < 0)
-        r = 0;
-    if (r > TTY_LAST_ROW)
-        r = TTY_LAST_ROW;
-    if (c < 0)
-        c = 0;
-    if (c > TTY_LAST_COL)
-        c = TTY_LAST_COL;
+
+    clamp_cursor(&r, &c);
 
     tty_row = r;
     tty_col = c;
@@ -246,29 +231,26 @@ static void scroll_up(int n)
 
 static void tty_wrap_char(unsigned char ch)
 {
-    if (ch == '\n')
+    switch (ch)
     {
+    case '\n':
         tty_col = 0;
-        tty_row++;
-        if (tty_row > TTY_LAST_ROW)
-            tty_row = TTY_LAST_ROW;
+        if (tty_row < TTY_LAST_ROW)
+            tty_row++;
         return;
-    }
-    else if (ch == '\r')
-    {
+
+    case '\r':
         tty_col = 0;
         return;
-    }
-    else
-    {
-        tty_col++;
-        if (tty_col >= TTY_COLS)
+
+    default:
+        if (++tty_col >= TTY_COLS)
         {
             tty_col = 0;
-            tty_row++;
-            if (tty_row > TTY_LAST_ROW)
-                tty_row = TTY_LAST_ROW;
+            if (tty_row < TTY_LAST_ROW)
+                tty_row++;
         }
+        return;
     }
 }
 
@@ -403,14 +385,7 @@ static void tty_parse_after_write(const char *s)
                     int c = (pcount >= 2 && pvals[1] > 0) ? pvals[1] : 1;
                     tty_row = r - 1;
                     tty_col = c - 1;
-                    if (tty_row < 0)
-                        tty_row = 0;
-                    if (tty_col < 0)
-                        tty_col = 0;
-                    if (tty_row > TTY_LAST_ROW)
-                        tty_row = TTY_LAST_ROW;
-                    if (tty_col > TTY_LAST_COL)
-                        tty_col = TTY_LAST_COL;
+                    clamp_cursor(&tty_row, &tty_col);
                     break;
                 }
                 case 'J':
@@ -485,15 +460,7 @@ void write(const char *str)
 
     int real_row = sys_get_cursor_row();
     int real_col = sys_get_cursor_col();
-
-    if (real_row < 0)
-        real_row = 0;
-    if (real_col < 0)
-        real_col = 0;
-    if (real_row > TTY_LAST_ROW)
-        real_row = TTY_LAST_ROW;
-    if (real_col > TTY_LAST_COL)
-        real_col = TTY_LAST_COL;
+    clamp_cursor(&real_row, &real_col);
 
     tty_row = real_row;
     tty_col = real_col;
@@ -510,16 +477,7 @@ static void update_cursor(int new_row, int new_col)
         new_col = new_col % TTY_COLS;
     }
 
-    if (new_row < 0)
-        new_row = 0;
-
-    if (new_row > TTY_LAST_ROW)
-        new_row = TTY_LAST_ROW;
-
-    if (new_col < 0)
-        new_col = 0;
-    if (new_col > TTY_LAST_COL)
-        new_col = TTY_LAST_COL;
+    clamp_cursor(&new_row, &new_col);
 
     tty_row = new_row;
     tty_col = new_col;
@@ -544,14 +502,7 @@ static void redraw_buffer(const char *buf, int len, int start_row, int start_col
 
     int after_row = sys_get_cursor_row();
     int after_col = sys_get_cursor_col();
-    if (after_row < 0)
-        after_row = 0;
-    if (after_col < 0)
-        after_col = 0;
-    if (after_row > TTY_LAST_ROW)
-        after_row = TTY_LAST_ROW;
-    if (after_col > TTY_LAST_COL)
-        after_col = TTY_LAST_COL;
+    clamp_cursor(&after_row, &after_col);
 
     send_move_syscall(after_row + 1, after_col + 1);
 
@@ -561,22 +512,22 @@ static void redraw_buffer(const char *buf, int len, int start_row, int start_col
     tty_col = after_col;
 }
 
-static FILE _file_table[MAX_OPEN_FILES];
+static FILE file_table[MAX_OPEN_FILES];
 
 static FILE *alloc_file_slot(void)
 {
     for (int i = 0; i < MAX_OPEN_FILES; i++)
     {
-        if (_file_table[i].name == NULL)
+        if (file_table[i].name == NULL)
         {
-            _file_table[i].mode = 0;
-            _file_table[i].pos = 0;
-            _file_table[i].buf = NULL;
-            _file_table[i].buf_pos = 0;
-            _file_table[i].buf_end = 0;
-            _file_table[i].eof = 0;
-            _file_table[i].err = 0;
-            return &_file_table[i];
+            file_table[i].mode = 0;
+            file_table[i].pos = 0;
+            file_table[i].buf = NULL;
+            file_table[i].buf_pos = 0;
+            file_table[i].buf_end = 0;
+            file_table[i].eof = 0;
+            file_table[i].err = 0;
+            return &file_table[i];
         }
     }
     return NULL;
@@ -612,7 +563,10 @@ static int stdin_ungetc = -1;
 int fputc(int c, FILE *stream)
 {
     if (!stream)
+    {
+        errno = EINVAL;
         return EOF;
+    }
 
     if (stream == stdout || stream == stderr)
     {
@@ -955,7 +909,10 @@ int ungetc(int c, FILE *stream)
         return c;
     }
     if (!stream || stream->buf_pos == 0)
+    {
+        errno = EINVAL;
         return EOF;
+    }
 
     stream->buf[--stream->buf_pos] = (unsigned char)c;
     return c;
@@ -964,14 +921,21 @@ int ungetc(int c, FILE *stream)
 int fgetc(FILE *stream)
 {
     if (!stream)
+    {
+        errno = EINVAL;
         return EOF;
+    }
 
     if (stream == stdout || stream == stderr)
+    {
+        errno = ESPIPE;
         return EOF;
+    }
 
     if (stream->buf_pos >= stream->buf_end)
     {
         stream->eof = 1;
+        errno = EAGAIN;
         return EOF;
     }
 
@@ -1391,10 +1355,16 @@ int sscanf(const char *str, const char *fmt, ...)
 int fflush(FILE *stream)
 {
     if (!stream)
+    {
+        errno = EINVAL;
         return EOF;
+    }
 
     if (stream == stdout || stream == stderr)
+    {
+        errno = ESPIPE;
         return 0;
+    }
 
     if (stream->buf_pos == 0)
         return 0;
@@ -1409,6 +1379,7 @@ int fflush(FILE *stream)
     if (need < file_size || need < (size_t)stream->buf_pos)
     {
         stream->err = 1;
+        errno = EFBIG;
         return EOF;
     }
 
@@ -1442,11 +1413,17 @@ int fflush(FILE *stream)
 FILE *fopen(const char *pathname, const char *mode)
 {
     if (!pathname || !mode)
+    {
+        errno = EINVAL;
         return NULL;
+    }
 
     FILE *f = alloc_file_slot();
     if (!f)
+    {
+        errno = EMFILE;
         return NULL;
+    }
 
     f->buf = NULL;
     f->buf_pos = 0;
@@ -1542,6 +1519,7 @@ FILE *fopen(const char *pathname, const char *mode)
     }
     else
     {
+        errno = EINVAL;
         free_file_slot(f);
         return NULL;
     }
@@ -1552,10 +1530,16 @@ FILE *fopen(const char *pathname, const char *mode)
 int fclose(FILE *stream)
 {
     if (!stream)
+    {
+        errno = EINVAL;
         return EOF;
+    }
 
     if (stream == stdout || stream == stderr || stream == stdin)
+    {
+        errno = EINVAL;
         return EOF;
+    }
 
     if (stream->mode == 1 && stream->buf_pos > 0)
         fflush(stream);
@@ -1567,7 +1551,10 @@ int fclose(FILE *stream)
 size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream)
 {
     if (!ptr || !stream || size == 0 || nmemb == 0)
+    {
+        errno = EINVAL;
         return 0;
+    }
     size_t total = size * nmemb;
     size_t i;
     unsigned char *out = (unsigned char *)ptr;
@@ -1575,7 +1562,10 @@ size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream)
     {
         int c = fgetc(stream);
         if (c == EOF)
+        {
+            errno = EIO;
             break;
+        }
         out[i] = (unsigned char)c;
     }
     return i / size;
@@ -1584,13 +1574,20 @@ size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream)
 size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream)
 {
     if (!ptr || !stream || size == 0 || nmemb == 0)
+    {
+        errno = EINVAL;
         return 0;
+    }
+
     size_t total = size * nmemb;
     const unsigned char *in = (const unsigned char *)ptr;
     size_t i;
     for (i = 0; i < total; i++)
         if (fputc(in[i], stream) == EOF)
+        {
+            errno = EIO;
             break;
+        }
 
     return i / size;
 }
@@ -1598,14 +1595,23 @@ size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream)
 int fseek(FILE *stream, long offset, int whence)
 {
     if (!stream)
+    {
+        errno = EINVAL;
         return -1;
+    }
     if (stream == stdout || stream == stderr)
+    {
+        errno = ESPIPE;
         return -1;
+    }
 
     if (whence == SEEK_SET)
     {
         if (offset < 0)
+        {
+            errno = EINVAL;
             return -1;
+        }
         if ((unsigned long)offset <= stream->buf_end)
         {
             stream->buf_pos = (unsigned int)offset;
@@ -1626,6 +1632,7 @@ int fseek(FILE *stream, long offset, int whence)
                 }
             }
         }
+        errno = EINVAL;
         return -1;
     }
     else if (whence == SEEK_CUR)
@@ -1638,20 +1645,27 @@ int fseek(FILE *stream, long offset, int whence)
         long newpos = (long)stream->buf_end + offset;
         return fseek(stream, newpos, SEEK_SET);
     }
+    errno = EINVAL;
     return -1;
 }
 
 long ftell(FILE *stream)
 {
     if (!stream)
+    {
+        errno = EINVAL;
         return -1;
+    }
     return (long)stream->buf_pos;
 }
 
 void rewind(FILE *stream)
 {
     if (!stream)
+    {
+        errno = EINVAL;
         return;
+    }
     fseek(stream, 0, SEEK_SET);
     clearerr(stream);
 }
@@ -1659,7 +1673,10 @@ void rewind(FILE *stream)
 int remove(const char *pathname)
 {
     if (!pathname)
+    {
+        errno = EINVAL;
         return -1;
+    }
     int res = fs_delete_file(pathname);
     return (res == 0) ? 0 : -1;
 }
@@ -1667,7 +1684,10 @@ int remove(const char *pathname)
 int rename(const char *oldpath, const char *newpath)
 {
     if (!oldpath || !newpath)
+    {
+        errno = EINVAL;
         return -1;
+    }
 
     FILE *oldf = fopen(oldpath, "r");
     if (!oldf)
@@ -1698,6 +1718,7 @@ int rename(const char *oldpath, const char *newpath)
     if (write_err || cerr_new != 0 || cerr_old != 0)
     {
         remove(newpath);
+        errno = EIO;
         return -1;
     }
 
@@ -1711,21 +1732,30 @@ int rename(const char *oldpath, const char *newpath)
 int feof(FILE *stream)
 {
     if (!stream)
+    {
+        errno = EINVAL;
         return 0;
+    }
     return stream->eof;
 }
 
 int ferror(FILE *stream)
 {
     if (!stream)
+    {
+        errno = EINVAL;
         return 0;
+    }
     return stream->err;
 }
 
 void clearerr(FILE *stream)
 {
     if (!stream)
+    {
+        errno = EINVAL;
         return;
+    }
     stream->err = 0;
     stream->eof = 0;
 }
