@@ -135,7 +135,7 @@ void process_command(char *cmd)
     char *command = cmd;
     char *args = (saved != '\0') ? p + 1 : NULL;
 
-    const char *paths[] = {".", "/programs", "/programs/utils"};
+    const char *paths[] = {"/programs", "/programs/utils", "."};
     size_t paths_n = sizeof(paths) / sizeof(paths[0]);
     bool launched = false;
 
