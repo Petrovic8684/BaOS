@@ -31,29 +31,68 @@ The shell and user applications operate at the top of this hierarchy in **ring 3
 
 ## Getting started 🥟
 
-### Requirements ⚠️
+> **Note:** PC speaker (sound) is **only available when running locally**. To enable it, you need to uncomment the following lines in your `Makefile`:
+>
+> ```bash
+> -audiodev pa,id=snd0 \
+> -machine pcspk-audiodev=snd0 \
+> -device intel-hda
+> ```
+>
+> Also, make sure to set the audio backend for your system. For example:
+> - **Linux:** `pa` (PulseAudio) or `alsa`  
+> - **Windows:** `dsound`  
 
-- **[NASM](https://www.nasm.us/)** – Netwide Assembler
-- **[QEMU](https://www.qemu.org/)** – Quick EMUlator
-- **[Make](https://www.gnu.org/software/make/)** – GNU Build tool
-- **[i686-elf-gcc](https://github.com/lordmilko/i686-elf-tools/releases)** - Cross compiler
-- **[i686-elf-ld](https://github.com/lordmilko/i686-elf-tools/releases)** - Cross linker
+---
 
-### Build steps 🛠️
+### Running via Docker 🐳
 
-1. **Build the project:** Open a terminal in the project directory and run:
+The project can be run directly in Docker without installing all dependencies on your host.  
+
+1. **Run the container:**
+
+```bash
+docker run --rm -it -p 5900:5900 -p 6080:6080 -v baos-data:/baos petrovic8684/baos
+```
+
+2. **Access BaOS:**
+- In your browser (recommended): [http://localhost:6080/?autoconnect=1&resize=scale](http://localhost:6080/?autoconnect=1&resize=scale)  
+- Or using a VNC client in your terminal (requires `vncviewer`):
+
+```bash
+vncviewer localhost:5900
+```
+
+3. **Reset the build volume** (if you want to start fresh):
+
+```bash
+docker volume rm baos-data
+```
+
+### Running locally 🖥️
+
+If you prefer to build and run BaOS **directly on your host**, you need the following installed:
+
+- **NASM**      – Netwide Assembler  
+- **QEMU**      – Quick EMUlator  
+- **Python 3**  – for websockify if using noVNC  
+- **Make**      – GNU Build tool  
+- **[elf-tools](https://github.com/lordmilko/i686-elf-tools/releases/tag/13.2.0)** – Cross compiler and linker (**IMPORTANT**: always use the GCC 13.2.0 release)  
+- **mingw**     – only required on Windows for certain utilities like `dd`  
+
+1. **Build the project:**
 
 ```bash
 make
 ```
 
-2. **Start the OS in QEMU:** After building, launch the OS with:
+2. **Run the OS in QEMU:**
 
 ```bash
 make run
 ```
 
-After running this command, QEMU will launch your BaOS bootloader. 🏁
+> With these local builds, if you uncomment the audio lines in the Makefile and set the proper backend (e.g. `pa`/`alsa` on Linux, `dsound` on Windows), you will hear PC speaker sounds produced by BaOS on the host.
 
 ## Credits 🙏
 

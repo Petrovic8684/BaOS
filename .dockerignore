@@ -1,0 +1,13 @@
+*.bin
+*.o
+*.img
+*.a
+
+runtime/bin/
+*.pyc
+__pycache__/
+
+*.swp
+*.swo
+*.bak
+*.tmp

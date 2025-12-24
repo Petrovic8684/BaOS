@@ -6,7 +6,7 @@ LD      = i686-elf-ld
 OBJCOPY = i686-elf-objcopy
 DD      = dd
 RM      = rm -f
-PY      = python
+PY      = python3
 
 # ---------------- Files ----------------
 BOOT_SRC = bootloader/boot.asm
@@ -185,10 +185,10 @@ $(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(UTIL
 
 # ---------------- Run & Clean ----------------
 run: $(IMG)
-	$(QEMU) -m 3G -drive format=raw,file=$(IMG),if=ide -serial stdio \
-		-audiodev dsound,id=snd0 \
-		-machine pcspk-audiodev=snd0 \
-		-device intel-hda \
+	$(QEMU) -m 3G -drive format=raw,file=$(IMG),if=ide -serial stdio -vnc :0 \
+	#	-audiodev pa,id=snd0 \
+	#	-machine pcspk-audiodev=snd0 \
+	#	-device intel-hda
 
 clean:
 	$(RM) $(BOOT_BIN) $(KERNEL_OBJS) $(KERNEL_BIN) $(IMG) \
