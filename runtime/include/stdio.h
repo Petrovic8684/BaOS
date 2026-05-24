@@ -30,6 +30,8 @@ typedef struct _FILE FILE;
 
 #define getc(stream) fgetc(stream)
 
+void write(const char *str);
+
 int fputc(int c, FILE *stream);
 int putchar(int c);
 int fputs(const char *s, FILE *stream);

@@ -4,6 +4,8 @@ QEMU    = qemu-system-i386
 CC      = i686-elf-gcc
 LD      = i686-elf-ld
 OBJCOPY = i686-elf-objcopy
+SIZE    = i686-elf-size
+NM      = i686-elf-nm
 DD      = dd
 RM      = rm -f
 PY      = python3
@@ -44,7 +46,6 @@ KERNEL_ASM_SRCS = \
 	kernel/system/idt/idt_flush.asm \
 	kernel/system/idt/irq/irq_stubs.asm \
 	kernel/system/idt/isr/isr_stubs.asm \
-	
 
 SHELL_SRCS   = applications/shell/shell.c
 SHELL_BIN    = applications/shell/shell.bin
@@ -54,7 +55,7 @@ UTILS_SRCS   = $(filter-out applications/shell/utils/dirlist_common.c, $(wildcar
 DIRLIST_COMMON_OBJ = applications/shell/utils/dirlist_common.o
 
 UTILS_BIN    = $(UTILS_SRCS:.c=.bin)
-UTILS_OBJS	 = $(UTILS_SRCS:.c=.o)
+UTILS_OBJS   = $(UTILS_SRCS:.c=.o)
 
 CALC_SRC     = applications/calc/calc.c
 CALC_BIN     = applications/calc/calc.bin
@@ -62,7 +63,7 @@ CALC_BIN     = applications/calc/calc.bin
 FILLING_SRC  = applications/filling/filling.c
 FILLING_BIN  = applications/filling/filling.bin
 
-USER_OBJS    = applications/*/*.o
+USER_BINS    = $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(UTILS_BIN)
 
 DOCS = applications/shell/utils/docs/*
 
@@ -78,12 +79,20 @@ CRT0_SRC  = runtime/crt0.c
 CRT0_OBJ  = runtime/crt0.o
 CRT0_BIN  = runtime/crt0.bin
 
-RUNTIME_SRC_LIST = $(wildcard runtime/src/*.c)
-
+RUNTIME_SRC_LIST = $(shell find runtime/src -name '*.c' | sort)
 RUNTIME_SRC_OBJS = $(RUNTIME_SRC_LIST:.c=.o)
-RUNTIME_INCLUDE  = -Iruntime/include
+RUNTIME_INCLUDE  = -Iruntime/include -Iruntime/src
 RUNTIME_BIN      = runtime/libc.bin
 RUNTIME_LIB      = runtime/libc.a
+
+# ---------------- Compile flags ----------------
+KERNEL_CFLAGS = -ffreestanding -m32 -c
+USER_CFLAGS   = -ffreestanding -m32 -nostdlib -fno-pie \
+                -ffunction-sections -fdata-sections \
+                $(RUNTIME_INCLUDE) -c
+USER_LDFLAGS  = -m32 -nostdlib -fno-pie -T kernel/loader/user.ld -Wl,--gc-sections
+USER_LTO_CFLAGS  = $(USER_CFLAGS) -flto
+USER_LTO_LDFLAGS = $(USER_LDFLAGS) -flto
 
 # ---------------- Default target ----------------
 all: $(IMG)
@@ -93,8 +102,8 @@ $(BOOT_BIN): $(BOOT_SRC)
 	$(NASM) -f bin $< -o $@
 
 # ---------------- Kernel build ----------------
-%.o: %.c
-	$(CC) -ffreestanding -m32 -nostdlib -fno-pie -c $< -o $@
+kernel/%.o: kernel/%.c
+	$(CC) $(KERNEL_CFLAGS) $< -o $@
 
 %.o: %.asm
 	$(NASM) -f elf32 $< -o $@
@@ -104,7 +113,10 @@ $(KERNEL_BIN): $(KERNEL_OBJS) $(KERNEL_LD)
 
 # ---------------- Runtime build ----------------
 $(CRT0_OBJ): $(CRT0_SRC)
-	$(CC) -ffreestanding -m32 -c $(RUNTIME_INCLUDE) $< -o $@
+	$(CC) $(USER_CFLAGS) $< -o $@
+
+runtime/src/%.o: runtime/src/%.c
+	$(CC) $(USER_LTO_CFLAGS) $< -o $@
 
 $(CRT0_BIN): $(CRT0_OBJ)
 	$(OBJCOPY) -O binary $< $@
@@ -116,21 +128,20 @@ $(RUNTIME_LIB): $(RUNTIME_SRC_OBJS)
 	ar rcs $@ $^
 
 # ---------------- Shell & Apps build ----------------
-%.o: %.c
-	$(CC) -ffreestanding -m32 -nostdlib -fno-pie $(RUNTIME_INCLUDE) -c $< -o $@
+applications/%.o: applications/%.c
+	$(CC) $(USER_LTO_CFLAGS) $< -o $@
 
 %.bin: %.o $(CRT0_OBJ) $(RUNTIME_LIB)
-	$(LD) -m elf_i386 -T kernel/loader/user.ld --gc-sections -o $@ $^
+	$(CC) $(USER_LTO_LDFLAGS) -o $@ $^
 
 applications/shell/utils/dirlist.bin: applications/shell/utils/dirlist.o $(DIRLIST_COMMON_OBJ) $(CRT0_OBJ) $(RUNTIME_LIB)
-	$(LD) -m elf_i386 -T kernel/loader/user.ld --gc-sections -o $@ $^
+	$(CC) $(USER_LTO_LDFLAGS) -o $@ $^
 
 applications/shell/utils/mousedirlist.bin: applications/shell/utils/mousedirlist.o $(DIRLIST_COMMON_OBJ) $(CRT0_OBJ) $(RUNTIME_LIB)
-	$(LD) -m elf_i386 -T kernel/loader/user.ld --gc-sections -o $@ $^
+	$(CC) $(USER_LTO_LDFLAGS) -o $@ $^
 
 # ---------------- Disk image -----------------
-$(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(UTILS_BIN) \
-       $(RUNTIME_BIN) $(CRT0_BIN)
+$(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(USER_BINS) $(RUNTIME_BIN) $(CRT0_BIN)
 	$(DD) if=/dev/zero of=$(IMG) bs=1M count=$(IMG_SIZE)
 	$(DD) if=$(BOOT_BIN) of=$(IMG) conv=notrunc
 	$(DD) if=$(KERNEL_BIN) of=$(IMG) seek=1 conv=notrunc
@@ -138,7 +149,7 @@ $(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(UTIL
 	for prog in $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN); do \
 		$(PY) tools/mkfs_inject.py $(IMG) $$prog /programs; \
 	done
-	
+
 	$(PY) tools/mkfs_inject.py $(IMG) kernel/drivers/rtc/timezone /config;
 
 	for prog in $(UTILS_BIN); do \
@@ -149,14 +160,35 @@ $(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(UTIL
 		$(PY) tools/mkfs_inject.py $(IMG) $$doc /docs; \
 	done
 
+# ---------------- Sizes ----------------
+SAMPLE_BINS = applications/shell/utils/clear.bin \
+              applications/shell/utils/echo.bin \
+              applications/calc/calc.bin \
+              applications/shell/shell.bin \
+              applications/shell/utils/mousedirlist.bin
+
+sizes: $(USER_BINS)
+	@echo "Program sizes (text+data+bss):"
+	@for prog in $(USER_BINS); do \
+		printf "  %-45s " "$$prog"; \
+		$(SIZE) -t $$prog 2>/dev/null | tail -1; \
+	done
+
+nm-check: $(SAMPLE_BINS)
+	@echo "Sample symbol check (clear/echo should omit fmt_f and math):"
+	@for prog in $(SAMPLE_BINS); do \
+		echo "== $$prog =="; \
+		$(NM) $$prog 2>/dev/null | grep -E ' vfprintf_fmt_| (sin|cos|pow|sqrt|malloc)$$' || true; \
+		echo; \
+	done
+
 # ---------------- Run & Clean ----------------
 run: $(IMG)
-	$(QEMU) -m 3G -drive format=raw,file=$(IMG),if=ide -serial stdio -vnc :0 \
-	#	-audiodev pa,id=snd0 \
-	#	-machine pcspk-audiodev=snd0 \
-	#	-device intel-hda
+	$(QEMU) -m 3G -drive format=raw,file=$(IMG),if=ide -serial stdio -vnc :0
 
 clean:
 	$(RM) $(BOOT_BIN) $(KERNEL_OBJS) $(KERNEL_BIN) $(IMG) \
-	      $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(UTILS_BIN) $(UTILS_OBJS) $(DIRLIST_COMMON_OBJ) \
-	      $(RUNTIME_SRC_OBJS) $(CRT0_OBJ) $(CRT0_BIN) $(RUNTIME_BIN) $(RUNTIME_LIB) $(USER_OBJS)
+	      $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(UTILS_BIN) $(UTILS_OBJS) \
+	      $(DIRLIST_COMMON_OBJ) applications/shell/shell.o applications/calc/calc.o \
+	      applications/filling/filling.o \
+	      $(RUNTIME_SRC_OBJS) $(CRT0_OBJ) $(CRT0_BIN) $(RUNTIME_BIN) $(RUNTIME_LIB)
