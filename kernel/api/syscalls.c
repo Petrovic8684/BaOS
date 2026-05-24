@@ -41,8 +41,25 @@
 #define SYS_MOUSE_PEEK 31
 #define SYS_MOUSE_GETPOS 32
 #define SYS_MOUSE_HAS_WHEEL 33
+#define SYS_VGA_GET_CELL 34
+#define SYS_VGA_PUT_CELL 35
+#define SYS_DIRLIST_CTX_SET 36
+#define SYS_DIRLIST_CTX_GET 37
+
+#define DIRLIST_CTX_MAX 256
+
+typedef struct
+{
+    int row;
+    int col;
+    char ch;
+    unsigned char attr;
+} vga_cell_t;
 
 extern void (*loader_post_return_callback)(void);
+
+static char g_dirlist_ctx[DIRLIST_CTX_MAX];
+static int g_dirlist_ctx_valid = 0;
 
 static unsigned int last_return = 0;
 static unsigned int should_report_return = 0;
@@ -363,13 +380,24 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
         if (!user_ev)
             return 0;
 
-        return mouse_read_event(user_ev);
+        mouse_event_t ev;
+        int ret = mouse_read_event(&ev);
+        if (ret)
+            mem_copy((void *)user_ev, (const void *)&ev, sizeof(mouse_event_t));
+        return ret;
     }
 
     case SYS_MOUSE_PEEK:
     {
         mouse_event_t *user_ev = (mouse_event_t *)arg;
-        return mouse_peek_event(user_ev);
+        if (!user_ev)
+            return 0;
+
+        mouse_event_t ev;
+        int ret = mouse_peek_event(&ev);
+        if (ret)
+            mem_copy((void *)user_ev, (const void *)&ev, sizeof(mouse_event_t));
+        return ret;
     }
 
     case SYS_MOUSE_GETPOS:
@@ -390,6 +418,75 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
     case SYS_MOUSE_HAS_WHEEL:
     {
         return mouse_has_wheel();
+    }
+
+    case SYS_VGA_GET_CELL:
+    {
+        vga_cell_t *user_cell = (vga_cell_t *)arg;
+        if (!user_cell)
+            return 0;
+
+        vga_cell_t cell;
+        mem_copy((unsigned char *)&cell, (const unsigned char *)user_cell, sizeof(cell));
+
+        vga_get_cell(cell.row, cell.col, &cell.ch, &cell.attr);
+        mem_copy((void *)user_cell, (const void *)&cell, sizeof(cell));
+        return 0;
+    }
+
+    case SYS_VGA_PUT_CELL:
+    {
+        vga_cell_t *user_cell = (vga_cell_t *)arg;
+        if (!user_cell)
+            return 0;
+
+        vga_cell_t cell;
+        mem_copy((unsigned char *)&cell, (const unsigned char *)user_cell, sizeof(cell));
+        vga_put_cell(cell.row, cell.col, cell.ch, cell.attr);
+        return 0;
+    }
+
+    case SYS_DIRLIST_CTX_SET:
+    {
+        const char *user_path = (const char *)arg;
+        if (!user_path)
+        {
+            g_dirlist_ctx_valid = 0;
+            return 0;
+        }
+
+        unsigned int len = str_count(user_path);
+        if (len >= DIRLIST_CTX_MAX)
+            len = DIRLIST_CTX_MAX - 1;
+
+        mem_copy(g_dirlist_ctx, user_path, len);
+        g_dirlist_ctx[len] = '\0';
+        g_dirlist_ctx_valid = 1;
+        return 0;
+    }
+
+    case SYS_DIRLIST_CTX_GET:
+    {
+        struct
+        {
+            char *buf;
+            unsigned int size;
+        } kargs;
+
+        mem_copy((unsigned char *)&kargs, (const unsigned char *)arg, sizeof(kargs));
+        if (!kargs.buf || kargs.size == 0 || !g_dirlist_ctx_valid)
+            return 0;
+
+        unsigned int len = str_count(g_dirlist_ctx);
+        if (len >= kargs.size)
+            len = kargs.size - 1;
+
+        mem_copy(kargs.buf, g_dirlist_ctx, len);
+        {
+            char zero = '\0';
+            mem_copy(kargs.buf + len, &zero, 1);
+        }
+        return 1;
     }
 
     default:

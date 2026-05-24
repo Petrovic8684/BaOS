@@ -25,6 +25,10 @@
 #define PS2_ACK 0xFA
 #define PS2_RESEND 0xFE
 
+#define MOUSE_COL_MAX 79
+#define MOUSE_ROW_MAX 24
+#define MOUSE_SENSITIVITY 4
+
 #define MOUSE_BUF_SIZE 128
 static volatile mouse_event_t mouse_buf[MOUSE_BUF_SIZE];
 static volatile unsigned int mouse_head = 0;
@@ -38,6 +42,20 @@ static unsigned int packet_size = 3;
 
 static volatile int mouse_x = 0;
 static volatile int mouse_y = 0;
+static volatile int mouse_accum_x = 0;
+static volatile int mouse_accum_y = 0;
+
+static void mouse_clamp_position(void)
+{
+    if (mouse_x < 0)
+        mouse_x = 0;
+    if (mouse_x > MOUSE_COL_MAX)
+        mouse_x = MOUSE_COL_MAX;
+    if (mouse_y < 0)
+        mouse_y = 0;
+    if (mouse_y > MOUSE_ROW_MAX)
+        mouse_y = MOUSE_ROW_MAX;
+}
 
 #define PS2_WAIT_MS 1000U
 #define PS2_RETRY_MAX 8
@@ -215,15 +233,48 @@ void mouse_irq_handler(int irq)
                 dy = -128;
         }
 
-        mouse_x += dx;
-        mouse_y -= dy;
+        mouse_accum_x += dx;
+        mouse_accum_y -= dy;
 
-        mouse_event_t ev;
-        ev.type = MOUSE_EV_MOVE;
-        ev.move.dx = dx;
-        ev.move.dy = dy;
-        ev.move.buttons = b0 & 0x07;
-        push_public_event(&ev);
+        while (mouse_accum_x >= MOUSE_SENSITIVITY || mouse_accum_x <= -MOUSE_SENSITIVITY)
+        {
+            if (mouse_accum_x > 0)
+            {
+                mouse_x++;
+                mouse_accum_x -= MOUSE_SENSITIVITY;
+            }
+            else
+            {
+                mouse_x--;
+                mouse_accum_x += MOUSE_SENSITIVITY;
+            }
+        }
+
+        while (mouse_accum_y >= MOUSE_SENSITIVITY || mouse_accum_y <= -MOUSE_SENSITIVITY)
+        {
+            if (mouse_accum_y > 0)
+            {
+                mouse_y++;
+                mouse_accum_y -= MOUSE_SENSITIVITY;
+            }
+            else
+            {
+                mouse_y--;
+                mouse_accum_y += MOUSE_SENSITIVITY;
+            }
+        }
+
+        mouse_clamp_position();
+
+        if (dx != 0 || dy != 0)
+        {
+            mouse_event_t ev;
+            ev.type = MOUSE_EV_MOVE;
+            ev.move.dx = dx;
+            ev.move.dy = dy;
+            ev.move.buttons = b0 & 0x07;
+            push_public_event(&ev);
+        }
 
         static unsigned char last_buttons = 0;
         unsigned char cur_buttons = b0 & 0x07;
@@ -411,6 +462,8 @@ void mouse_init(void)
     {
         mouse_x = 0;
         mouse_y = 0;
+        mouse_accum_x = 0;
+        mouse_accum_y = 0;
 
         write("\033[1;33mWarning: Mouse did not ACK enable-data (or timed out). Mouse may be missing.\033[0m\n\n");
         return;
@@ -420,6 +473,8 @@ void mouse_init(void)
 
     mouse_x = 0;
     mouse_y = 0;
+    mouse_accum_x = 0;
+    mouse_accum_y = 0;
 
     write("\033[32mPS/2 mouse driver initialized.\033[0m\n\n");
 }

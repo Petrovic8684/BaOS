@@ -49,34 +49,9 @@ KERNEL_ASM_SRCS = \
 SHELL_SRCS   = applications/shell/shell.c
 SHELL_BIN    = applications/shell/shell.bin
 
-UTILS_SRCS   =  applications/shell/utils/dirchange.c \
-				applications/shell/utils/dirdelete.c \
-				applications/shell/utils/dirmake.c \
-				applications/shell/utils/dirlist.c \
-				applications/shell/utils/filecopy.c \
-				applications/shell/utils/filedelete.c \
-				applications/shell/utils/filemake.c \
-				applications/shell/utils/filemove.c \
-				applications/shell/utils/fileread.c \
-				applications/shell/utils/filewrite.c \
-				applications/shell/utils/fileinfo.c \
-				applications/shell/utils/filedump.c \
-				applications/shell/utils/filecount.c \
-				applications/shell/utils/filesearch.c \
-				applications/shell/utils/filediff.c \
-				applications/shell/utils/where.c \
-				applications/shell/utils/date.c \
-				applications/shell/utils/echo.c \
-			 	applications/shell/utils/clear.c \
-				applications/shell/utils/sysinfo.c \
-				applications/shell/utils/meminfo.c \
-				applications/shell/utils/shutdown.c \
-				applications/shell/utils/restart.c \
-				applications/shell/utils/uptime.c \
-				applications/shell/utils/help.c \
-				applications/shell/utils/whatis.c \
-				applications/shell/utils/banner.c \
-				applications/shell/utils/mouse.c \
+UTILS_SRCS   = $(filter-out applications/shell/utils/dirlist_common.c, $(wildcard applications/shell/utils/*.c))
+
+DIRLIST_COMMON_OBJ = applications/shell/utils/dirlist_common.o
 
 UTILS_BIN    = $(UTILS_SRCS:.c=.bin)
 UTILS_OBJS	 = $(UTILS_SRCS:.c=.o)
@@ -103,22 +78,7 @@ CRT0_SRC  = runtime/crt0.c
 CRT0_OBJ  = runtime/crt0.o
 CRT0_BIN  = runtime/crt0.bin
 
-RUNTIME_SRC_LIST = \
-	runtime/src/stdio.c \
-	runtime/src/stdlib.c \
-	runtime/src/string.c \
-	runtime/src/ctype.c \
-	runtime/src/dirent.c \
-	runtime/src/sys_stat.c \
-	runtime/src/sys_utsname.c \
-	runtime/src/sys_info.c \
-	runtime/src/time.c \
-	runtime/src/unistd.c \
-	runtime/src/math.c \
-	runtime/src/errno.c \
-	runtime/src/libgen.c \
-	runtime/src/baos_sound.c \
-	runtime/src/baos_mouse.c \
+RUNTIME_SRC_LIST = $(wildcard runtime/src/*.c)
 
 RUNTIME_SRC_OBJS = $(RUNTIME_SRC_LIST:.c=.o)
 RUNTIME_INCLUDE  = -Iruntime/include
@@ -162,6 +122,12 @@ $(RUNTIME_LIB): $(RUNTIME_SRC_OBJS)
 %.bin: %.o $(CRT0_OBJ) $(RUNTIME_LIB)
 	$(LD) -m elf_i386 -T kernel/loader/user.ld --gc-sections -o $@ $^
 
+applications/shell/utils/dirlist.bin: applications/shell/utils/dirlist.o $(DIRLIST_COMMON_OBJ) $(CRT0_OBJ) $(RUNTIME_LIB)
+	$(LD) -m elf_i386 -T kernel/loader/user.ld --gc-sections -o $@ $^
+
+applications/shell/utils/mousedirlist.bin: applications/shell/utils/mousedirlist.o $(DIRLIST_COMMON_OBJ) $(CRT0_OBJ) $(RUNTIME_LIB)
+	$(LD) -m elf_i386 -T kernel/loader/user.ld --gc-sections -o $@ $^
+
 # ---------------- Disk image -----------------
 $(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(UTILS_BIN) \
        $(RUNTIME_BIN) $(CRT0_BIN)
@@ -192,5 +158,5 @@ run: $(IMG)
 
 clean:
 	$(RM) $(BOOT_BIN) $(KERNEL_OBJS) $(KERNEL_BIN) $(IMG) \
-	      $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(UTILS_BIN) $(UTILS_OBJS) \
+	      $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(UTILS_BIN) $(UTILS_OBJS) $(DIRLIST_COMMON_OBJ) \
 	      $(RUNTIME_SRC_OBJS) $(CRT0_OBJ) $(CRT0_BIN) $(RUNTIME_BIN) $(RUNTIME_LIB) $(USER_OBJS)

@@ -176,6 +176,23 @@ static int parse_params(const char *s, int *out, int max)
 
 static void handle_csi(const char *params, char final)
 {
+    if (params && params[0] == '?')
+    {
+        int mode = 0;
+        const char *p = params + 1;
+        while (*p >= '0' && *p <= '9')
+            mode = mode * 10 + (*p++ - '0');
+
+        if (mode == 25)
+        {
+            if (final == 'h')
+                set_cursor_visible(1);
+            else if (final == 'l')
+                set_cursor_visible(0);
+        }
+        return;
+    }
+
     int pvals[8];
     for (int i = 0; i < 8; i++)
         pvals[i] = -1;
@@ -502,4 +519,48 @@ unsigned int get_cursor_row()
 unsigned int get_cursor_col()
 {
     return col;
+}
+
+void vga_get_cell(int row, int col, char *ch, unsigned char *attr)
+{
+    if (row < 0)
+        row = 0;
+    if (row > 24)
+        row = 24;
+    if (col < 0)
+        col = 0;
+    if (col > 79)
+        col = 79;
+
+    unsigned short cell = video[row * 80 + col];
+    if (ch)
+        *ch = (char)(cell & 0xFF);
+    if (attr)
+        *attr = (unsigned char)((cell >> 8) & 0xFF);
+}
+
+void vga_put_cell(int row, int col, char ch, unsigned char attr)
+{
+    if (row < 0)
+        row = 0;
+    if (row > 24)
+        row = 24;
+    if (col < 0)
+        col = 0;
+    if (col > 79)
+        col = 79;
+
+    video[row * 80 + col] = ((unsigned short)attr << 8) | (unsigned char)ch;
+}
+
+void set_cursor_visible(int visible)
+{
+    outb(0x3D4, 0x0A);
+    unsigned char start = inb(0x3D5);
+    if (visible)
+        start &= ~0x20;
+    else
+        start |= 0x20;
+    outb(0x3D4, 0x0A);
+    outb(0x3D5, start);
 }

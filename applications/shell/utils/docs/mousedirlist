@@ -1,0 +1,21 @@
+mousedirlist - click a directory from dirlist output
+
+Description:
+Run 'dirlist' first to show files and directories on screen, then run 'mousedirlist'. The program overlays an inverted mouse cursor on the existing screen. Left-click a blue directory name to print its contents below (same format as 'dirlist'). Right-click to exit without listing.
+
+Only names from the remembered 'dirlist' directory are clickable on screen (UTF/garbage text is ignored). The absolute listing path is stored independently of 'dirchange'.
+
+Clicking a file, empty space, or anything that is not a blue directory name prints an error and exits. Right-click exits without action.
+
+Usage:
+mousedirlist [<directory_path>]
+
+Examples:
+dirlist
+mousedirlist
+
+dirlist programs
+mousedirlist
+
+dirlist /programs/utils
+mousedirlist /programs/utils

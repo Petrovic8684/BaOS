@@ -23,7 +23,8 @@ int main(void)
         "  \033[1;33mdirmake\033[0m   - Create directory         "
         "\033[1;33mdirchange\033[0m   - Change directory\n"
         "  \033[1;33mdirdelete\033[0m - Delete directory         "
-        "\033[1;33mdirlist\033[0m     - List directory contents\n\n"
+        "\033[1;33mdirlist\033[0m     - List directory contents\n"
+        "  \033[1;33mmousedirlist\033[0m - List dirs with mouse clicks\n\n"
 
         "\033[1;33m--- FILE MANIPULATION ---\033[0m\n"
         "  \033[1;33mfilemake\033[0m  - Create file              "

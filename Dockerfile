@@ -27,6 +27,6 @@ EXPOSE 6080
 
 ENTRYPOINT ["sh", "-c", "\
   ln -sf /usr/share/novnc/vnc.html /usr/share/novnc/index.html && \
-  make run & \
-  websockify --web=/usr/share/novnc 6080 localhost:5900 \
+  websockify --web=/usr/share/novnc 6080 localhost:5900 & \
+  make run \
 "]

@@ -11,4 +11,8 @@ void fill(const char *color);
 unsigned int get_cursor_row(void);
 unsigned int get_cursor_col(void);
 
+void vga_get_cell(int row, int col, char *ch, unsigned char *attr);
+void vga_put_cell(int row, int col, char ch, unsigned char attr);
+void set_cursor_visible(int visible);
+
 #endif
