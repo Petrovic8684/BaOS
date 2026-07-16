@@ -20,7 +20,7 @@ typedef struct alloc_hdr
 #define ALLOC_ALIGN 8
 #define PAGE_SIZE_LOCAL 4096
 #define USER_STACK_TOP 0x02100000U
-#define USER_STACK_PAGES 4U
+#define USER_STACK_PAGES 32U
 
 extern free_hdr_t *free_list;
 

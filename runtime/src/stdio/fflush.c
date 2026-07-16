@@ -22,36 +22,18 @@ int fflush(FILE *stream)
     if (stream->buf_pos == 0)
         return 0;
 
-    int file_size_i = fs_read_file_size(stream->name);
-    if (file_size_i < 0)
-        file_size_i = 0;
+    int wres;
 
-    size_t file_size = (size_t)file_size_i;
-    size_t need = file_size + (size_t)stream->buf_pos;
-
-    if (need < file_size || need < (size_t)stream->buf_pos)
+    if (stream->mode == 1)
     {
-        stream->err = 1;
-        errno = EFBIG;
-        return EOF;
+        wres = fs_write_file(stream->name, stream->buf, (unsigned int)stream->buf_pos);
+    }
+    else
+    {
+        /* Append mode keeps existing file bytes in stream->buf[0..buf_pos). */
+        wres = fs_write_file(stream->name, stream->buf, (unsigned int)stream->buf_pos);
     }
 
-    unsigned char *combined = (unsigned char *)malloc(need);
-    if (!combined)
-    {
-        stream->err = 1;
-        return EOF;
-    }
-
-    unsigned int got = 0;
-    if (file_size > 0)
-        if (fs_read_file(stream->name, combined, (unsigned int)file_size, &got) != 0)
-            got = 0;
-
-    memcpy(combined + got, stream->buf, (size_t)stream->buf_pos);
-
-    int wres = fs_write_file(stream->name, combined, (unsigned int)(got + stream->buf_pos));
-    free(combined);
     stream->buf_pos = 0;
 
     if (wres < 0)

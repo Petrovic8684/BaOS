@@ -1,0 +1,20 @@
+run - load and execute an ELF program
+
+Description:
+The 'run' command loads a user ELF executable from the file system and
+transfers control to it through the kernel loader. Use it to run programs
+compiled with baoc or other ELF binaries that are not installed as shell
+commands under /programs.
+
+Usage:
+run <program> [args...]
+
+Examples:
+run /programs/out1
+run /programs/out1 -code
+run /programs/myprog arg1 arg2
+
+Notes:
+Programs under /programs or /programs/utils can also be started directly
+by name from the shell (e.g. 'calc'). Use 'run' for arbitrary paths,
+especially baoc output files.

@@ -1,0 +1,25 @@
+baoc - C compiler for BaOS ELF executables
+
+Description:
+Compiles C source to ELF32 i386 programs linked with crt0 and the BaOS libc.
+Supports preprocessing (#include, #define, #if), functions, globals, switch,
+extern/libc symbols, structs, pointers, and multiple source files.
+
+Usage:
+  baoc input.c output
+  baoc [-o output] file1.c [file2.c ...]
+
+Examples:
+  baoc /programs/hello.c /programs/hello
+  baoc -o /programs/app /programs/a.c /programs/b.c
+
+Requires on disk: /lib/crt0, /lib/libc, /lib/baoc_syms, /lib/include/*.h
+
+Tests (under /test on the filesystem after make):
+  test1-test4: core language
+  test7: printf + libc
+  test8: globals
+  test9: switch
+  test10: multi-file (compile test10_helper.c and test10.c together)
+  test11: cast, sizeof, hex
+  test12: array initialization

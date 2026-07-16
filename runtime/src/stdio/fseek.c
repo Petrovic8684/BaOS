@@ -2,6 +2,7 @@
 #include "internal/syscalls.h"
 #include "internal/fs_helpers.h"
 #include <errno.h>
+#include "stdio/file_internal.h"
 
 int fseek(FILE *stream, long offset, int whence)
 {
@@ -16,6 +17,35 @@ int fseek(FILE *stream, long offset, int whence)
         return -1;
     }
 
+    if (stream->mode == 0)
+    {
+        unsigned int file_size = file_read_size(stream);
+        long target;
+
+        if (whence == SEEK_SET)
+            target = offset;
+        else if (whence == SEEK_CUR)
+            target = (long)stream->pos + offset;
+        else if (whence == SEEK_END)
+            target = (long)file_size + offset;
+        else
+        {
+            errno = EINVAL;
+            return -1;
+        }
+
+        if (target < 0 || (unsigned long)target > file_size)
+        {
+            errno = EINVAL;
+            return -1;
+        }
+
+        stream->pos = (unsigned int)target;
+        stream->eof = (stream->pos >= file_size);
+        stream->err = 0;
+        return 0;
+    }
+
     if (whence == SEEK_SET)
     {
         if (offset < 0)
@@ -28,20 +58,6 @@ int fseek(FILE *stream, long offset, int whence)
             stream->buf_pos = (unsigned int)offset;
             stream->eof = (stream->buf_pos >= stream->buf_end);
             return 0;
-        }
-        if (stream->mode == 0)
-        {
-            int size = fs_read_file_size(stream->name);
-            if (size >= 0)
-            {
-                stream->buf_end = (unsigned int)size;
-                if ((unsigned long)offset <= stream->buf_end)
-                {
-                    stream->buf_pos = (unsigned int)offset;
-                    stream->eof = (stream->buf_pos >= stream->buf_end);
-                    return 0;
-                }
-            }
         }
         errno = EINVAL;
         return -1;

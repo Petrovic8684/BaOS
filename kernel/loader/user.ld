@@ -1,5 +1,5 @@
 SECTIONS {
-    . = 0x02000000;
+    . = 0x01000000;
     .text : {
         KEEP(*(.text._start))
         KEEP(*crt0.o(.text*))

@@ -1,4 +1,5 @@
 #include "display.h"
+#include "../serial/serial.h"
 #include "../speaker/speaker.h"
 #include "../../helpers/ports/ports.h"
 
@@ -449,6 +450,9 @@ void write(const char *str)
             break;
         }
     }
+
+    if (serial_is_ready())
+        serial_write(str);
 }
 
 void write_hex(unsigned int val)

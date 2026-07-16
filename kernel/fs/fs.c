@@ -126,20 +126,7 @@ static int store_super(void)
     mem_set(buf, 0, 512);
     mem_copy(buf, &fs_super, sizeof(FS_SuperOnDisk));
 
-    int r = write_sector(SUPERBLOCK_LBA, buf);
-    if (r != FS_OK)
-        return r;
-
-    unsigned char verify[512];
-    if (read_sector(SUPERBLOCK_LBA, verify) != FS_OK)
-        return FS_ERR_IO;
-
-    unsigned int vm;
-    mem_copy(&vm, verify, sizeof(unsigned int));
-    if (vm != FS_MAGIC)
-        return FS_ERR_IO;
-
-    return FS_OK;
+    return write_sector(SUPERBLOCK_LBA, buf);
 }
 
 static int read_dir_lba(unsigned int lba, FS_Dir *d)
@@ -621,7 +608,7 @@ int fs_make_file(const char *name)
     mem_set(&nf, 0, sizeof(FS_File));
     str_copy_fixed(nf.name, final_name, MAX_NAME);
     nf.size = 0;
-    nf.data_lba = 0;
+    nf.data_lba = DATA_START_LBA + (unsigned int)new_idx;
 
     if (write_file_lba(new_lba, &nf) != FS_OK)
         return FS_ERR_IO;
@@ -917,8 +904,7 @@ int fs_delete_file(const char *name)
                 mem_set(zero, 0, sizeof(zero));
                 unsigned int sectors = (f.size + 511) / 512;
                 for (unsigned int s = 0; s < sectors; s++)
-                    if (write_sector(f.data_lba + s, zero) != FS_OK)
-                        return FS_ERR_IO;
+                    write_sector(f.data_lba + s, zero);
             }
 
             mem_set(&f, 0, sizeof(FS_File));
@@ -937,6 +923,110 @@ int fs_delete_file(const char *name)
             cur.file_count--;
 
             if (write_dir_lba(parent_lba, &cur) != FS_OK)
+                return FS_ERR_IO;
+
+            return FS_OK;
+        }
+    }
+
+    return FS_ERR_NOT_EXISTS;
+}
+
+int fs_truncate_file(const char *name)
+{
+    char final_name[MAX_NAME];
+    unsigned int parent_lba = 0;
+    int rc = resolve_path(name, &parent_lba, final_name, 1);
+    if (rc != FS_OK)
+        return rc;
+
+    if (str_count(final_name) == 0)
+        return FS_ERR_NO_NAME;
+
+    FS_Dir cur;
+    if (read_dir_lba(parent_lba, &cur) != FS_OK)
+        return FS_ERR_IO;
+
+    for (unsigned int i = 0; i < cur.file_count; i++)
+    {
+        unsigned int file_lba = cur.files_lba[i];
+        FS_File f;
+
+        if (read_file_lba(file_lba, &f) != FS_OK)
+            return FS_ERR_IO;
+
+        if (str_equal(f.name, final_name))
+        {
+            f.size = 0;
+            if (write_file_lba(file_lba, &f) != FS_OK)
+                return FS_ERR_IO;
+            return FS_OK;
+        }
+    }
+
+    return FS_ERR_NOT_EXISTS;
+}
+
+int fs_replace_file_data(const char *name, const unsigned char *data, unsigned int size)
+{
+    char final_name[MAX_NAME];
+    unsigned int parent_lba = 0;
+    int rc = resolve_path(name, &parent_lba, final_name, 1);
+    if (rc != FS_OK)
+        return rc;
+
+    if (str_count(final_name) == 0)
+        return FS_ERR_NO_NAME;
+
+    FS_Dir cur;
+    if (read_dir_lba(parent_lba, &cur) != FS_OK)
+        return FS_ERR_IO;
+
+    for (unsigned int i = 0; i < cur.file_count; i++)
+    {
+        unsigned int file_lba = cur.files_lba[i];
+        FS_File f;
+
+        if (read_file_lba(file_lba, &f) != FS_OK)
+            return FS_ERR_IO;
+
+        if (str_equal(f.name, final_name))
+        {
+            if (f.data_lba == 0)
+            {
+                int file_idx = lba_to_file_index(file_lba);
+                if (file_idx < 0)
+                    return FS_ERR_IO;
+                f.data_lba = DATA_START_LBA + (unsigned int)file_idx;
+            }
+
+            unsigned char secbuf[512];
+            unsigned int written = 0;
+            unsigned int sector_lba = f.data_lba;
+
+            while (written < size)
+            {
+                unsigned int to_copy = size - written;
+                if (to_copy > 512u)
+                    to_copy = 512u;
+
+                for (unsigned int j = 0; j < to_copy; j++)
+                    secbuf[j] = data[written + j];
+                for (unsigned int j = to_copy; j < 512u; j++)
+                    secbuf[j] = 0;
+
+                if (write_sector(sector_lba, secbuf) != FS_OK)
+                    return FS_ERR_IO;
+
+                written += to_copy;
+                sector_lba++;
+            }
+
+            f.size = size;
+            if (write_file_lba(file_lba, &f) != FS_OK)
+                return FS_ERR_IO;
+
+            if (store_super() != FS_OK)
                 return FS_ERR_IO;
 
             return FS_OK;
@@ -984,7 +1074,11 @@ int fs_write_file(const char *name, const unsigned char *data, unsigned int size
                 return FS_ERR_IO;
 
             if (f.data_lba == 0)
+            {
                 f.data_lba = find_free_data_lba();
+                if (f.data_lba == 0)
+                    return FS_ERR_NO_SPACE;
+            }
 
             unsigned int written = 0;
             unsigned int sector_lba = f.data_lba + (f.size / 512u);
@@ -1041,7 +1135,7 @@ int fs_write_file(const char *name, const unsigned char *data, unsigned int size
     return FS_ERR_NOT_EXISTS;
 }
 
-int fs_read_file(const char *name, unsigned char *out_buf, unsigned int buf_size, unsigned int *out_size)
+int fs_read_file(const char *name, unsigned int offset, unsigned char *out_buf, unsigned int buf_size, unsigned int *out_size)
 {
     if (!fs_initialized)
         return FS_ERR_NOT_INIT;
@@ -1079,30 +1173,43 @@ int fs_read_file(const char *name, unsigned char *out_buf, unsigned int buf_size
                 return FS_OK;
             }
 
-            unsigned char buf[512];
-            unsigned int remaining = f.size;
-            unsigned int written = 0;
-            unsigned int sector_lba = f.data_lba;
-
-            while (remaining > 0)
+            if (out_buf == ((void *)0) || buf_size == 0)
             {
-                if (read_sector(sector_lba, buf) != FS_OK)
+                if (out_size)
+                    *out_size = f.size;
+                return FS_OK;
+            }
+
+            if (offset >= f.size)
+            {
+                if (out_size)
+                    *out_size = 0;
+                return FS_OK;
+            }
+
+            unsigned char secbuf[512];
+            unsigned int avail = f.size - offset;
+            unsigned int to_read = avail < buf_size ? avail : buf_size;
+            unsigned int written = 0;
+            unsigned int pos = offset;
+
+            while (written < to_read)
+            {
+                unsigned int sector_lba = f.data_lba + (pos / 512u);
+                unsigned int sector_off = pos % 512u;
+
+                if (read_sector(sector_lba, secbuf) != FS_OK)
                     return FS_ERR_IO;
 
-                unsigned int to_copy = remaining < 512 ? remaining : 512;
+                unsigned int in_sector = 512u - sector_off;
+                unsigned int need = to_read - written;
+                unsigned int copy = in_sector < need ? in_sector : need;
 
-                if (out_buf && buf_size > 0)
-                {
-                    unsigned int can_copy = (buf_size - written) < to_copy ? (buf_size - written) : to_copy;
-                    for (unsigned int j = 0; j < can_copy; j++)
-                        out_buf[written + j] = buf[j];
-                    written += can_copy;
-                }
-                else
-                    written += to_copy;
+                for (unsigned int j = 0; j < copy; j++)
+                    out_buf[written + j] = secbuf[sector_off + j];
 
-                remaining -= to_copy;
-                sector_lba++;
+                written += copy;
+                pos += copy;
             }
 
             if (out_size)

@@ -63,7 +63,27 @@ CALC_BIN     = applications/calc/calc.bin
 FILLING_SRC  = applications/filling/filling.c
 FILLING_BIN  = applications/filling/filling.bin
 
-USER_BINS    = $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(UTILS_BIN)
+BAOC_SRCS    = applications/baoc/main.c $(wildcard applications/baoc/internal/*.c)
+BAOC_OBJS    = $(BAOC_SRCS:.c=.o)
+BAOC_INCLUDE = -Iapplications/baoc/internal
+COMPILER_BIN = applications/baoc/baoc.bin
+BAOC_TESTS   = applications/baoc/tests/test1.c \
+               applications/baoc/tests/test2.c \
+               applications/baoc/tests/test3.c \
+               applications/baoc/tests/test4.c \
+               applications/baoc/tests/test5.c \
+               applications/baoc/tests/test6.c \
+               applications/baoc/tests/test7.c \
+               applications/baoc/tests/test8.c \
+               applications/baoc/tests/test9.c \
+               applications/baoc/tests/test10.c \
+               applications/baoc/tests/test10_helper.c \
+               applications/baoc/tests/test11.c \
+               applications/baoc/tests/test12.c
+
+BAOC_SYMS_DAT = runtime/baoc_syms.dat
+
+USER_BINS    = $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMPILER_BIN) $(UTILS_BIN)
 
 DOCS = applications/shell/utils/docs/*
 
@@ -124,6 +144,9 @@ $(CRT0_BIN): $(CRT0_OBJ)
 $(RUNTIME_BIN): $(RUNTIME_SRC_OBJS)
 	$(LD) -m elf_i386 --oformat binary -o $@ $^
 
+$(BAOC_SYMS_DAT): $(RUNTIME_BIN) $(RUNTIME_SRC_OBJS) tools/gen_baoc_syms.py
+	$(PY) tools/gen_baoc_syms.py
+
 $(RUNTIME_LIB): $(RUNTIME_SRC_OBJS)
 	ar rcs $@ $^
 
@@ -140,13 +163,36 @@ applications/shell/utils/dirlist.bin: applications/shell/utils/dirlist.o $(DIRLI
 applications/shell/utils/mousedirlist.bin: applications/shell/utils/mousedirlist.o $(DIRLIST_COMMON_OBJ) $(CRT0_OBJ) $(RUNTIME_LIB)
 	$(CC) $(USER_LTO_LDFLAGS) -o $@ $^
 
+applications/baoc/%.o: applications/baoc/%.c
+	$(CC) $(USER_LTO_CFLAGS) $(BAOC_INCLUDE) $< -o $@
+
+applications/baoc/internal/%.o: applications/baoc/internal/%.c
+	$(CC) $(USER_LTO_CFLAGS) $(BAOC_INCLUDE) $< -o $@
+
+$(COMPILER_BIN): $(BAOC_OBJS) $(CRT0_OBJ) $(RUNTIME_LIB)
+	$(CC) $(USER_LTO_LDFLAGS) -o $@ $^
+
 # ---------------- Disk image -----------------
-$(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(USER_BINS) $(RUNTIME_BIN) $(CRT0_BIN)
+$(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(USER_BINS) $(RUNTIME_BIN) $(CRT0_BIN) $(BAOC_SYMS_DAT) \
+		$(BAOC_TESTS) Makefile tools/mkfs_inject.py
 	$(DD) if=/dev/zero of=$(IMG) bs=1M count=$(IMG_SIZE)
 	$(DD) if=$(BOOT_BIN) of=$(IMG) conv=notrunc
 	$(DD) if=$(KERNEL_BIN) of=$(IMG) seek=1 conv=notrunc
 
-	for prog in $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN); do \
+	for h in runtime/include/*.h; do \
+		$(PY) tools/mkfs_inject.py $(IMG) $$h /lib/include; \
+	done
+
+	$(PY) tools/mkfs_inject.py $(IMG) $(CRT0_BIN) /lib
+	$(PY) tools/mkfs_inject.py $(IMG) $(RUNTIME_BIN) /lib
+	$(PY) tools/mkfs_inject.py $(IMG) $(BAOC_SYMS_DAT) /lib
+	$(PY) tools/mkfs_inject.py $(IMG) /programs
+
+	for t in $(BAOC_TESTS); do \
+		$(PY) tools/mkfs_inject.py $(IMG) $$t /test; \
+	done
+
+	for prog in $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMPILER_BIN); do \
 		$(PY) tools/mkfs_inject.py $(IMG) $$prog /programs; \
 	done
 
@@ -182,13 +228,18 @@ nm-check: $(SAMPLE_BINS)
 		echo; \
 	done
 
+# ---------------- baoc regression (host-side reference) ----------------
+baoc-test: $(BAOC_SYMS_DAT)
+	@echo "baoc tests are on-disk under /test; build $(IMG) and run in BaOS shell."
+
 # ---------------- Run & Clean ----------------
 run: $(IMG)
 	$(QEMU) -m 3G -drive format=raw,file=$(IMG),if=ide -serial stdio -vnc :0
 
 clean:
 	$(RM) $(BOOT_BIN) $(KERNEL_OBJS) $(KERNEL_BIN) $(IMG) \
-	      $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(UTILS_BIN) $(UTILS_OBJS) \
+	      $(SHELL_BIN) $(CALC_BIN) $(FILLING_BIN) $(COMPILER_BIN) $(BAOC_OBJS) \
+	      $(UTILS_BIN) $(UTILS_OBJS) \
 	      $(DIRLIST_COMMON_OBJ) applications/shell/shell.o applications/calc/calc.o \
 	      applications/filling/filling.o \
-	      $(RUNTIME_SRC_OBJS) $(CRT0_OBJ) $(CRT0_BIN) $(RUNTIME_BIN) $(RUNTIME_LIB)
+	      $(RUNTIME_SRC_OBJS) $(CRT0_OBJ) $(CRT0_BIN) $(RUNTIME_BIN) $(RUNTIME_LIB) $(BAOC_SYMS_DAT)

@@ -5,7 +5,7 @@
 
 char *strerror(int errnum)
 {
-    if (errnum >= 0 && errnum < __sys_nerr)
+    if (errnum >= 0 && errnum < __sys_nerr && __sys_errlist[errnum])
         return (char *)__sys_errlist[errnum];
     return "Unknown error";
 }

@@ -17,7 +17,7 @@ int fclose(FILE *stream)
         return EOF;
     }
 
-    if (stream->mode == 1 && stream->buf_pos > 0)
+    if ((stream->mode == 1 || stream->mode == 2) && stream->buf_pos > 0)
         fflush(stream);
 
     free_file_slot(stream);

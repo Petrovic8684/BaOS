@@ -3,5 +3,6 @@
 
 void serial_init();
 void serial_write(const char *s);
+int serial_is_ready(void);
 
 #endif

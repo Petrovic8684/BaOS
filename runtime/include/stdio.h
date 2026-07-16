@@ -49,6 +49,8 @@ int sscanf(const char *str, const char *fmt, ...);
 int fflush(FILE *stream);
 
 FILE *fopen(const char *pathname, const char *mode);
+int file_read_all(const char *pathname, void *buf, size_t max, size_t *out_size);
+int file_write_all(const char *pathname, const void *data, size_t size);
 int fclose(FILE *stream);
 size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream);
 size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream);

@@ -16,6 +16,7 @@ int fs_make_file(const char *name);
 int fs_delete_file(const char *name);
 int fs_write_file(const char *name, const unsigned char *data, unsigned int size);
 int fs_read_file(const char *name, unsigned char *out_buf, unsigned int buf_size, unsigned int *out_size);
+int fs_read_file_at(const char *name, unsigned int offset, unsigned char *out_buf, unsigned int buf_size, unsigned int *out_size);
 int fs_read_file_size(const char *name);
 
 #endif

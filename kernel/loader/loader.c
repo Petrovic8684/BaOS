@@ -10,8 +10,10 @@
 
 #define PT_LOAD 1
 #define USER_STACK_TOP 0x02100000
-#define USER_STACK_PAGES 4
+#define USER_STACK_PAGES 32
 #define USER_STACK_BOTTOM (USER_STACK_TOP - USER_STACK_PAGES * PAGE_SIZE)
+/* Reserve space below argc/argv so main() locals cannot overlap argv strings. */
+#define USER_LOCAL_PAD 4096u
 
 void (*loader_post_return_callback)(void) = 0;
 
@@ -95,7 +97,7 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
     cleanup_previous_user_space();
 
     unsigned int file_size = 0;
-    if (fs_read_file(name, ((void *)0), 0, &file_size) != FS_OK)
+    if (fs_read_file(name, 0, ((void *)0), 0, &file_size) != FS_OK)
     {
         write("\033[31mError: Could not get file size.\033[0m\n");
         return -1;
@@ -104,7 +106,7 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
     unsigned char *buf = kmalloc(file_size);
     unsigned int size = 0;
 
-    if (fs_read_file(name, buf, file_size, &size) != FS_OK)
+    if (fs_read_file(name, 0, buf, file_size, &size) != FS_OK)
     {
         if (surpress_errors == 0)
             write("\033[31mError: Failed to read user program.\n\033[0m");
@@ -155,7 +157,13 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
         if (seg_end > map_max)
             map_max = seg_end;
 
-        (void)set_user_pages(phdr[i].p_vaddr, phdr[i].p_memsz);
+        if (set_user_pages(phdr[i].p_vaddr, phdr[i].p_memsz) != 0)
+        {
+            if (surpress_errors == 0)
+                write("\033[31mError: Failed to map user segment.\n\033[0m");
+            kfree(buf);
+            return -1;
+        }
 
         unsigned char *dest = (unsigned char *)(phdr[i].p_vaddr);
         unsigned char *src = buf + phdr[i].p_offset;
@@ -182,7 +190,14 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
         last_user_region_size = 0;
     }
 
-    (void)set_user_pages(USER_STACK_BOTTOM, USER_STACK_PAGES * PAGE_SIZE);
+    if (set_user_pages(USER_STACK_BOTTOM, USER_STACK_PAGES * PAGE_SIZE) != 0)
+    {
+        if (surpress_errors == 0)
+            write("\033[31mError: Failed to map user stack.\n\033[0m");
+        return -1;
+    }
+
+    mem_set((void *)USER_STACK_BOTTOM, 0, USER_STACK_PAGES * PAGE_SIZE);
 
     char *string_ptrs[MAX_ARGC];
     char kernel_buf[MAX_ARGV_LEN];
@@ -231,13 +246,15 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
 
     ((unsigned int *)(argv_array_addr))[argc] = 0;
 
-    unsigned int final_stack = argv_array_addr - 2 * sizeof(unsigned int);
+    unsigned int final_stack = argv_array_addr - 2 * sizeof(unsigned int) - USER_LOCAL_PAD;
     if (final_stack < USER_STACK_BOTTOM)
     {
         if (surpress_errors == 0)
             write("\033[31mError: Not enough user stack space for argc/argv ptr.\n\033[0m");
         return -1;
     }
+
+    mem_set((void *)final_stack, 0, USER_LOCAL_PAD + 2 * sizeof(unsigned int));
 
     ((unsigned int *)final_stack)[0] = argc;
     ((unsigned int *)final_stack)[1] = argv_array_addr;

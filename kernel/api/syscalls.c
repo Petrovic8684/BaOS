@@ -190,17 +190,22 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
 
         const char *name = uargs->name;
 
-        fs_delete_file(name);
+        int dr = fs_delete_file(name);
+        if (dr != FS_OK && dr != FS_ERR_NOT_EXISTS)
+            return (unsigned int)dr;
+
         int r = fs_make_file(name);
-        if (r != FS_OK)
+        if (r == FS_ERR_EXISTS)
+            r = fs_truncate_file(name);
+        else if (r != FS_OK)
             return (unsigned int)r;
 
-        if (uargs->data && uargs->size > 0)
-        {
-            r = fs_write_file(name, uargs->data, uargs->size);
-            if (r != FS_OK)
-                return (unsigned int)r;
-        }
+        if (!uargs->data || uargs->size == 0)
+            return 0;
+
+        r = fs_replace_file_data(name, uargs->data, uargs->size);
+        if (r != FS_OK)
+            return (unsigned int)r;
 
         return 0;
     }
@@ -210,6 +215,7 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
         struct
         {
             const char *name;
+            unsigned int offset;
             unsigned char *out_buf;
             unsigned int buf_size;
             unsigned int *out_size;
@@ -225,9 +231,9 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
         int r;
 
         if (uargs->out_buf)
-            r = fs_read_file(uargs->name, uargs->out_buf, uargs->buf_size, &out_sz);
+            r = fs_read_file(uargs->name, uargs->offset, uargs->out_buf, uargs->buf_size, &out_sz);
         else
-            r = fs_read_file(uargs->name, ((void *)0), 0, &out_sz);
+            r = fs_read_file(uargs->name, 0, ((void *)0), 0, &out_sz);
 
         if (r != FS_OK)
             return (unsigned int)r;
@@ -253,11 +259,8 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
 
         for (int i = 0; i < MAX_ARGC && user_argv[i] != ((void *)0); ++i)
         {
-            if (i > 0 && str_equal(user_argv[i], "-code") == 1)
-            {
+            if (i > 0 && (str_equal(user_argv[i], "-code") == 1 || str_equal(user_argv[i], "--code") == 1))
                 should_report_return = 1;
-                continue;
-            }
 
             mem_copy(saved_prog_argv_storage[kargc], user_argv[i], str_count(user_argv[i]) + 1);
             saved_prog_argv_ptrs[kargc] = saved_prog_argv_storage[kargc];
@@ -268,7 +271,7 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
 
         if (kargc == 0)
         {
-            write("\033[31mError: No program specified after removing flags.\033[0m\n");
+            write("\033[31mError: No program specified.\033[0m\n");
             return 0;
         }
 

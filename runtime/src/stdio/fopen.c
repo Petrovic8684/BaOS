@@ -24,9 +24,11 @@ FILE *fopen(const char *pathname, const char *mode)
     f->buf = NULL;
     f->buf_pos = 0;
     f->buf_end = 0;
+    f->pos = 0;
     f->name = strdup(pathname);
     if (!f->name)
     {
+        errno = ENOMEM;
         free_file_slot(f);
         return NULL;
     }
@@ -37,44 +39,36 @@ FILE *fopen(const char *pathname, const char *mode)
     {
         f->mode = 0;
         int size = fs_read_file_size(f->name);
-        if (size >= 0)
-        {
-            if (size > 0)
-            {
-                f->buf = (unsigned char *)malloc(size);
-                if (!f->buf)
-                {
-                    free_file_slot(f);
-                    return NULL;
-                }
-                unsigned int got = 0;
-                if (fs_read_file(f->name, f->buf, size, &got) != 0)
-                {
-                    free_file_slot(f);
-                    return NULL;
-                }
-                f->buf_pos = 0;
-                f->buf_end = got;
-            }
-            else
-            {
-                f->buf = NULL;
-                f->buf_pos = 0;
-                f->buf_end = 0;
-            }
-        }
-        else
+        if (size < 0)
         {
             free_file_slot(f);
             return NULL;
+        }
+
+        file_set_read_size(f, (unsigned int)size);
+        f->pos = 0;
+
+        if (size > 0)
+        {
+            f->buf = (unsigned char *)malloc(FILE_IO_CHUNK);
+            if (!f->buf)
+            {
+                errno = ENOMEM;
+                free_file_slot(f);
+                return NULL;
+            }
+
+            if (file_refill_read(f) != 0)
+            {
+                free_file_slot(f);
+                return NULL;
+            }
         }
     }
     else if (mode[0] == 'w')
     {
         f->mode = 1;
-        int del_rc = fs_delete_file(f->name);
-        int rc = fs_make_file(f->name);
-        if (rc != 0)
+        if (fs_write_file(f->name, (const unsigned char *)"", 0) != 0)
         {
             free_file_slot(f);
             return NULL;
@@ -82,13 +76,14 @@ FILE *fopen(const char *pathname, const char *mode)
     }
     else if (mode[0] == 'a')
     {
-        f->mode = 1;
+        f->mode = 2;
         int size = fs_read_file_size(f->name);
         if (size > 0)
         {
             f->buf = (unsigned char *)malloc(size);
             if (!f->buf)
             {
+                errno = ENOMEM;
                 free_file_slot(f);
                 return NULL;
             }

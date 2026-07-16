@@ -4,6 +4,13 @@
 
 #define COM1_PORT 0x3F8
 
+static int serial_ready = 0;
+
+int serial_is_ready(void)
+{
+    return serial_ready;
+}
+
 static int serial_is_transmit_empty()
 {
     return inb(COM1_PORT + 5) & 0x20;
@@ -28,6 +35,9 @@ void serial_write(const char *s)
 
 void serial_init()
 {
+    if (serial_ready)
+        return;
+
     write("Initializing serial DEBUG driver...\n");
 
     outb(COM1_PORT + 1, 0x00);
@@ -37,6 +47,8 @@ void serial_init()
     outb(COM1_PORT + 3, 0x03);
     outb(COM1_PORT + 2, 0xC7);
     outb(COM1_PORT + 4, 0x0B);
+
+    serial_ready = 1;
 
     write("\033[32mSerial DEBUG driver initialized.\033[0m\n\n");
 }

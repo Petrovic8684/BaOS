@@ -2,45 +2,46 @@
 
 static int _errno_var = 0;
 
-
-int *__errno_location(void) { return &_errno_var; }
+int *__errno_location(void)
+{
+    return &_errno_var;
+}
 
 const char *const __sys_errlist[] = {
-    "Success",
-    "Operation not permitted",
-    "No such file or directory",
-    "Input/output error",
-    "Argument list too long",
-    "Exec format error",
-    "Resource temporarily unavailable",
-    "Out of memory",
-    "Permission denied",
-    "Bad address",
-    "Device or resource busy",
-    "File exists",
-    "No such device"
-    "Not a directory",
-    "Is a directory",
-    "Invalid argument",
-    "File table overflow",
-    "Too many open files",
-    "Text file busy",
-    "File too large",
-    "No space left on device",
-    "Illegal seek",
-    "Read-only file system",
-    "Numerical argument out of domain",
-    "Numerical result out of range",
-    "Resource deadlock avoided",
-    "File name too long",
-    "No record locks available",
-    "Function not implemented",
-    "Directory not empty",
-    "Too many symbolic links encountered",
-    "No data available",
-    "Timer expired",
-    "Illegal byte sequence",
-    "Quota exceeded",
+    [0] = "Success",
+    [EPERM] = "Operation not permitted",
+    [ENOENT] = "No such file or directory",
+    [EIO] = "Input/output error",
+    [E2BIG] = "Argument list too long",
+    [ENOEXEC] = "Exec format error",
+    [EAGAIN] = "Resource temporarily unavailable",
+    [ENOMEM] = "Out of memory",
+    [EACCES] = "Permission denied",
+    [EFAULT] = "Bad address",
+    [EBUSY] = "Device or resource busy",
+    [EEXIST] = "File exists",
+    [ENODEV] = "No such device",
+    [ENOTDIR] = "Not a directory",
+    [EISDIR] = "Is a directory",
+    [EINVAL] = "Invalid argument",
+    [ENFILE] = "File table overflow",
+    [EMFILE] = "Too many open files",
+    [ETXTBSY] = "Text file busy",
+    [EFBIG] = "File too large",
+    [ENOSPC] = "No space left on device",
+    [ESPIPE] = "Illegal seek",
+    [EROFS] = "Read-only file system",
+    [EDOM] = "Numerical argument out of domain",
+    [ERANGE] = "Numerical result out of range",
+    [EDEADLK] = "Resource deadlock avoided",
+    [ENAMETOOLONG] = "File name too long",
+    [ENOSYS] = "Function not implemented",
+    [ENOTEMPTY] = "Directory not empty",
+    [ELOOP] = "Too many symbolic links encountered",
+    [ENODATA] = "No data available",
+    [ETIME] = "Timer expired",
+    [EILSEQ] = "Illegal byte sequence",
+    [EDQUOT] = "Quota exceeded",
 };
 
 const int __sys_nerr = (int)(sizeof(__sys_errlist) / sizeof(__sys_errlist[0]));

@@ -262,23 +262,19 @@ def main():
 
             target_lba, target_dir = find_or_create_dir(fh, sp, target_folder)
 
-            dup = False
+            existing_file_lba = 0
+            existing_data_lba = 0
             for i in range(target_dir['file_count']):
                 flba = target_dir['files_lba'][i]
-                if flba == 0: continue
+                if flba == 0:
+                    continue
                 fentry = parse_file(read_sector(fh, flba))
                 if fentry['name'] == target_name:
-                    dup = True
+                    existing_file_lba = flba
+                    existing_data_lba = fentry['data_lba']
                     break
 
             fs_dir_path = get_dir_path(fh, sp, target_lba)
-            if dup:
-                display_path = fs_dir_path.rstrip('/') + '/' + target_name if fs_dir_path != '/' else '/' + target_name
-                print("Skipping (already exists):", display_path)
-                continue
-
-            if target_dir['file_count'] >= MAX_FILES_PER_DIR:
-                raise Exception("target directory is full: " + target_folder)
 
             with open(hostpath, "rb") as bf:
                 data = bf.read()
@@ -300,25 +296,41 @@ def main():
             data_lba = cand
             write_file_data(fh, data_lba, data)
 
-            new_file_idx = find_free(sp['file_bitmap'])
-            if new_file_idx < 0: raise Exception("no file slots")
-            new_file_lba = FILE_TABLE_START_LBA + new_file_idx
-            fl = {'name': target_name, 'size': len(data), 'data_lba': data_lba}
-            write_sector(fh, new_file_lba, build_file(fl))
+            if existing_file_lba:
+                if existing_data_lba:
+                    old_sectors = (parse_file(read_sector(fh, existing_file_lba))['size'] + SECTOR_SIZE - 1) // SECTOR_SIZE
+                    for s in range(existing_data_lba, existing_data_lba + old_sectors):
+                        used.discard(s)
 
-            sp['file_bitmap'][new_file_idx] = 1
-            write_sector(fh, SUPERBLOCK_LBA, build_super(sp))
+                fl = {'name': target_name, 'size': len(data), 'data_lba': data_lba}
+                write_sector(fh, existing_file_lba, build_file(fl))
+                display_path = fs_dir_path.rstrip('/') + '/' + target_name if fs_dir_path != '/' else '/' + target_name
+                print("Updated", target_name, "->", display_path,
+                      "file_table_lba", existing_file_lba, "data_lba", data_lba, "size", len(data))
+            else:
+                if target_dir['file_count'] >= MAX_FILES_PER_DIR:
+                    raise Exception("target directory is full: " + target_folder)
 
-            target_dir['files_lba'][target_dir['file_count']] = new_file_lba
-            target_dir['file_count'] += 1
-            write_sector(fh, target_lba, build_dir(target_dir))
+                new_file_idx = find_free(sp['file_bitmap'])
+                if new_file_idx < 0:
+                    raise Exception("no file slots")
+                new_file_lba = FILE_TABLE_START_LBA + new_file_idx
+                fl = {'name': target_name, 'size': len(data), 'data_lba': data_lba}
+                write_sector(fh, new_file_lba, build_file(fl))
+
+                sp['file_bitmap'][new_file_idx] = 1
+                write_sector(fh, SUPERBLOCK_LBA, build_super(sp))
+
+                target_dir['files_lba'][target_dir['file_count']] = new_file_lba
+                target_dir['file_count'] += 1
+                write_sector(fh, target_lba, build_dir(target_dir))
+
+                display_path = fs_dir_path.rstrip('/') + '/' + target_name if fs_dir_path != '/' else '/' + target_name
+                print("Injected", target_name, "->", display_path,
+                      "file_table_lba", new_file_lba, "data_lba", data_lba, "size", len(data))
 
             for s in range(data_lba, data_lba + sectors_needed):
                 used.add(s)
-
-            display_path = fs_dir_path.rstrip('/') + '/' + target_name if fs_dir_path != '/' else '/' + target_name
-            print("Injected", target_name, "->", display_path,
-                  "file_table_lba", new_file_lba, "data_lba", data_lba, "size", len(data))
 
 if __name__ == "__main__":
     main()
