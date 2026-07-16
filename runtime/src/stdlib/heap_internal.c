@@ -8,6 +8,7 @@ free_hdr_t *free_list = NULL;
 static unsigned int heap_start = 0;
 static unsigned int heap_end = 0;
 static unsigned int heap_max = 0;
+static unsigned int expanded_to = 0;
 
 static int sys_set_user_pages(unsigned int virt_start, unsigned int size)
 {
@@ -51,11 +52,20 @@ void *heap_expand(unsigned int bytes)
         return NULL;
     }
 
+    if (need_end <= expanded_to)
+    {
+        void *old = (void *)heap_end;
+        heap_end = need_end;
+        return old;
+    }
+
     unsigned int map_start = heap_end;
     unsigned int map_size = need_end - heap_end;
 
     if (sys_set_user_pages(map_start, map_size) != 0)
         return NULL;
+
+    expanded_to = need_end;
 
     void *old = (void *)heap_end;
     heap_end = need_end;
@@ -104,8 +114,10 @@ void heap_init_once(void)
     if (heap_start != 0)
         return;
 
-    heap_start = ALIGN_UP((unsigned int)&_end, PAGE_SIZE_LOCAL);
+    unsigned int end = (unsigned int)&_end;
+    heap_start = ALIGN_UP(end, PAGE_SIZE_LOCAL);
     heap_end = heap_start;
+    expanded_to = heap_start;
 
     heap_max = USER_STACK_TOP - (USER_STACK_PAGES * PAGE_SIZE_LOCAL);
 

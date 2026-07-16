@@ -5,7 +5,7 @@
 #include "../helpers/string/string.h"
 #include "../helpers/memory/memory.h"
 #include "../helpers/ports/ports.h"
-#include "../paging/heap/heap.h"
+#include "../segmentation/heap/heap.h"
 
 #define FS_MAGIC 0x46535953u // 'FSYS'
 

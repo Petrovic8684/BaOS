@@ -1,7 +1,8 @@
 #include "heap.h"
-#include "../paging.h"
+#include "../segmentation.h"
 #include "../../helpers/memory/memory.h"
 #include "../../drivers/display/display.h"
+#include "../../system/gdt/gdt.h"
 
 typedef struct free_hdr
 {
@@ -16,7 +17,6 @@ typedef struct alloc_hdr
 
 #define ALIGN_UP(x, a) (((x) + ((a) - 1)) & ~((a) - 1))
 #define ALLOC_ALIGN 8
-#define PAGE_SIZE_LOCAL 4096
 
 static free_hdr_t *free_list = ((void *)0);
 
@@ -31,7 +31,7 @@ static void *heap_expand(unsigned int bytes)
     if (bytes == 0)
         return (void *)heap_end;
 
-    unsigned int need_end = ALIGN_UP(heap_end + bytes, PAGE_SIZE_LOCAL);
+    unsigned int need_end = ALIGN_UP(heap_end + bytes, SEGMENT_ALIGN);
 
     if (need_end > heap_max)
     {
@@ -40,7 +40,7 @@ static void *heap_expand(unsigned int bytes)
             __asm__ volatile("hlt");
     }
 
-    ensure_phys_range_mapped(heap_end, need_end - heap_end);
+    expand_kernel_segment(need_end);
 
     void *old = (void *)heap_end;
     heap_end = need_end;
@@ -90,10 +90,10 @@ static void free_list_insert_and_coalesce(free_hdr_t *blk)
 void heap_init(void)
 {
     write("Initializing heap...\n");
-    heap_start = ALIGN_UP((unsigned int)&_end, PAGE_SIZE_LOCAL);
+    heap_start = ALIGN_UP((unsigned int)&_end, SEGMENT_ALIGN);
     heap_end = heap_start;
 
-    heap_max = heap_start + (16 * 1024 * 1024U);
+    heap_max = heap_start + KERNEL_HEAP_MAX;
 
     free_list = ((void *)0);
 

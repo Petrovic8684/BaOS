@@ -17,8 +17,8 @@ BOOT_BIN = bootloader/boot.bin
 KERNEL_SRCS = \
 	kernel/kernel.c \
 	kernel/fs/fs.c \
-	kernel/paging/paging.c \
-	kernel/paging/heap/heap.c \
+	kernel/segmentation/segmentation.c \
+	kernel/segmentation/heap/heap.c \
 	kernel/drivers/drivers.c \
 	kernel/loader/loader.c \
 	kernel/api/syscalls.c \
@@ -89,6 +89,7 @@ RUNTIME_LIB      = runtime/libc.a
 KERNEL_CFLAGS = -ffreestanding -m32 -c
 USER_CFLAGS   = -ffreestanding -m32 -nostdlib -fno-pie \
                 -ffunction-sections -fdata-sections \
+                -march=i486 -mno-sse -mno-mmx -mno-sse2 \
                 $(RUNTIME_INCLUDE) -c
 USER_LDFLAGS  = -m32 -nostdlib -fno-pie -T kernel/loader/user.ld -Wl,--gc-sections
 USER_LTO_CFLAGS  = $(USER_CFLAGS) -flto

@@ -7,8 +7,8 @@ SECTIONS
     .bss  : { *(.bss*) }
 
     . = 0x080000;
-    .page_tables ALIGN(0x1000) : { *(.page_tables*) }
-    
+    .segmentation_reserved ALIGN(0x1000) : { . = . + 0x80000; }
+
     _end = .;
     PROVIDE(end = .);
 }

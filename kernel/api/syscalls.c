@@ -5,8 +5,9 @@
 #include "../drivers/rtc/rtc.h"
 #include "../drivers/pit/pit.h"
 #include "../fs/fs.h"
-#include "../paging/paging.h"
-#include "../paging/heap/heap.h"
+#include "../segmentation/segmentation.h"
+#include "../segmentation/heap/heap.h"
+#include "../system/gdt/gdt.h"
 #include "../helpers/string/string.h"
 #include "../helpers/memory/memory.h"
 #include "../loader/loader.h"
@@ -85,12 +86,12 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
         }
 
         return_to_loader();
-        return 0;
+        for (;;)
+            __asm__ volatile("hlt");
 
     case SYS_WRITE:
     {
-        const char *text = (const char *)arg;
-        write(text);
+        write(user_cstr((const char *)arg));
         return 0;
     }
 
@@ -103,7 +104,8 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
     case SYS_POWER_OFF:
         loader_post_return_callback = power_off;
         return_to_loader();
-        return 0;
+        for (;;)
+            __asm__ volatile("hlt");
 
     case SYS_RTC_NOW:
     {
@@ -113,9 +115,10 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
 
     case SYS_SYS_INFO:
     {
-        struct utsname *buf = (struct utsname *)arg;
-        mem_copy(buf, &uname_info, sizeof(struct utsname));
+        if (!arg)
+            return -14;
 
+        user_copy_out((void *)arg, &uname_info, sizeof(struct utsname));
         return 0;
     }
 
@@ -125,7 +128,7 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
         int err;
         char *path = fs_where(&err);
         if (!path)
-            return -err;
+            return (unsigned int)err;
 
         unsigned int len = str_count(path) + 1;
         if (!user_buf)
@@ -134,7 +137,7 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
             return len;
         }
 
-        mem_copy(user_buf, path, len);
+        user_copy_out(user_buf, path, len);
         kfree(path);
         return FS_OK;
     }
@@ -146,7 +149,7 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
         char *contents = fs_list_dir(&err);
 
         if (!contents)
-            return -err;
+            return (unsigned int)err;
 
         unsigned int len = str_count(contents) + 1;
 
@@ -156,25 +159,25 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
             return len;
         }
 
-        mem_copy(user_buf, contents, len);
+        user_copy_out(user_buf, contents, len);
         kfree(contents);
         return FS_OK;
     }
 
     case SYS_FS_CHANGE_DIR:
-        return fs_change_dir((const char *)arg);
+        return fs_change_dir(user_cstr((const char *)arg));
 
     case SYS_FS_MAKE_DIR:
-        return fs_make_dir((const char *)arg);
+        return fs_make_dir(user_cstr((const char *)arg));
 
     case SYS_FS_DELETE_DIR:
-        return fs_delete_dir((const char *)arg);
+        return fs_delete_dir(user_cstr((const char *)arg));
 
     case SYS_FS_MAKE_FILE:
-        return fs_make_file((const char *)arg);
+        return fs_make_file(user_cstr((const char *)arg));
 
     case SYS_FS_DELETE_FILE:
-        return fs_delete_file((const char *)arg);
+        return fs_delete_file(user_cstr((const char *)arg));
 
     case SYS_FS_WRITE_FILE:
     {
@@ -183,21 +186,27 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
             const char *name;
             const unsigned char *data;
             unsigned int size;
-        } *uargs = (void *)arg;
+        } uargs;
 
-        if (!uargs || !uargs->name)
+        if (arg == 0)
             return (unsigned int)FS_ERR_NO_NAME;
 
-        const char *name = uargs->name;
+        user_copy_in(&uargs, (const void *)arg, sizeof(uargs));
+
+        if (!uargs.name)
+            return (unsigned int)FS_ERR_NO_NAME;
+
+        const char *name = user_cstr(uargs.name);
+        const unsigned char *data = uargs.data ? (const unsigned char *)user_ptr((void *)uargs.data) : ((void *)0);
 
         fs_delete_file(name);
         int r = fs_make_file(name);
         if (r != FS_OK)
             return (unsigned int)r;
 
-        if (uargs->data && uargs->size > 0)
+        if (data && uargs.size > 0)
         {
-            r = fs_write_file(name, uargs->data, uargs->size);
+            r = fs_write_file(name, data, uargs.size);
             if (r != FS_OK)
                 return (unsigned int)r;
         }
@@ -213,36 +222,49 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
             unsigned char *out_buf;
             unsigned int buf_size;
             unsigned int *out_size;
-        } *uargs = (void *)arg;
+        } uargs;
 
-        if (!uargs || !uargs->name)
+        if (arg == 0)
             return (unsigned int)FS_ERR_NO_NAME;
 
-        if (!((uargs->out_buf && uargs->buf_size > 0) || (uargs->out_buf == ((void *)0) && uargs->out_size)))
+        user_copy_in(&uargs, (const void *)arg, sizeof(uargs));
+
+        if (!uargs.name)
             return (unsigned int)FS_ERR_NO_NAME;
+
+        if (!((uargs.out_buf && uargs.buf_size > 0) || (uargs.out_buf == ((void *)0) && uargs.out_size)))
+            return (unsigned int)FS_ERR_NO_NAME;
+
+        const char *name = user_cstr(uargs.name);
+        unsigned char *out_buf = uargs.out_buf ? (unsigned char *)user_ptr(uargs.out_buf) : ((void *)0);
 
         unsigned int out_sz = 0;
         int r;
 
-        if (uargs->out_buf)
-            r = fs_read_file(uargs->name, uargs->out_buf, uargs->buf_size, &out_sz);
+        if (out_buf)
+            r = fs_read_file(name, out_buf, uargs.buf_size, &out_sz);
         else
-            r = fs_read_file(uargs->name, ((void *)0), 0, &out_sz);
+            r = fs_read_file(name, ((void *)0), 0, &out_sz);
 
         if (r != FS_OK)
             return (unsigned int)r;
 
-        if (uargs->out_size)
-            mem_copy((char *)uargs->out_size, (const char *)&out_sz, sizeof(unsigned int));
+        if (uargs.out_size)
+            user_copy_out((void *)uargs.out_size, &out_sz, sizeof(unsigned int));
 
         return 0;
     }
 
     case SYS_LOAD_USER_PROGRAM:
     {
-        const char **user_argv = (const char **)arg;
+        if (arg == 0)
+        {
+            write("\033[31mError: No program specified.\033[0m\n");
+            return 0;
+        }
 
-        if (!user_argv || user_argv[0] == ((void *)0))
+        unsigned int *argv_entries = (unsigned int *)user_ptr((void *)arg);
+        if (!argv_entries || argv_entries[0] == 0)
         {
             write("\033[31mError: No program specified.\033[0m\n");
             return 0;
@@ -251,15 +273,17 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
         int kargc = 0;
         should_report_return = 0;
 
-        for (int i = 0; i < MAX_ARGC && user_argv[i] != ((void *)0); ++i)
+        for (int i = 0; i < MAX_ARGC && argv_entries[i] != 0; ++i)
         {
-            if (i > 0 && str_equal(user_argv[i], "-code") == 1)
+            const char *arg_str = user_cstr((const char *)argv_entries[i]);
+
+            if (i > 0 && str_equal(arg_str, "-code") == 1)
             {
                 should_report_return = 1;
                 continue;
             }
 
-            mem_copy(saved_prog_argv_storage[kargc], user_argv[i], str_count(user_argv[i]) + 1);
+            mem_copy(saved_prog_argv_storage[kargc], arg_str, str_count(arg_str) + 1);
             saved_prog_argv_ptrs[kargc] = saved_prog_argv_storage[kargc];
             kargc++;
         }
@@ -276,7 +300,8 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
         loader_post_return_callback = load_next_program;
 
         return_to_loader();
-        return 0;
+        for (;;)
+            __asm__ volatile("hlt");
     }
 
     case SYS_GET_CURSOR_ROW:
@@ -294,7 +319,8 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
     case SYS_REBOOT:
         loader_post_return_callback = reboot;
         return_to_loader();
-        return 0;
+        for (;;)
+            __asm__ volatile("hlt");
 
     case SYS_SET_USER_PAGES:
     {
@@ -307,8 +333,8 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
             unsigned int size;
         } kargs;
 
-        mem_copy((unsigned char *)&kargs, (const unsigned char *)arg, sizeof(kargs));
-        int ret = set_user_pages(kargs.virt_start, kargs.size);
+        user_copy_in(&kargs, (const void *)arg, sizeof(kargs));
+        int ret = expand_user_segment(kargs.virt_start, kargs.size);
 
         return ret;
     }
@@ -317,7 +343,7 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
     {
         struct heap_info info;
         get_heap_info(&info);
-        mem_copy((void *)arg, &info, sizeof(info));
+        user_copy_out((void *)arg, &info, sizeof(info));
         return 0;
     }
 
@@ -357,7 +383,7 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
             unsigned int ms;
         } kargs;
 
-        mem_copy(&kargs, (const void *)arg, sizeof(kargs));
+        user_copy_in(&kargs, (const void *)arg, sizeof(kargs));
 
         if (kargs.hz == 0)
             return 0;
@@ -376,41 +402,38 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
 
     case SYS_MOUSE_READ:
     {
-        mouse_event_t *user_ev = (mouse_event_t *)arg;
-        if (!user_ev)
+        if (!arg)
             return 0;
 
         mouse_event_t ev;
         int ret = mouse_read_event(&ev);
         if (ret)
-            mem_copy((void *)user_ev, (const void *)&ev, sizeof(mouse_event_t));
+            user_copy_out((void *)arg, &ev, sizeof(mouse_event_t));
         return ret;
     }
 
     case SYS_MOUSE_PEEK:
     {
-        mouse_event_t *user_ev = (mouse_event_t *)arg;
-        if (!user_ev)
+        if (!arg)
             return 0;
 
         mouse_event_t ev;
         int ret = mouse_peek_event(&ev);
         if (ret)
-            mem_copy((void *)user_ev, (const void *)&ev, sizeof(mouse_event_t));
+            user_copy_out((void *)arg, &ev, sizeof(mouse_event_t));
         return ret;
     }
 
     case SYS_MOUSE_GETPOS:
     {
-        int *user_coords = (int *)arg;
-        if (!user_coords)
+        if (!arg)
             return 0;
 
         int x = 0, y = 0;
         mouse_get_position(&x, &y);
 
-        mem_copy((void *)user_coords, (const void *)&x, sizeof(int));
-        mem_copy((void *)(user_coords + 1), (const void *)&y, sizeof(int));
+        user_copy_out((void *)arg, &x, sizeof(int));
+        user_copy_out((void *)(arg + sizeof(int)), &y, sizeof(int));
 
         return 0;
     }
@@ -422,39 +445,36 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
 
     case SYS_VGA_GET_CELL:
     {
-        vga_cell_t *user_cell = (vga_cell_t *)arg;
-        if (!user_cell)
+        if (!arg)
             return 0;
 
         vga_cell_t cell;
-        mem_copy((unsigned char *)&cell, (const unsigned char *)user_cell, sizeof(cell));
-
+        user_copy_in((unsigned char *)&cell, (const unsigned char *)arg, sizeof(cell));
         vga_get_cell(cell.row, cell.col, &cell.ch, &cell.attr);
-        mem_copy((void *)user_cell, (const void *)&cell, sizeof(cell));
+        user_copy_out((void *)arg, &cell, sizeof(cell));
         return 0;
     }
 
     case SYS_VGA_PUT_CELL:
     {
-        vga_cell_t *user_cell = (vga_cell_t *)arg;
-        if (!user_cell)
+        if (!arg)
             return 0;
 
         vga_cell_t cell;
-        mem_copy((unsigned char *)&cell, (const unsigned char *)user_cell, sizeof(cell));
+        user_copy_in((unsigned char *)&cell, (const unsigned char *)arg, sizeof(cell));
         vga_put_cell(cell.row, cell.col, cell.ch, cell.attr);
         return 0;
     }
 
     case SYS_DIRLIST_CTX_SET:
     {
-        const char *user_path = (const char *)arg;
-        if (!user_path)
+        if (!arg)
         {
             g_dirlist_ctx_valid = 0;
             return 0;
         }
 
+        const char *user_path = user_cstr((const char *)arg);
         unsigned int len = str_count(user_path);
         if (len >= DIRLIST_CTX_MAX)
             len = DIRLIST_CTX_MAX - 1;
@@ -473,7 +493,7 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
             unsigned int size;
         } kargs;
 
-        mem_copy((unsigned char *)&kargs, (const unsigned char *)arg, sizeof(kargs));
+        user_copy_in((unsigned char *)&kargs, (const unsigned char *)arg, sizeof(kargs));
         if (!kargs.buf || kargs.size == 0 || !g_dirlist_ctx_valid)
             return 0;
 
@@ -481,11 +501,9 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
         if (len >= kargs.size)
             len = kargs.size - 1;
 
-        mem_copy(kargs.buf, g_dirlist_ctx, len);
-        {
-            char zero = '\0';
-            mem_copy(kargs.buf + len, &zero, 1);
-        }
+        char *user_buf = (char *)user_ptr(kargs.buf);
+        mem_copy(user_buf, g_dirlist_ctx, len);
+        user_buf[len] = '\0';
         return 1;
     }
 
@@ -503,8 +521,20 @@ __attribute__((naked)) void syscall_interrupt_handler()
                      "mov ebp, esp\n\t"
                      "push ebx\n\t"
                      "push eax\n\t"
+                     "mov ax, 0x10\n\t"
+                     "mov ds, ax\n\t"
+                     "mov es, ax\n\t"
+                     "mov fs, ax\n\t"
+                     "mov gs, ax\n\t"
                      "call handle_syscall\n\t"
                      "add esp, 8\n\t"
+                     "push eax\n\t"
+                     "mov ax, 0x23\n\t"
+                     "mov ds, ax\n\t"
+                     "mov es, ax\n\t"
+                     "mov fs, ax\n\t"
+                     "mov gs, ax\n\t"
+                     "pop eax\n\t"
                      "mov ebx, eax\n\t"
                      "pop ebp\n\t"
                      "sti\n\t"

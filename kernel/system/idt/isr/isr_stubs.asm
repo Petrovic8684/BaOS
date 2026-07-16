@@ -8,13 +8,26 @@ global isr%1
 isr%1:
     cli
     pushad
+    push ds
+    push es
+    push fs
+    push gs
+    mov ax, 0x10
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
     mov ebx, esp
-    add ebx, 32
+    add ebx, 48
     push ebx
     push dword 0
     push dword %1
     call isr_common_handler
     add esp, 12
+    pop gs
+    pop fs
+    pop es
+    pop ds
     popad
     iretd
 %endmacro
@@ -24,14 +37,27 @@ global isr%1
 isr%1:
     cli
     pushad
-    mov eax, [esp + 32]
+    push ds
+    push es
+    push fs
+    push gs
+    mov ax, 0x10
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov eax, [esp + 48]
     mov ebx, esp
-    add ebx, 36
+    add ebx, 52
     push ebx
     push eax
     push dword %1
     call isr_common_handler
     add esp, 12
+    pop gs
+    pop fs
+    pop es
+    pop ds
     popad
     iretd
 %endmacro

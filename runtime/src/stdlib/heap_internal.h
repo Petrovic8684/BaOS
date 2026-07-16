@@ -19,7 +19,8 @@ typedef struct alloc_hdr
 #define ALIGN_UP(x, a) (((x) + ((a) - 1)) & ~((a) - 1))
 #define ALLOC_ALIGN 8
 #define PAGE_SIZE_LOCAL 4096
-#define USER_STACK_TOP 0x02100000U
+#define USER_POOL_SIZE 0x00100000U
+#define USER_STACK_TOP USER_POOL_SIZE
 #define USER_STACK_PAGES 4U
 
 extern free_hdr_t *free_list;

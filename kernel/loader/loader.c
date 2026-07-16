@@ -3,15 +3,16 @@
 #include "../helpers/string/string.h"
 #include "../helpers/memory/memory.h"
 #include "../fs/fs.h"
-#include "../paging/paging.h"
-#include "../paging/heap/heap.h"
+#include "../segmentation/segmentation.h"
+#include "../segmentation/heap/heap.h"
+#include "../system/gdt/gdt.h"
 #include "../system/tss/tss.h"
 #include "../info/sys/sys.h"
 
 #define PT_LOAD 1
-#define USER_STACK_TOP 0x02100000
+#define USER_STACK_TOP USER_POOL_SIZE
 #define USER_STACK_PAGES 4
-#define USER_STACK_BOTTOM (USER_STACK_TOP - USER_STACK_PAGES * PAGE_SIZE)
+#define USER_STACK_BOTTOM (USER_STACK_TOP - USER_STACK_PAGES * SEGMENT_SIZE)
 
 void (*loader_post_return_callback)(void) = 0;
 
@@ -21,9 +22,6 @@ static unsigned int loader_saved_ebp = 0;
 
 static const char *next_prog_name = 0;
 static const char **next_prog_argv = 0;
-
-static unsigned int last_user_region_start = 0;
-static unsigned int last_user_region_size = 0;
 
 static void jump_to_user(unsigned int entry, unsigned int stack)
 {
@@ -36,12 +34,27 @@ static void jump_to_user(unsigned int entry, unsigned int stack)
                      "pushl $0x23\n\t"
                      "pushl %[stack]\n\t"
                      "pushf\n\t"
+                     "pop %%eax\n\t"
+                     "or $0x200, %%eax\n\t"
+                     "push %%eax\n\t"
                      "pushl $0x1B\n\t"
                      "pushl %[entry]\n\t"
                      "iret\n\t"
                      :
                      : [entry] "r"(entry), [stack] "r"(stack)
-                     : "ax");
+                     : "ax", "memory");
+}
+
+static void cleanup_previous_user_space(void)
+{
+    reset_user_segment();
+}
+
+void reset_loader_context(void)
+{
+    loader_return_eip = 0;
+    loader_saved_esp = 0;
+    loader_saved_ebp = 0;
 }
 
 __attribute__((naked)) void return_to_loader(void)
@@ -50,6 +63,8 @@ __attribute__((naked)) void return_to_loader(void)
                      "mov ax, 0x10\n\t"
                      "mov ds, ax\n\t"
                      "mov es, ax\n\t"
+                     "mov fs, ax\n\t"
+                     "mov gs, ax\n\t"
                      "mov eax, dword ptr [loader_return_eip]\n\t"
                      "test eax, eax\n\t"
                      "jz 1f\n\t"
@@ -58,23 +73,10 @@ __attribute__((naked)) void return_to_loader(void)
                      "jmp eax\n\t"
                      "1:\n\t"
                      "cli\n\t"
+                     "2:\n\t"
                      "hlt\n\t"
+                     "jmp 2b\n\t"
                      ".att_syntax\n\t");
-}
-
-static void cleanup_previous_user_space(void)
-{
-    unmap_all_user_pages();
-
-    last_user_region_start = 0;
-    last_user_region_size = 0;
-}
-
-void reset_loader_context(void)
-{
-    loader_return_eip = 0;
-    loader_saved_esp = 0;
-    loader_saved_ebp = 0;
 }
 
 void set_next_program(const char **argv)
@@ -142,12 +144,8 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
         if (phdr[i].p_type != PT_LOAD)
             continue;
 
-        if (phdr[i].p_vaddr == 0)
-        {
-            if (surpress_errors == 0)
-                write("\033[Error: PHDR has p_vaddr == 0, skipping.\n\033[0m");
+        if (phdr[i].p_memsz == 0 && phdr[i].p_filesz == 0)
             continue;
-        }
 
         if (phdr[i].p_vaddr < map_min)
             map_min = phdr[i].p_vaddr;
@@ -155,9 +153,15 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
         if (seg_end > map_max)
             map_max = seg_end;
 
-        (void)set_user_pages(phdr[i].p_vaddr, phdr[i].p_memsz);
+        if (expand_user_segment(phdr[i].p_vaddr, phdr[i].p_memsz) != 0)
+        {
+            if (surpress_errors == 0)
+                write("\033[31mError: Failed to expand user segment.\n\033[0m");
+            kfree(buf);
+            return -1;
+        }
 
-        unsigned char *dest = (unsigned char *)(phdr[i].p_vaddr);
+        unsigned char *dest = (unsigned char *)user_logical_to_phys(phdr[i].p_vaddr);
         unsigned char *src = buf + phdr[i].p_offset;
 
         for (Elf32_Word j = 0; j < phdr[i].p_filesz; j++)
@@ -167,22 +171,32 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
             dest[j] = 0;
     }
 
+    unsigned int user_entry = ehdr->e_entry;
+
     kfree(buf);
 
-    if (map_max > map_min && map_min != 0xFFFFFFFFu)
+    if (map_min == 0xFFFFFFFFu)
     {
-        unsigned int aligned_start = map_min & 0xFFFFF000u;
-        unsigned int aligned_end = (map_max + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-        last_user_region_start = aligned_start;
-        last_user_region_size = aligned_end - aligned_start;
-    }
-    else
-    {
-        last_user_region_start = 0;
-        last_user_region_size = 0;
+        if (surpress_errors == 0)
+            write("\033[31mError: No loadable segments.\n\033[0m");
+        return -1;
     }
 
-    (void)set_user_pages(USER_STACK_BOTTOM, USER_STACK_PAGES * PAGE_SIZE);
+    if (map_max > map_min)
+    {
+        unsigned int aligned_start = map_min & ~(SEGMENT_SIZE - 1U);
+        unsigned int aligned_end = (map_max + SEGMENT_SIZE - 1U) & ~(SEGMENT_SIZE - 1U);
+        segmentation_track_user_region(aligned_start, aligned_end - aligned_start);
+    }
+
+    if (expand_user_segment(USER_STACK_BOTTOM, USER_STACK_PAGES * SEGMENT_SIZE) != 0)
+    {
+        if (surpress_errors == 0)
+            write("\033[31mError: Failed to map user stack segment.\n\033[0m");
+        return -1;
+    }
+
+    segmentation_track_user_region(USER_STACK_BOTTOM, USER_STACK_PAGES * SEGMENT_SIZE);
 
     char *string_ptrs[MAX_ARGC];
     char kernel_buf[MAX_ARGV_LEN];
@@ -208,11 +222,11 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
         }
 
         cur -= needed;
-        char *dest = (char *)cur;
+        char *dest = (char *)user_logical_to_phys(cur);
         for (unsigned int k = 0; k <= slen; ++k)
             dest[k] = kernel_buf[k];
 
-        string_ptrs[argc] = dest;
+        string_ptrs[argc] = (char *)cur;
         argc++;
     }
 
@@ -227,9 +241,9 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
     }
 
     for (int i = 0; i < argc; ++i)
-        ((unsigned int *)(argv_array_addr))[i] = (unsigned int)string_ptrs[i];
+        ((unsigned int *)user_logical_to_phys(argv_array_addr))[i] = (unsigned int)string_ptrs[i];
 
-    ((unsigned int *)(argv_array_addr))[argc] = 0;
+    ((unsigned int *)user_logical_to_phys(argv_array_addr))[argc] = 0;
 
     unsigned int final_stack = argv_array_addr - 2 * sizeof(unsigned int);
     if (final_stack < USER_STACK_BOTTOM)
@@ -239,20 +253,26 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
         return -1;
     }
 
-    ((unsigned int *)final_stack)[0] = argc;
-    ((unsigned int *)final_stack)[1] = argv_array_addr;
+    ((unsigned int *)user_logical_to_phys(final_stack))[0] = (unsigned int)argc;
+    ((unsigned int *)user_logical_to_phys(final_stack))[1] = argv_array_addr;
 
     loader_return_eip = (unsigned int)&&user_return;
     __asm__ volatile("mov %%esp, %0" : "=r"(loader_saved_esp));
     __asm__ volatile("mov %%ebp, %0" : "=r"(loader_saved_ebp));
 
-    unsigned int pte_entry = get_pte(ehdr->e_entry);
-    if ((pte_entry & PAGE_PRESENT) && (pte_entry & PAGE_USER))
-        jump_to_user(ehdr->e_entry, final_stack);
+    if (expand_user_segment(user_entry & ~(SEGMENT_SIZE - 1U), SEGMENT_SIZE) != 0)
+    {
+        if (surpress_errors == 0)
+            write("\033[31mError: Failed to map entry page.\n\033[0m");
+        return -1;
+    }
+
+    if (is_user_address(user_entry))
+        jump_to_user(user_entry, final_stack);
     else
     {
         if (surpress_errors == 0)
-            write("\033[31mError: Entry not mapped as user (abort jump).\n\033[0m");
+            write("\033[31mError: Entry not in user segment (abort jump).\n\033[0m");
         return -1;
     }
 
@@ -304,11 +324,12 @@ void load_welcome(void)
 {
     write("\n");
     loader_post_return_callback = welcome_callback;
-    if (load_user_program("/programs/utils/banner", (const char *[]){"banner", " BaOS", "-color=lightgreen", ((void *)0)}, 1) == 0)
+    if (load_user_program("/programs/utils/banner", (const char *[]){"banner", " BaOS", "-color=lightgreen", ((void *)0)}, 0) == 0)
         return;
 
     clear();
     write("\n\033[1;33mWarning: Could not load welcome program.\033[0m\n");
+    welcome_callback();
 }
 
 void load_shell(void)
@@ -319,7 +340,7 @@ void load_shell(void)
     {
         write("\n");
 
-        if (load_user_program("/programs/shell", ((void *)0), 1) == 0)
+        if (load_user_program("/programs/shell", ((void *)0), 0) == 0)
         {
             tries = 0;
             continue;

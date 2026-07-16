@@ -4,7 +4,9 @@
 
 **BaOS** is a simple **x86 32 bit operating system**. It includes a custom bootloader written in assembly and a C kernel that runs a basic shell for file and directory management.
 
-The kernel implements **paging** with **identity mapping**, which allows it to map virtual memory directly to physical memory for simplicity while still enforcing access restrictions. Kernel memory is protected with user/supervisor bits, ensuring that programs running in **ring 3** cannot accidentally or maliciously overwrite critical kernel data. This creates a safe boundary between kernel space and user space, providing the foundation for running untrusted user programs.
+The kernel implements **segmentation** with **base+limit GDT descriptors**, which relocates user programs through a fixed segment base while enforcing access restrictions via segment limits. Kernel memory is protected by keeping it outside the user segment bounds, ensuring that programs running in **ring 3** cannot accidentally or maliciously overwrite critical kernel data. This creates a safe boundary between kernel space and user space, providing the foundation for running untrusted user programs.
+
+> **Branch note:** This is the `thesis/segmentation` branch used for the comparative memory-management analysis in the master thesis. The sibling branch `thesis/paging` keeps the identity-mapped paging variant for side-by-side comparison.
 
 All drivers in BaOS are implemented as interrupt-based, ensuring efficient and responsive handling of hardware events without relying on polling. This approach allows the system to remain reactive even when multiple programs access different hardware resources simultaneously. A custom ATA PIO driver ensures the file system is **persistent across reboots**, rather than being stored only in memory.
 

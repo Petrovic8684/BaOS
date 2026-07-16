@@ -2,13 +2,10 @@
 #include "../../helpers/ports/ports.h"
 #include "../../drivers/display/display.h"
 #include "../../drivers/speaker/melodies/melodies.h"
-#include "../../paging/paging.h"
-
 #define KERNEL_PHYS_TO_VIRT(addr) ((void *)((unsigned long)(addr)))
 
 static unsigned long get_ebda_base(void)
 {
-    ensure_phys_range_mapped(0x040E, 2);
     unsigned short *p = (unsigned short *)KERNEL_PHYS_TO_VIRT(0x040E);
     return ((unsigned long)(*p)) << 4;
 }
@@ -21,7 +18,6 @@ static acpi_rsdp_t *find_rsdp(void)
     {
         for (addr = ebda; addr < ebda + 0x400; addr += 16)
         {
-            ensure_phys_range_mapped(addr, sizeof(acpi_rsdp_t));
             acpi_rsdp_t *rsdp = (acpi_rsdp_t *)KERNEL_PHYS_TO_VIRT(addr);
             if (rsdp->signature[0] == 'R' && rsdp->signature[1] == 'S' &&
                 rsdp->signature[2] == 'D' && rsdp->signature[3] == ' ' &&
@@ -33,7 +29,6 @@ static acpi_rsdp_t *find_rsdp(void)
 
     for (addr = 0xE0000UL; addr < 0x100000UL; addr += 16)
     {
-        ensure_phys_range_mapped(addr, sizeof(acpi_rsdp_t));
         acpi_rsdp_t *rsdp = (acpi_rsdp_t *)KERNEL_PHYS_TO_VIRT(addr);
         if (rsdp->signature[0] == 'R' && rsdp->signature[1] == 'S' &&
             rsdp->signature[2] == 'D' && rsdp->signature[3] == ' ' &&
@@ -75,7 +70,6 @@ static acpi_fadt_t *find_fadt_from_sdt(acpi_sdt_header_t *sdt)
         if (entry_phys == 0)
             continue;
 
-        ensure_phys_range_mapped(entry_phys, 0x1000);
         acpi_sdt_header_t *entry = (acpi_sdt_header_t *)KERNEL_PHYS_TO_VIRT(entry_phys);
         if (entry->signature[0] == 'F' && entry->signature[1] == 'A' &&
             entry->signature[2] == 'C' && entry->signature[3] == 'P')
@@ -105,12 +99,10 @@ static int parse_s5_sleep_type(acpi_fadt_t *fadt, unsigned short *slp_typa, unsi
     if (dsdt_phys == 0)
         return 0;
 
-    ensure_phys_range_mapped(dsdt_phys, sizeof(acpi_sdt_header_t));
     acpi_sdt_header_t *dsdt_hdr = (acpi_sdt_header_t *)KERNEL_PHYS_TO_VIRT(dsdt_phys);
     if (dsdt_hdr->length == 0)
         return 0;
 
-    ensure_phys_range_mapped(dsdt_phys, dsdt_hdr->length);
     unsigned char *dsdt = (unsigned char *)dsdt_hdr;
     unsigned long len = dsdt_hdr->length;
 
@@ -191,7 +183,6 @@ static void enable_acpi_if_needed(acpi_fadt_t *fadt)
         cnt = inw((unsigned short)pm1a_cnt);
     else
     {
-        ensure_phys_range_mapped(pm1a_cnt, 2);
         volatile unsigned short *mmio = (volatile unsigned short *)KERNEL_PHYS_TO_VIRT(pm1a_cnt);
         cnt = *mmio;
     }
@@ -205,8 +196,6 @@ void power_off(void)
     write("Shutting down...\n");
     play_shutdown_melody();
 
-    ensure_phys_range_mapped(0xE0000u, 0x20000u);
-
     acpi_rsdp_t *rsdp = find_rsdp();
     acpi_fadt_t *fadt = 0;
 
@@ -214,13 +203,11 @@ void power_off(void)
     {
         if (rsdp->rsdt_address != 0)
         {
-            ensure_phys_range_mapped(rsdp->rsdt_address, 0x1000);
             acpi_rsdt_t *rsdt = (acpi_rsdt_t *)KERNEL_PHYS_TO_VIRT(rsdp->rsdt_address);
             if (rsdt && rsdt->header.signature[0] == 'R' && rsdt->header.signature[1] == 'S' &&
                 rsdt->header.signature[2] == 'D' && rsdt->header.signature[3] == 'T')
             {
                 if (rsdt->header.length > 0)
-                    ensure_phys_range_mapped(rsdp->rsdt_address, rsdt->header.length);
                 fadt = find_fadt(rsdt);
             }
         }
@@ -228,13 +215,11 @@ void power_off(void)
         if (!fadt && rsdp->revision >= 2 && rsdp->xsdt_address != 0)
         {
             unsigned long long xsdt_phys = rsdp->xsdt_address;
-            ensure_phys_range_mapped((unsigned long)xsdt_phys, sizeof(acpi_sdt_header_t));
             acpi_sdt_header_t *xsdt_hdr = (acpi_sdt_header_t *)KERNEL_PHYS_TO_VIRT((unsigned long)xsdt_phys);
             if (xsdt_hdr && xsdt_hdr->signature[0] == 'X' && xsdt_hdr->signature[1] == 'S' &&
                 xsdt_hdr->signature[2] == 'D' && xsdt_hdr->signature[3] == 'T')
             {
                 if (xsdt_hdr->length > 0)
-                    ensure_phys_range_mapped((unsigned long)xsdt_phys, xsdt_hdr->length);
                 fadt = find_fadt_from_sdt(xsdt_hdr);
             }
         }
@@ -256,7 +241,6 @@ void power_off(void)
                 outw((unsigned short)pm1, value);
             else
             {
-                ensure_phys_range_mapped(pm1, 2);
                 volatile unsigned short *mmio = (volatile unsigned short *)KERNEL_PHYS_TO_VIRT(pm1);
                 *mmio = value;
             }
@@ -269,7 +253,6 @@ void power_off(void)
                     outw((unsigned short)pm1b, valueb);
                 else
                 {
-                    ensure_phys_range_mapped(pm1b, 2);
                     volatile unsigned short *mmio_b = (volatile unsigned short *)
                         KERNEL_PHYS_TO_VIRT(pm1b);
                     *mmio_b = valueb;
@@ -311,7 +294,6 @@ static int acpi_reset_via_fadt(acpi_fadt_t *fadt)
         }
         else if (space_id == 0)
         {
-            ensure_phys_range_mapped((unsigned long)addr, 1);
             volatile unsigned char *mm = (volatile unsigned char *)KERNEL_PHYS_TO_VIRT((unsigned long)addr);
             *mm = value;
             return 1;
@@ -335,28 +317,24 @@ void reboot(void)
     {
         if (rsdp->rsdt_address != 0)
         {
-            ensure_phys_range_mapped(rsdp->rsdt_address, 0x1000);
             acpi_rsdt_t *rsdt = (acpi_rsdt_t *)KERNEL_PHYS_TO_VIRT(rsdp->rsdt_address);
             if (rsdt && rsdt->header.signature[0] == 'R' &&
                 rsdt->header.signature[1] == 'S' && rsdt->header.signature[2] == 'D' &&
                 rsdt->header.signature[3] == 'T')
             {
                 if (rsdt->header.length > 0)
-                    ensure_phys_range_mapped(rsdp->rsdt_address, rsdt->header.length);
                 fadt = find_fadt(rsdt);
             }
         }
         if (!fadt && rsdp->revision >= 2 && rsdp->xsdt_address != 0)
         {
             unsigned long long xsdt_phys = rsdp->xsdt_address;
-            ensure_phys_range_mapped((unsigned long)xsdt_phys, sizeof(acpi_sdt_header_t));
             acpi_sdt_header_t *xsdt_hdr = (acpi_sdt_header_t *)KERNEL_PHYS_TO_VIRT((unsigned long)xsdt_phys);
             if (xsdt_hdr && xsdt_hdr->signature[0] == 'X' &&
                 xsdt_hdr->signature[1] == 'S' && xsdt_hdr->signature[2] == 'D' &&
                 xsdt_hdr->signature[3] == 'T')
             {
                 if (xsdt_hdr->length > 0)
-                    ensure_phys_range_mapped((unsigned long)xsdt_phys, xsdt_hdr->length);
                 fadt = find_fadt_from_sdt(xsdt_hdr);
             }
         }
