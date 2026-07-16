@@ -15,7 +15,8 @@ struct e820_entry
     unsigned int acpi;
 };
 
-static unsigned int user_segment_limit_logical = SEGMENT_SIZE;
+static unsigned int user_code_limit = SEGMENT_ALIGN;
+static unsigned int user_data_limit = SEGMENT_ALIGN;
 static unsigned int last_user_region_start = 0;
 static unsigned int last_user_region_size = 0;
 
@@ -48,11 +49,6 @@ static unsigned long long get_total_detected_memory(void)
     }
 
     return total;
-}
-
-static void apply_user_segment_limit(unsigned int logical_limit)
-{
-    gdt_set_user_limit_bytes(logical_limit);
 }
 
 unsigned int user_logical_to_phys(unsigned int logical_addr)
@@ -94,7 +90,16 @@ int is_user_address(unsigned int logical_addr)
     if (logical_addr >= USER_POOL_SIZE)
         return 0;
 
-    return logical_addr < user_segment_limit_logical;
+    if (logical_addr < user_code_limit)
+        return 1;
+
+    if (logical_addr < user_data_limit)
+        return 1;
+
+    if (logical_addr >= USER_STACK_BOTTOM)
+        return 1;
+
+    return 0;
 }
 
 void expand_kernel_segment(unsigned int end_addr)
@@ -107,18 +112,37 @@ void expand_kernel_segment(unsigned int end_addr)
     }
 }
 
+int set_user_code_limit(unsigned int logical_end)
+{
+    unsigned int aligned_end = (logical_end + SEGMENT_ALIGN - 1U) & ~(SEGMENT_ALIGN - 1U);
+
+    if (aligned_end == 0)
+        aligned_end = SEGMENT_ALIGN;
+
+    if (aligned_end > USER_STACK_BOTTOM)
+        return -12;
+
+    if (aligned_end > user_code_limit)
+    {
+        user_code_limit = aligned_end;
+        gdt_set_user_code_limit_bytes(user_code_limit);
+    }
+
+    return 0;
+}
+
 int expand_user_segment(unsigned int logical_start, unsigned int size)
 {
     unsigned int need_end = logical_start + size;
     unsigned int aligned_end = (need_end + SEGMENT_ALIGN - 1U) & ~(SEGMENT_ALIGN - 1U);
 
-    if (aligned_end > USER_POOL_SIZE)
+    if (aligned_end > USER_STACK_BOTTOM)
         return -12;
 
-    if (aligned_end > user_segment_limit_logical)
+    if (aligned_end > user_data_limit)
     {
-        user_segment_limit_logical = aligned_end;
-        apply_user_segment_limit(user_segment_limit_logical);
+        user_data_limit = aligned_end;
+        gdt_set_user_data_limit_bytes(user_data_limit);
     }
 
     return 0;
@@ -128,8 +152,11 @@ void reset_user_segment(void)
 {
     mem_set((unsigned char *)USER_PHYS_BASE, 0, USER_POOL_SIZE);
 
-    user_segment_limit_logical = SEGMENT_ALIGN;
-    apply_user_segment_limit(user_segment_limit_logical);
+    user_code_limit = SEGMENT_ALIGN;
+    user_data_limit = SEGMENT_ALIGN;
+    gdt_set_user_code_limit_bytes(user_code_limit);
+    gdt_set_user_data_limit_bytes(user_data_limit);
+    gdt_set_user_stack_limit_bytes(USER_POOL_SIZE);
 
     last_user_region_start = 0;
     last_user_region_size = 0;
@@ -184,7 +211,7 @@ void segmentation_init(void)
         write_dec(mb);
     }
     write(" MB\n");
-    write("\033[32mSegmentation enabled (kernel limit below 0x");
+    write("\033[32mSegmentation enabled (CS/DS/SS, kernel below 0x");
     write_hex(USER_PHYS_BASE);
     write(", user pool ");
     write_dec(USER_POOL_SIZE / (1024U * 1024U));

@@ -6,6 +6,7 @@
 void segmentation_init(void);
 void expand_kernel_segment(unsigned int end_addr);
 int expand_user_segment(unsigned int logical_start, unsigned int size);
+int set_user_code_limit(unsigned int logical_end);
 void reset_user_segment(void);
 int is_user_address(unsigned int logical_addr);
 unsigned int user_logical_to_phys(unsigned int logical_addr);

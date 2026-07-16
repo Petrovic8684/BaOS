@@ -27,10 +27,10 @@ void tss_init(void)
     kernel_tss.esp0 = kernel_stack_top();
     kernel_tss.ss0 = 0x10;
 
-    set_tss_descriptor(5, (unsigned int)&kernel_tss,
+    set_tss_descriptor(GDT_IDX_TSS, (unsigned int)&kernel_tss,
                        sizeof(kernel_tss) - 1, 0x89, 0x00);
 
-    __asm__ volatile("ltr %%ax" ::"a"(0x28));
+    __asm__ volatile("ltr %%ax" ::"a"(0x30));
 
     write("\033[32mTSS initialized.\033[0m\n\n");
 }

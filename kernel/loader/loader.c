@@ -10,9 +10,8 @@
 #include "../info/sys/sys.h"
 
 #define PT_LOAD 1
-#define USER_STACK_TOP USER_POOL_SIZE
-#define USER_STACK_PAGES 4
-#define USER_STACK_BOTTOM (USER_STACK_TOP - USER_STACK_PAGES * SEGMENT_SIZE)
+#define PF_X 0x1
+#define PF_W 0x2
 
 void (*loader_post_return_callback)(void) = 0;
 
@@ -31,7 +30,7 @@ static void jump_to_user(unsigned int entry, unsigned int stack)
                      "mov %%ax, %%es\n\t"
                      "mov %%ax, %%fs\n\t"
                      "mov %%ax, %%gs\n\t"
-                     "pushl $0x23\n\t"
+                     "pushl $0x2B\n\t"
                      "pushl %[stack]\n\t"
                      "pushf\n\t"
                      "pop %%eax\n\t"
@@ -138,6 +137,8 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
 
     unsigned int map_min = 0xFFFFFFFFu;
     unsigned int map_max = 0;
+    unsigned int code_end = 0;
+    unsigned int data_end = 0;
 
     for (int i = 0; i < ehdr->e_phnum; i++)
     {
@@ -153,12 +154,16 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
         if (seg_end > map_max)
             map_max = seg_end;
 
-        if (expand_user_segment(phdr[i].p_vaddr, phdr[i].p_memsz) != 0)
+        if (phdr[i].p_flags & PF_X)
         {
-            if (surpress_errors == 0)
-                write("\033[31mError: Failed to expand user segment.\n\033[0m");
-            kfree(buf);
-            return -1;
+            if (seg_end > code_end)
+                code_end = seg_end;
+        }
+
+        if ((phdr[i].p_flags & PF_W) || !(phdr[i].p_flags & PF_X))
+        {
+            if (seg_end > data_end)
+                data_end = seg_end;
         }
 
         unsigned char *dest = (unsigned char *)user_logical_to_phys(phdr[i].p_vaddr);
@@ -182,18 +187,29 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
         return -1;
     }
 
+    /* Flat C may read .rodata through DS; cover at least the code range. */
+    if (data_end < code_end)
+        data_end = code_end;
+
+    if (code_end != 0 && set_user_code_limit(code_end) != 0)
+    {
+        if (surpress_errors == 0)
+            write("\033[31mError: Failed to set user code segment limit.\n\033[0m");
+        return -1;
+    }
+
+    if (data_end != 0 && expand_user_segment(0, data_end) != 0)
+    {
+        if (surpress_errors == 0)
+            write("\033[31mError: Failed to expand user data segment.\n\033[0m");
+        return -1;
+    }
+
     if (map_max > map_min)
     {
         unsigned int aligned_start = map_min & ~(SEGMENT_SIZE - 1U);
         unsigned int aligned_end = (map_max + SEGMENT_SIZE - 1U) & ~(SEGMENT_SIZE - 1U);
         segmentation_track_user_region(aligned_start, aligned_end - aligned_start);
-    }
-
-    if (expand_user_segment(USER_STACK_BOTTOM, USER_STACK_PAGES * SEGMENT_SIZE) != 0)
-    {
-        if (surpress_errors == 0)
-            write("\033[31mError: Failed to map user stack segment.\n\033[0m");
-        return -1;
     }
 
     segmentation_track_user_region(USER_STACK_BOTTOM, USER_STACK_PAGES * SEGMENT_SIZE);
@@ -260,19 +276,12 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
     __asm__ volatile("mov %%esp, %0" : "=r"(loader_saved_esp));
     __asm__ volatile("mov %%ebp, %0" : "=r"(loader_saved_ebp));
 
-    if (expand_user_segment(user_entry & ~(SEGMENT_SIZE - 1U), SEGMENT_SIZE) != 0)
-    {
-        if (surpress_errors == 0)
-            write("\033[31mError: Failed to map entry page.\n\033[0m");
-        return -1;
-    }
-
     if (is_user_address(user_entry))
         jump_to_user(user_entry, final_stack);
     else
     {
         if (surpress_errors == 0)
-            write("\033[31mError: Entry not in user segment (abort jump).\n\033[0m");
+            write("\033[31mError: Entry not in user code segment (abort jump).\n\033[0m");
         return -1;
     }
 

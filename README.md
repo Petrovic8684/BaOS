@@ -4,7 +4,7 @@
 
 **BaOS** is a simple **x86 32 bit operating system**. It includes a custom bootloader written in assembly and a C kernel that runs a basic shell for file and directory management.
 
-The kernel implements **segmentation** with **base+limit GDT descriptors**, which relocates user programs through a fixed segment base while enforcing access restrictions via segment limits. Kernel memory is protected by keeping it outside the user segment bounds, ensuring that programs running in **ring 3** cannot accidentally or maliciously overwrite critical kernel data. This creates a safe boundary between kernel space and user space, providing the foundation for running untrusted user programs.
+The kernel implements **segmentation** with separate **code, data, and stack GDT descriptors** (shared user base, distinct limits and access rights), which relocates user programs through a fixed segment base while enforcing access restrictions via segment limits. Kernel memory is protected by keeping it outside the user segment bounds, ensuring that programs running in **ring 3** cannot accidentally or maliciously overwrite critical kernel data. This creates a safe boundary between kernel space and user space, providing the foundation for running untrusted user programs.
 
 > **Branch note:** This is the `thesis/segmentation` branch used for the comparative memory-management analysis in the master thesis. The sibling branch `thesis/paging` keeps the identity-mapped paging variant for side-by-side comparison.
 

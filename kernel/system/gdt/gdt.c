@@ -35,12 +35,25 @@ void gdt_set_kernel_limit_bytes(unsigned int limit_bytes)
     set_gdt_entry(GDT_IDX_KERNEL_DATA, 0, limit, 0x92, GDT_GRAN_4K);
 }
 
-void gdt_set_user_limit_bytes(unsigned int limit_bytes)
+void gdt_set_user_code_limit_bytes(unsigned int limit_bytes)
 {
     unsigned int limit = bytes_to_gdt_limit(limit_bytes);
 
     set_gdt_entry(GDT_IDX_USER_CODE, USER_PHYS_BASE, limit, 0xFA, GDT_GRAN_4K);
+}
+
+void gdt_set_user_data_limit_bytes(unsigned int limit_bytes)
+{
+    unsigned int limit = bytes_to_gdt_limit(limit_bytes);
+
     set_gdt_entry(GDT_IDX_USER_DATA, USER_PHYS_BASE, limit, 0xF2, GDT_GRAN_4K);
+}
+
+void gdt_set_user_stack_limit_bytes(unsigned int limit_bytes)
+{
+    unsigned int limit = bytes_to_gdt_limit(limit_bytes);
+
+    set_gdt_entry(GDT_IDX_USER_STACK, USER_PHYS_BASE, limit, 0xF2, GDT_GRAN_4K);
 }
 
 void reload_kernel_segments(void)
@@ -70,7 +83,9 @@ void gdt_init(void)
 
     set_gdt_entry(0, 0, 0, 0, 0);
     gdt_set_kernel_limit_bytes(KERNEL_SEGMENT_LIMIT);
-    gdt_set_user_limit_bytes(SEGMENT_ALIGN);
+    gdt_set_user_code_limit_bytes(SEGMENT_ALIGN);
+    gdt_set_user_data_limit_bytes(SEGMENT_ALIGN);
+    gdt_set_user_stack_limit_bytes(USER_POOL_SIZE);
 
     kernel_gdtr.base = (unsigned int)&kernel_gdt;
     kernel_gdtr.limit = (unsigned short)(sizeof(kernel_gdt) - 1);
