@@ -113,6 +113,19 @@ static int addr_is_usable(unsigned long long addr)
     return 0;
 }
 
+#define VGA_TEXT_BUFFER 0xB8000U
+
+static int should_map_low_page(unsigned int page_addr)
+{
+    if (addr_is_usable(page_addr))
+        return 1;
+
+    if (page_addr <= VGA_TEXT_BUFFER && VGA_TEXT_BUFFER < page_addr + PAGE_SIZE)
+        return 1;
+
+    return 0;
+}
+
 static int split_4mb_pde(unsigned int pd_index)
 {
     unsigned int pde = page_directory[pd_index];
@@ -397,8 +410,18 @@ void paging_init(void)
     for (i = 0; i < PAGE_ENTRIES; ++i)
         page_directory[i] = 0;
 
-    for (i = 0; i < PAGE_ENTRIES; ++i)
-        first_page_table[i] = (i * PAGE_SIZE) | PAGE_PRESENT | PAGE_RW;
+    {
+        unsigned long long page_addr;
+        for (page_addr = 0; page_addr < 4ULL * 1024ULL * 1024ULL; page_addr += PAGE_SIZE)
+        {
+            if (!should_map_low_page((unsigned int)page_addr))
+                continue;
+
+            unsigned int pt_index = ((unsigned int)page_addr >> 12) & 0x3FF;
+            first_page_table[pt_index] = ((unsigned int)page_addr & 0xFFFFF000) | PAGE_PRESENT | PAGE_RW;
+            total_mapped += PAGE_SIZE;
+        }
+    }
 
     page_directory[0] = ((unsigned int)first_page_table & 0xFFFFF000) | PAGE_PRESENT | PAGE_RW;
 
