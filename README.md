@@ -31,6 +31,52 @@ BaOS is structured in a clear hierarchical architecture that separates hardware 
 
 The shell and user applications operate at the top of this hierarchy in **ring 3**, ensuring that they cannot access kernel memory or hardware directly. These programs use a custom **libc** runtime, which provides standard C functionality while translating requests into system calls that request services from the kernel. This layer allows user programs to perform operations such as reading and writing files, creating directories, or interacting with other system services, without breaking the separation between user space and kernel space. By keeping the shell and all user applications in ring 3, BaOS enforces security and stability while providing a flexible environment for program execution.
 
+## Memory layout
+
+BaOS memory use is documented in two phases: what the bootloader establishes before jumping to the kernel, and how the running kernel organizes memory afterward. **Phase 1 is identical on both thesis branches** (`thesis/paging` and `thesis/segmentation`). **Phase 2 reflects the branch’s memory-management model.**
+
+### Phase 1 — Bootloader
+
+Fixed physical addresses used in real mode and early protected mode ([`bootloader/boot.asm`](bootloader/boot.asm)):
+
+| Region | Physical address | Purpose |
+|---|---|---|
+| Boot sector | `0x00007C00` | MBR code (`[ORG 0x7C00]`), real-mode stack at `SP=0x7C00` |
+| Kernel load buffer | `0x00010000` | LBA 1+ sectors loaded to segment `0x1000:0x0000` |
+| E820 map | `0x00008000` | BIOS memory map: count at `0x8000`, entries from `0x8004` |
+| Protected-mode stack | `0x00090000` | Stack before far jump to kernel |
+| Kernel entry | `0x00010000` | `jmp 0x08:0x10000` — start of linked kernel |
+
+**Disk image layout** ([`Makefile`](Makefile)):
+
+- `baos.img` sector 0 (LBA 0): bootloader (`boot.bin`)
+- LBA 1+: kernel binary (`kernel.bin`, linked at `0x10000`)
+- Programs and docs are injected later by `mkfs_inject.py` (filesystem on disk, not fixed RAM addresses)
+
+```mermaid
+flowchart LR
+    realMode[RealMode 0x7C00] --> loadKernel[Load kernel to 0x10000]
+    loadKernel --> e820[E820 at 0x8000]
+    e820 --> protMode[Protected mode ESP 0x90000]
+    protMode --> kernelEntry[Jump to kernel 0x10000]
+```
+
+### Phase 2 — After kernel init (paging branch)
+
+Identity-mapped low memory plus a dedicated user region ([`kernel/paging/paging.c`](kernel/paging/paging.c), [`kernel/paging/paging.h`](kernel/paging/paging.h), [`kernel/link.ld`](kernel/link.ld), [`kernel/loader/user.ld`](kernel/loader/user.ld)):
+
+| Region | Virtual = physical | Size / notes |
+|---|---|---|
+| Kernel image | `0x00010000` – `_end` | `.text`, `.data`, `.bss` per [`kernel/link.ld`](kernel/link.ld) |
+| Page-table pool | `0x00080000` | 512 KiB (`.page_tables`, 128 × 4 KiB tables) |
+| Kernel heap (`kmalloc`) | `_end` – `_end + 16 MiB` | Grows via `ensure_phys_range_mapped` |
+| Low RAM identity map | `0x0` – 4 MiB (+ E820-driven regions) | Kernel/supervisor only; first 4 MiB respects E820 + VGA |
+| User program pool | `0x02000000` – `0x02100000` | `USER_PHYS_BASE` + `USER_POOL_SIZE` (1 MiB); ELF linked at `0x02000000` |
+| User stack | `0x020FF000` – `0x02100000` | Top 4 pages (`USER_STACK_PAGES`); grows down from `USER_STACK_TOP` |
+| User heap (`malloc`) | After program `_end` up to `USER_STACK_BOTTOM` | Expanded on demand via `SYS_SET_USER_PAGES` |
+
+User programs use **the same virtual and physical addresses** (identity mapping in the user pool). The kernel enforces isolation with `PAGE_USER` on user page mappings.
+
 ## Getting started 🥟
 
 > **Note:** PC speaker (sound) is **only available when running locally**. To enable it, uncomment `QEMU_AUDIO_FLAGS` in the [`Makefile`](Makefile):
