@@ -28,5 +28,6 @@ extern free_hdr_t *free_list;
 void *heap_expand(unsigned int bytes);
 void free_list_insert_and_coalesce(free_hdr_t *blk);
 void heap_init_once(void);
+void get_user_heap_info(user_heap_info_t *info);
 
 #endif

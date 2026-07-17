@@ -17,8 +17,6 @@ struct e820_entry
 
 static unsigned int user_code_limit = SEGMENT_ALIGN;
 static unsigned int user_data_limit = SEGMENT_ALIGN;
-static unsigned int last_user_region_start = 0;
-static unsigned int last_user_region_size = 0;
 
 static unsigned int get_e820_count(void)
 {
@@ -157,35 +155,6 @@ void reset_user_segment(void)
     gdt_set_user_code_limit_bytes(user_code_limit);
     gdt_set_user_data_limit_bytes(user_data_limit);
     gdt_set_user_stack_limit_bytes(USER_POOL_SIZE);
-
-    last_user_region_start = 0;
-    last_user_region_size = 0;
-}
-
-void segmentation_track_user_region(unsigned int logical_start, unsigned int size)
-{
-    unsigned int aligned_start = logical_start & ~(SEGMENT_ALIGN - 1U);
-    unsigned int aligned_end = (logical_start + size + SEGMENT_ALIGN - 1U) & ~(SEGMENT_ALIGN - 1U);
-
-    if (aligned_end <= aligned_start)
-        return;
-
-    if (last_user_region_start == 0 && last_user_region_size == 0)
-    {
-        last_user_region_start = aligned_start;
-        last_user_region_size = aligned_end - aligned_start;
-        return;
-    }
-
-    unsigned int current_end = last_user_region_start + last_user_region_size;
-
-    if (aligned_start < last_user_region_start)
-        last_user_region_start = aligned_start;
-
-    if (aligned_end > current_end)
-        last_user_region_size = aligned_end - last_user_region_start;
-    else
-        last_user_region_size = current_end - last_user_region_start;
 }
 
 void segmentation_init(void)

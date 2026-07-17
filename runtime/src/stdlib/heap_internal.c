@@ -123,3 +123,24 @@ void heap_init_once(void)
 
     free_list = NULL;
 }
+
+void get_user_heap_info(user_heap_info_t *info)
+{
+    if (!info)
+        return;
+
+    heap_init_once();
+
+    info->heap_start = heap_start;
+    info->heap_end = heap_end;
+    info->heap_max = heap_max;
+
+    unsigned int total_free = 0;
+    free_hdr_t *p = free_list;
+    while (p)
+    {
+        total_free += p->size;
+        p = p->next;
+    }
+    info->free_bytes = total_free;
+}

@@ -205,15 +205,6 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
         return -1;
     }
 
-    if (map_max > map_min)
-    {
-        unsigned int aligned_start = map_min & ~(SEGMENT_SIZE - 1U);
-        unsigned int aligned_end = (map_max + SEGMENT_SIZE - 1U) & ~(SEGMENT_SIZE - 1U);
-        segmentation_track_user_region(aligned_start, aligned_end - aligned_start);
-    }
-
-    segmentation_track_user_region(USER_STACK_BOTTOM, USER_STACK_PAGES * SEGMENT_SIZE);
-
     char *string_ptrs[MAX_ARGC];
     char kernel_buf[MAX_ARGV_LEN];
     int argc = 0;

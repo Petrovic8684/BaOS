@@ -14,6 +14,5 @@ void *user_ptr(void *user_addr);
 const char *user_cstr(const char *user_addr);
 void user_copy_in(void *kernel_dst, const void *user_src, unsigned int size);
 void user_copy_out(void *user_dst, const void *kernel_src, unsigned int size);
-void segmentation_track_user_region(unsigned int logical_start, unsigned int size);
 
 #endif
