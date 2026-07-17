@@ -48,4 +48,14 @@ void *bsearch(const void *key, const void *base, size_t nitems, size_t size, int
 void qsort(void *base, size_t nmemb, size_t size, int (*compar)(const void *, const void *));
 char *realpath(const char *path, char *resolved_path);
 
+typedef struct
+{
+    unsigned int heap_start;
+    unsigned int heap_end;
+    unsigned int heap_max;
+    unsigned int free_bytes;
+} user_heap_info_t;
+
+void get_user_heap_info(user_heap_info_t *info);
+
 #endif

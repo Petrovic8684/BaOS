@@ -340,6 +340,9 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
 
     case SYS_HEAP_INFO:
     {
+        if (!arg)
+            return -14;
+
         struct heap_info info;
         get_heap_info(&info);
         user_copy_out((void *)arg, &info, sizeof(info));

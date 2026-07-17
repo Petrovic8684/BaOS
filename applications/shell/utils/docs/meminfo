@@ -1,7 +1,17 @@
-meminfo - displays heap memory usage
+meminfo - displays user and kernel heap memory usage
 
 Description:
-The 'meminfo' command retrieves and prints information about the system heap. It shows the heap start and end addresses, the maximum heap size, the number of bytes actually used, the number of free bytes, and the available memory that can still be allocated. Values are displayed in a human-readable format using appropriate units (B, KB, MB, GB).
+The 'meminfo' command retrieves and prints information about two separate heaps:
+
+1. User program heap - the malloc heap of the currently running user program.
+   This shows heap start and end addresses, maximum heap size, bytes actually
+   used, bytes currently free in the allocator, and memory still available for
+   expansion before reaching the heap limit.
+
+2. Kernel heap - the kernel kmalloc heap, retrieved via a system call.
+   This shows the same metrics for kernel-side dynamic memory.
+
+Values are displayed in a human-readable format using appropriate units (B, KB, MB, GB).
 
 Usage:
 meminfo
