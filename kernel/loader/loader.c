@@ -30,12 +30,15 @@ static void jump_to_user(unsigned int entry, unsigned int stack)
                      "pushl $0x23\n\t"
                      "pushl %[stack]\n\t"
                      "pushf\n\t"
+                     "pop %%eax\n\t"
+                     "or $0x200, %%eax\n\t"
+                     "push %%eax\n\t"
                      "pushl $0x1B\n\t"
                      "pushl %[entry]\n\t"
                      "iret\n\t"
                      :
                      : [entry] "r"(entry), [stack] "r"(stack)
-                     : "ax");
+                     : "ax", "memory");
 }
 
 __attribute__((naked)) void return_to_loader(void)
