@@ -7,10 +7,10 @@ int sysinfo(struct sysinfo *info)
     __asm__ volatile(
         "movl %[num], %%eax\n\t"
         "int $0x80\n\t"
-        "movl %%eax, %[res]"
+        "movl %%ebx, %[res]"
         : [res] "=r"(ret)
         : [num] "i"(SYS_UPTIME)
-        : "eax", "memory");
+        : "eax", "ebx", "memory");
 
     info->uptime = ret;
 

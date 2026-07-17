@@ -1,0 +1,30 @@
+benchmem - memory allocator benchmarks for thesis comparison
+
+Description:
+The 'benchmem' command runs malloc-focused benchmark scenarios and prints
+machine-readable metrics for comparing segmentation and paging branches.
+
+Scenarios:
+  expand - Sequential malloc without free (cold heap growth / MM expansion)
+  churn  - Repeated malloc and free of the same size
+  frag   - Allocate blocks, free every other, re-allocate (fragmentation)
+  peak   - Grow heap in fixed-size blocks until allocation fails
+  all    - Run all scenarios sequentially
+
+Each scenario reports:
+  elapsed_cycles - CPU cycles via RDTSC (primary timing metric)
+  elapsed_ms     - wall time via SYS_UPTIME (may be 0 for short runs; PIT ~10 ms)
+  iterations, failures, user/kernel heap addresses, arena/used/free bytes,
+  payload size, and allocator overhead.
+
+Usage:
+benchmem <scenario> [args...]
+benchmem help
+
+Examples:
+benchmem expand
+benchmem expand 150 4096
+benchmem churn 500 256
+benchmem frag 200 128
+benchmem peak 4096
+benchmem all

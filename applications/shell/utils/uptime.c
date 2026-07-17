@@ -7,7 +7,7 @@ struct time_unit
     unsigned long seconds;
 };
 
-int main()
+int main(void)
 {
     struct sysinfo info;
     if (sysinfo(&info) != 0)
@@ -16,7 +16,8 @@ int main()
         return 1;
     }
 
-    unsigned long seconds = info.uptime;
+    unsigned long ms = info.uptime;
+    unsigned long seconds = ms / 1000UL;
 
     struct time_unit units[] = {
         {"year", 365UL * 24 * 3600},
@@ -30,7 +31,7 @@ int main()
     printf("\033[1;33mTime since boot:\033[0m ");
 
     int printed = 0;
-    for (int i = 0; i < sizeof(units) / sizeof(units[0]); i++)
+    for (int i = 0; i < (int)(sizeof(units) / sizeof(units[0])); i++)
     {
         unsigned long count = seconds / units[i].seconds;
         seconds %= units[i].seconds;
@@ -45,7 +46,12 @@ int main()
     }
 
     if (!printed)
-        printf("0 seconds");
+    {
+        if (ms == 0)
+            printf("0 seconds");
+        else
+            printf("%lu ms", ms);
+    }
 
     printf("\n");
     return 0;

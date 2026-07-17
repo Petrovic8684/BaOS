@@ -17,7 +17,8 @@ int main(void)
         "  \033[1;33mwhatis\033[0m    - Show command info        "
         "\033[1;33muptime\033[0m      - Show time since boot\n"
         "  \033[1;33mmeminfo\033[0m   - Show heap memory info    "
-        "\033[1;33msysinfo\033[0m     - Show system info\n\n"
+        "\033[1;33msysinfo\033[0m     - Show system info\n"
+        "  \033[1;33mbenchmem\033[0m  - Run memory benchmarks\n\n"
 
         "\033[1;33m--- DIRECTORY MANIPULATION ---\033[0m\n"
         "  \033[1;33mdirmake\033[0m   - Create directory         "
