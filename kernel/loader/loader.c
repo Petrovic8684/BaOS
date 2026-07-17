@@ -19,9 +19,6 @@ static unsigned int loader_saved_ebp = 0;
 static const char *next_prog_name = 0;
 static const char **next_prog_argv = 0;
 
-static unsigned int last_user_region_start = 0;
-static unsigned int last_user_region_size = 0;
-
 static void jump_to_user(unsigned int entry, unsigned int stack)
 {
     __asm__ volatile("cli\n\t"
@@ -62,9 +59,6 @@ __attribute__((naked)) void return_to_loader(void)
 static void cleanup_previous_user_space(void)
 {
     unmap_all_user_pages();
-
-    last_user_region_start = 0;
-    last_user_region_size = 0;
 }
 
 void reset_loader_context(void)
@@ -131,9 +125,6 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
 
     Elf32_Phdr *phdr = (Elf32_Phdr *)(buf + ehdr->e_phoff);
 
-    unsigned int map_min = 0xFFFFFFFFu;
-    unsigned int map_max = 0;
-
     for (int i = 0; i < ehdr->e_phnum; i++)
     {
         if (phdr[i].p_type != PT_LOAD)
@@ -145,12 +136,6 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
                 write("\033[Error: PHDR has p_vaddr == 0, skipping.\n\033[0m");
             continue;
         }
-
-        if (phdr[i].p_vaddr < map_min)
-            map_min = phdr[i].p_vaddr;
-        unsigned int seg_end = phdr[i].p_vaddr + phdr[i].p_memsz;
-        if (seg_end > map_max)
-            map_max = seg_end;
 
         (void)set_user_pages(phdr[i].p_vaddr, phdr[i].p_memsz);
 
@@ -165,19 +150,6 @@ int load_user_program(const char *name, const char **user_argv, int surpress_err
     }
 
     kfree(buf);
-
-    if (map_max > map_min && map_min != 0xFFFFFFFFu)
-    {
-        unsigned int aligned_start = map_min & 0xFFFFF000u;
-        unsigned int aligned_end = (map_max + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-        last_user_region_start = aligned_start;
-        last_user_region_size = aligned_end - aligned_start;
-    }
-    else
-    {
-        last_user_region_start = 0;
-        last_user_region_size = 0;
-    }
 
     (void)set_user_pages(USER_STACK_BOTTOM, USER_STACK_PAGES * PAGE_SIZE);
 
