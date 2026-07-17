@@ -33,41 +33,43 @@ The shell and user applications operate at the top of this hierarchy in **ring 3
 
 ## Getting started 🥟
 
-> **Note:** PC speaker (sound) is **only available when running locally**. To enable it, you need to uncomment the following lines in your `Makefile`:
+> **Note:** PC speaker (sound) is **only available when running locally**. To enable it, uncomment `QEMU_AUDIO_FLAGS` in the [`Makefile`](Makefile):
 >
-> ```bash
-> -audiodev pa,id=snd0 \
-> -machine pcspk-audiodev=snd0 \
-> -device intel-hda
+> ```makefile
+> QEMU_AUDIO_FLAGS = \
+> 	-audiodev pa,id=snd0 \
+> 	-machine pcspk-audiodev=snd0 \
+> 	-device intel-hda
 > ```
 >
-> Also, make sure to set the audio backend for your system. For example:
-> - **Linux:** `pa` (PulseAudio) or `alsa`  
-> - **Windows:** `dsound`  
+> Set the audio backend for your system:
+> - **Linux:** `pa` (PulseAudio) or `alsa`
+> - **Windows:** `dsound`
 
 ---
 
 ### Running via Docker 🐳
 
-The project can be run directly in Docker without installing all dependencies on your host.  
+The project can be run directly in Docker without installing all dependencies on your host.
 
-1. **Run the container:**
+1. **Build and run:**
 
 ```bash
-docker run --rm -it -p 5900:5900 -p 6080:6080 -v baos-data:/baos petrovic8684/baos
+docker compose up --build
 ```
 
 2. **Access BaOS:**
-- In your browser (recommended): [http://localhost:6080/?autoconnect=1&resize=scale](http://localhost:6080/?autoconnect=1&resize=scale)  
+- In your browser (recommended): [http://localhost:6080/?autoconnect=1&resize=scale](http://localhost:6080/?autoconnect=1&resize=scale)
 - Or using a VNC client in your terminal (requires `vncviewer`):
 
 ```bash
 vncviewer localhost:5900
 ```
 
-3. **Reset the build volume** (if you want to start fresh):
+3. **Reset the build volume** (stop the container first, then remove persisted data if needed):
 
 ```bash
+docker compose down
 docker volume rm baos-data
 ```
 
@@ -94,7 +96,7 @@ make
 make run
 ```
 
-> With these local builds, if you uncomment the audio lines in the Makefile and set the proper backend (e.g. `pa`/`alsa` on Linux, `dsound` on Windows), you will hear PC speaker sounds produced by BaOS on the host.
+> With local builds, uncomment `QEMU_AUDIO_FLAGS` in the Makefile and set the proper backend (e.g. `pa`/`alsa` on Linux, `dsound` on Windows) to hear PC speaker sounds from BaOS.
 
 ## Credits 🙏
 
