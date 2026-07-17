@@ -364,17 +364,7 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
 
     case SYS_UPTIME:
     {
-        unsigned long long ms = pit_get_ms();
-
-        unsigned long high = (unsigned long)(ms >> 32);
-        unsigned long low = (unsigned long)(ms & 0xFFFFFFFF);
-
-        unsigned long s = high * (4294967296UL / 1000);
-        unsigned long rem = high * (4294967296UL % 1000);
-        rem = rem + low;
-        s += rem / 1000;
-
-        return s;
+        return (unsigned long)pit_get_ms();
     }
 
     case SYS_BEEP:

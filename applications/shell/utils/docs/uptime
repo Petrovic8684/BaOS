@@ -1,7 +1,11 @@
 uptime - displays time elapsed since system startup
 
 Description:
-The 'uptime' command retrieves and displays the amount of time that has elapsed since the system was started. It shows the duration in a human-readable format, breaking it down into years, months, days, hours, minutes, and seconds as appropriate.
+The 'uptime' command retrieves and displays the amount of time that has elapsed
+since the system was started. The kernel reports uptime in milliseconds (PIT
+tick resolution); the command converts this to a human-readable format with
+years, months, days, hours, minutes, and seconds as appropriate. Durations under
+one second are shown in milliseconds.
 
 Usage:
 uptime
