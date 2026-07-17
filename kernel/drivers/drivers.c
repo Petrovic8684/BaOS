@@ -9,7 +9,7 @@
 void drivers_init(int delay)
 {
     serial_init();
-    pit_init(100);
+    pit_init(1000);
     pit_sleep(delay);
     keyboard_init();
     pit_sleep(delay);

@@ -13,7 +13,7 @@ Scenarios:
 
 Each scenario reports:
   elapsed_cycles - CPU cycles via RDTSC (primary timing metric)
-  elapsed_ms     - wall time via SYS_UPTIME (may be 0 for short runs; PIT ~10 ms)
+  elapsed_ms     - wall time via SYS_UPTIME (may be 0 for short runs; PIT ~1 ms)
   iterations, failures, user/kernel heap addresses, arena/used/free bytes,
   payload size, and allocator overhead.
 

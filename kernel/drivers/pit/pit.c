@@ -62,9 +62,9 @@ void pit_init(unsigned int hz)
 {
     write("Initializing PIT driver...\n");
 
-    if (hz < 20 || hz >= 1000)
+    if (hz < 20 || hz > 1000)
     {
-        write("\033[31mFreq must be 20<hz<1000. Setting to hz=100...\n\033[0m");
+        write("\033[31mFreq must be 20<=hz<=1000. Setting to hz=100...\n\033[0m");
         hz = 100;
     }
 
