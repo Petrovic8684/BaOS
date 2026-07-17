@@ -2,6 +2,7 @@
 
 #include "paging.h"
 #include "../drivers/display/display.h"
+#include "../helpers/memory/memory.h"
 
 #define PT_POOL_COUNT 128
 #define PAGE_RW 0x2
@@ -180,6 +181,19 @@ static void map_page(unsigned int virt, unsigned int phys, unsigned int flags)
 
 int set_user_pages(unsigned int virt_start, unsigned int size)
 {
+    if (size == 0)
+        return 0;
+
+    if (virt_start + size < virt_start)
+        return -12;
+
+    if (virt_start < USER_PHYS_BASE)
+        return -12;
+
+    unsigned int aligned_end = (virt_start + size + PAGE_SIZE - 1U) & ~(PAGE_SIZE - 1U);
+    if (aligned_end > USER_STACK_TOP)
+        return -12;
+
     unsigned int addr;
     unsigned int end = virt_start + size;
     for (addr = virt_start & 0xFFFFF000; addr < end; addr += PAGE_SIZE)
@@ -387,6 +401,86 @@ unsigned int get_pte(unsigned int virt)
 
     unsigned int *pt = (unsigned int *)(pde & 0xFFFFF000);
     return pt[pt_index];
+}
+
+static int pte_is_user(unsigned int virt)
+{
+    unsigned int pte = get_pte(virt);
+    return (pte & PAGE_PRESENT) && (pte & PAGE_USER);
+}
+
+static int user_range_valid(const void *addr, unsigned int size)
+{
+    if (!addr || size == 0)
+        return 0;
+
+    unsigned int start = (unsigned int)addr;
+    if (start < USER_PHYS_BASE)
+        return 0;
+
+    if (start + size < start)
+        return 0;
+
+    if (start + size > USER_STACK_TOP)
+        return 0;
+
+    unsigned int page = start & 0xFFFFF000U;
+    unsigned int end = start + size;
+
+    while (page < end)
+    {
+        if (!pte_is_user(page))
+            return 0;
+        page += PAGE_SIZE;
+    }
+
+    return 1;
+}
+
+int is_user_address(unsigned int virt_addr)
+{
+    if (virt_addr < USER_PHYS_BASE || virt_addr >= USER_STACK_TOP)
+        return 0;
+
+    return pte_is_user(virt_addr);
+}
+
+void *user_ptr(void *user_addr)
+{
+    if (!user_addr)
+        return ((void *)0);
+
+    if (!is_user_address((unsigned int)user_addr))
+        return ((void *)0);
+
+    return user_addr;
+}
+
+const char *user_cstr(const char *user_addr)
+{
+    return (const char *)user_ptr((void *)user_addr);
+}
+
+void user_copy_in(void *kernel_dst, const void *user_src, unsigned int size)
+{
+    if (!kernel_dst || !user_src || size == 0)
+        return;
+
+    if (!user_range_valid(user_src, size))
+        return;
+
+    mem_copy(kernel_dst, user_src, size);
+}
+
+void user_copy_out(void *user_dst, const void *kernel_src, unsigned int size)
+{
+    if (!user_dst || !kernel_src || size == 0)
+        return;
+
+    if (!user_range_valid(user_dst, size))
+        return;
+
+    mem_copy(user_dst, kernel_src, size);
 }
 
 static unsigned int get_cr2(void)

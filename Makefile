@@ -182,9 +182,18 @@ nm-check: $(SAMPLE_BINS)
 		echo; \
 	done
 
+# ---------------- QEMU options ----------------
+# PC speaker audio (local runs only). Uncomment to enable and set backend:
+# Linux: pa or alsa | Windows: dsound
+# QEMU_AUDIO_FLAGS = \
+# 	-audiodev pa,id=snd0 \
+# 	-machine pcspk-audiodev=snd0 \
+# 	-device intel-hda
+QEMU_AUDIO_FLAGS ?=
+
 # ---------------- Run & Clean ----------------
 run: $(IMG)
-	$(QEMU) -m 3G -drive format=raw,file=$(IMG),if=ide -serial stdio -vnc :0
+	$(QEMU) -m 3G -drive format=raw,file=$(IMG),if=ide -serial stdio -vnc :0 $(QEMU_AUDIO_FLAGS)
 
 clean:
 	$(RM) $(BOOT_BIN) $(KERNEL_OBJS) $(KERNEL_BIN) $(IMG) \

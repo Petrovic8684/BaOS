@@ -9,9 +9,6 @@
 #include "../info/sys/sys.h"
 
 #define PT_LOAD 1
-#define USER_STACK_TOP 0x02100000
-#define USER_STACK_PAGES 4
-#define USER_STACK_BOTTOM (USER_STACK_TOP - USER_STACK_PAGES * PAGE_SIZE)
 
 void (*loader_post_return_callback)(void) = 0;
 
