@@ -54,35 +54,6 @@ unsigned int user_logical_to_phys(unsigned int logical_addr)
     return USER_PHYS_BASE + logical_addr;
 }
 
-void *user_ptr(void *user_addr)
-{
-    if (!user_addr)
-        return ((void *)0);
-
-    return (void *)user_logical_to_phys((unsigned int)user_addr);
-}
-
-const char *user_cstr(const char *user_addr)
-{
-    return (const char *)user_ptr((void *)user_addr);
-}
-
-void user_copy_in(void *kernel_dst, const void *user_src, unsigned int size)
-{
-    if (!kernel_dst || !user_src || size == 0)
-        return;
-
-    mem_copy(kernel_dst, user_ptr((void *)user_src), size);
-}
-
-void user_copy_out(void *user_dst, const void *kernel_src, unsigned int size)
-{
-    if (!user_dst || !kernel_src || size == 0)
-        return;
-
-    mem_copy(user_ptr(user_dst), kernel_src, size);
-}
-
 int is_user_address(unsigned int logical_addr)
 {
     if (logical_addr >= USER_POOL_SIZE)
@@ -98,6 +69,77 @@ int is_user_address(unsigned int logical_addr)
         return 1;
 
     return 0;
+}
+
+static int user_range_valid(const void *addr, unsigned int size)
+{
+    unsigned int start;
+    unsigned int offset;
+
+    if (!addr || size == 0)
+        return 0;
+
+    start = (unsigned int)addr;
+    if (start + size < start)
+        return 0;
+
+    if (start + size > USER_POOL_SIZE)
+        return 0;
+
+    offset = 0;
+    while (offset < size)
+    {
+        if (!is_user_address(start + offset))
+            return 0;
+
+        if (size - offset <= SEGMENT_ALIGN)
+            break;
+
+        offset += SEGMENT_ALIGN;
+    }
+
+    if (!is_user_address(start + size - 1))
+        return 0;
+
+    return 1;
+}
+
+void *user_ptr(void *user_addr)
+{
+    if (!user_addr)
+        return ((void *)0);
+
+    if (!is_user_address((unsigned int)user_addr))
+        return ((void *)0);
+
+    return (void *)user_logical_to_phys((unsigned int)user_addr);
+}
+
+const char *user_cstr(const char *user_addr)
+{
+    return (const char *)user_ptr((void *)user_addr);
+}
+
+void user_copy_in(void *kernel_dst, const void *user_src, unsigned int size)
+{
+    if (!kernel_dst || !user_src || size == 0)
+        return;
+
+    if (!user_range_valid(user_src, size))
+        return;
+
+    mem_copy(kernel_dst, (void *)user_logical_to_phys((unsigned int)user_src), size);
+}
+
+void user_copy_out(void *user_dst, const void *kernel_src, unsigned int size)
+{
+    if (!user_dst || !kernel_src || size == 0)
+        return;
+
+    if (!user_range_valid(user_dst, size))
+        return;
+
+    mem_copy((void *)user_logical_to_phys((unsigned int)user_dst), kernel_src, size);
 }
 
 void expand_kernel_segment(unsigned int end_addr)
