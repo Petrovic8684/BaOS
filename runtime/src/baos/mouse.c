@@ -1,9 +1,9 @@
 #include <baos/mouse.h>
 
-#define SYS_MOUSE_READ 30
-#define SYS_MOUSE_PEEK 31
-#define SYS_MOUSE_GETPOS 32
-#define SYS_MOUSE_HAS_WHEEL 33
+#define SYS_MOUSE_READ 22
+#define SYS_MOUSE_PEEK 23
+#define SYS_MOUSE_GETPOS 24
+#define SYS_MOUSE_HAS_WHEEL 25
 
 static inline int sys_mouse_read(mouse_event_t *ev)
 {

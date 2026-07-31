@@ -4,8 +4,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#define SYS_DIRLIST_CTX_SET 36
-#define SYS_DIRLIST_CTX_GET 37
+#define SYS_DIRLIST_CTX_SET 30
+#define SYS_DIRLIST_CTX_GET 31
 
 static int sys_dirlist_ctx_set(const char *path)
 {

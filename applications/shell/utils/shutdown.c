@@ -1,4 +1,4 @@
-#define SYS_POWER_OFF 4
+#define SYS_POWER_OFF 3
 
 int main(void)
 {

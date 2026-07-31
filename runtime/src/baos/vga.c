@@ -1,7 +1,7 @@
 #include <baos/vga.h>
 
-#define SYS_VGA_GET_CELL 34
-#define SYS_VGA_PUT_CELL 35
+#define SYS_VGA_GET_CELL 28
+#define SYS_VGA_PUT_CELL 29
 
 static inline int sys_vga_get_cell(vga_cell_t *cell)
 {

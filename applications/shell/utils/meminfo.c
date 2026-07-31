@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define SYS_HEAP_INFO 22
+#define SYS_HEAP_INFO 20
 
 static void print_human(unsigned int bytes)
 {

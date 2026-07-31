@@ -3,7 +3,7 @@
 #include <string.h>
 #include <sys/sysinfo.h>
 
-#define SYS_HEAP_INFO 22
+#define SYS_HEAP_INFO 20
 #define MAX_FRAG_BLOCKS 512
 
 typedef struct

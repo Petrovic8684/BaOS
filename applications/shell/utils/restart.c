@@ -1,4 +1,4 @@
-#define SYS_REBOOT 20
+#define SYS_REBOOT 4
 
 int main(void)
 {
