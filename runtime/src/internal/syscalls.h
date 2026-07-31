@@ -3,23 +3,23 @@
 
 #define SYS_EXIT 0
 #define SYS_WRITE 1
-#define SYS_READ 3
+#define SYS_READ 2
 #define SYS_RTC_NOW 5
-#define SYS_SYS_INFO 6
-#define SYS_FS_WHERE 8
-#define SYS_FS_LIST_DIR 9
-#define SYS_FS_CHANGE_DIR 10
-#define SYS_FS_MAKE_DIR 11
-#define SYS_FS_DELETE_DIR 12
-#define SYS_FS_MAKE_FILE 13
-#define SYS_FS_DELETE_FILE 14
-#define SYS_FS_WRITE_FILE 15
-#define SYS_FS_READ_FILE 16
-#define SYS_GET_CURSOR_ROW 18
-#define SYS_GET_CURSOR_COL 19
-#define SYS_SET_USER_PAGES 21
-#define SYS_SLEEP 23
-#define SYS_UPTIME 24
+#define SYS_UPTIME 6
+#define SYS_SLEEP 7
+#define SYS_SYS_INFO 8
+#define SYS_FS_WHERE 9
+#define SYS_FS_LIST_DIR 10
+#define SYS_FS_CHANGE_DIR 11
+#define SYS_FS_MAKE_DIR 12
+#define SYS_FS_DELETE_DIR 13
+#define SYS_FS_MAKE_FILE 14
+#define SYS_FS_DELETE_FILE 15
+#define SYS_FS_WRITE_FILE 16
+#define SYS_FS_READ_FILE 17
+#define SYS_SET_USER_PAGES 19
+#define SYS_GET_CURSOR_ROW 26
+#define SYS_GET_CURSOR_COL 27
 
 static inline void sys_write(const char *str)
 {

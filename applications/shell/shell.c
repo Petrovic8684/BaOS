@@ -7,7 +7,7 @@
 #include <dirent.h>
 #include <errno.h>
 
-#define SYS_LOAD_USER_PROGRAM 17
+#define SYS_LOAD_USER_PROGRAM 18
 
 #define MAX_ARGC 64
 #define MAX_ARGV_LEN 128

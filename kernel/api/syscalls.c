@@ -15,36 +15,36 @@
 
 #define SYS_EXIT 0
 #define SYS_WRITE 1
-#define SYS_READ 3
-#define SYS_POWER_OFF 4
+#define SYS_READ 2
+#define SYS_POWER_OFF 3
+#define SYS_REBOOT 4
 #define SYS_RTC_NOW 5
-#define SYS_SYS_INFO 6
-#define SYS_FS_WHERE 8
-#define SYS_FS_LIST_DIR 9
-#define SYS_FS_CHANGE_DIR 10
-#define SYS_FS_MAKE_DIR 11
-#define SYS_FS_DELETE_DIR 12
-#define SYS_FS_MAKE_FILE 13
-#define SYS_FS_DELETE_FILE 14
-#define SYS_FS_WRITE_FILE 15
-#define SYS_FS_READ_FILE 16
-#define SYS_LOAD_USER_PROGRAM 17
-#define SYS_GET_CURSOR_ROW 18
-#define SYS_GET_CURSOR_COL 19
-#define SYS_REBOOT 20
-#define SYS_SET_USER_PAGES 21
-#define SYS_HEAP_INFO 22
-#define SYS_SLEEP 23
-#define SYS_UPTIME 24
-#define SYS_BEEP 25
-#define SYS_MOUSE_READ 30
-#define SYS_MOUSE_PEEK 31
-#define SYS_MOUSE_GETPOS 32
-#define SYS_MOUSE_HAS_WHEEL 33
-#define SYS_VGA_GET_CELL 34
-#define SYS_VGA_PUT_CELL 35
-#define SYS_DIRLIST_CTX_SET 36
-#define SYS_DIRLIST_CTX_GET 37
+#define SYS_UPTIME 6
+#define SYS_SLEEP 7
+#define SYS_SYS_INFO 8
+#define SYS_FS_WHERE 9
+#define SYS_FS_LIST_DIR 10
+#define SYS_FS_CHANGE_DIR 11
+#define SYS_FS_MAKE_DIR 12
+#define SYS_FS_DELETE_DIR 13
+#define SYS_FS_MAKE_FILE 14
+#define SYS_FS_DELETE_FILE 15
+#define SYS_FS_WRITE_FILE 16
+#define SYS_FS_READ_FILE 17
+#define SYS_LOAD_USER_PROGRAM 18
+#define SYS_SET_USER_PAGES 19
+#define SYS_HEAP_INFO 20
+#define SYS_BEEP 21
+#define SYS_MOUSE_READ 22
+#define SYS_MOUSE_PEEK 23
+#define SYS_MOUSE_GETPOS 24
+#define SYS_MOUSE_HAS_WHEEL 25
+#define SYS_GET_CURSOR_ROW 26
+#define SYS_GET_CURSOR_COL 27
+#define SYS_VGA_GET_CELL 28
+#define SYS_VGA_PUT_CELL 29
+#define SYS_DIRLIST_CTX_SET 30
+#define SYS_DIRLIST_CTX_GET 31
 
 #define DIRLIST_CTX_MAX 256
 
@@ -106,10 +106,34 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
         for (;;)
             __asm__ volatile("hlt");
 
+    case SYS_REBOOT:
+        loader_post_return_callback = reboot;
+        return_to_loader();
+        for (;;)
+            __asm__ volatile("hlt");
+
     case SYS_RTC_NOW:
     {
         unsigned int now = rtc_now();
         return now;
+    }
+
+    case SYS_UPTIME:
+    {
+        return (unsigned long)pit_get_ms();
+    }
+
+    case SYS_SLEEP:
+    {
+        unsigned int ms = arg;
+        if (ms == 0)
+            return 0;
+
+        __asm__ volatile("sti");
+        pit_sleep(ms);
+        __asm__ volatile("cli");
+
+        return 0;
     }
 
     case SYS_SYS_INFO:
@@ -303,24 +327,6 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
             __asm__ volatile("hlt");
     }
 
-    case SYS_GET_CURSOR_ROW:
-    {
-        unsigned int row = get_cursor_row();
-        return row;
-    }
-
-    case SYS_GET_CURSOR_COL:
-    {
-        unsigned int col = get_cursor_col();
-        return col;
-    }
-
-    case SYS_REBOOT:
-        loader_post_return_callback = reboot;
-        return_to_loader();
-        for (;;)
-            __asm__ volatile("hlt");
-
     case SYS_SET_USER_PAGES:
     {
         if (arg == 0)
@@ -347,24 +353,6 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
         get_heap_info(&info);
         user_copy_out((void *)arg, &info, sizeof(info));
         return 0;
-    }
-
-    case SYS_SLEEP:
-    {
-        unsigned int ms = arg;
-        if (ms == 0)
-            return 0;
-
-        __asm__ volatile("sti");
-        pit_sleep(ms);
-        __asm__ volatile("cli");
-
-        return 0;
-    }
-
-    case SYS_UPTIME:
-    {
-        return (unsigned long)pit_get_ms();
     }
 
     case SYS_BEEP:
@@ -433,6 +421,18 @@ static unsigned int handle_syscall(unsigned int num, unsigned int arg)
     case SYS_MOUSE_HAS_WHEEL:
     {
         return mouse_has_wheel();
+    }
+
+    case SYS_GET_CURSOR_ROW:
+    {
+        unsigned int row = get_cursor_row();
+        return row;
+    }
+
+    case SYS_GET_CURSOR_COL:
+    {
+        unsigned int col = get_cursor_col();
+        return col;
     }
 
     case SYS_VGA_GET_CELL:

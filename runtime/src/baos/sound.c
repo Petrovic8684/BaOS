@@ -1,7 +1,7 @@
 #include <baos/sound.h>
 #include <stdio.h>
 
-#define SYS_BEEP 25
+#define SYS_BEEP 21
 
 static inline void sys_beep(uint32_t hz, uint32_t ms)
 {
